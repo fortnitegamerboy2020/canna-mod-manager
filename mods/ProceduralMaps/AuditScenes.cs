@@ -149,8 +149,10 @@ static class AuditNextScene
             }
         foreach(var entry in Canna.ProceduralMaps.Plugin.Moving)if(entry.Value.spin!=0) {
             BoplBody body=entry.Key.GetComponent<BoplBody>();Fix before=body.rotation;
-            for(int tick=0;tick<120;tick++)Updater.TickSimulation((Fix)1L/(Fix)60L);
+            for(int tick=0;tick<600;tick++)Updater.TickSimulation((Fix)1L/(Fix)60L);
             if(Fix.Abs(body.rotation-before)<(Fix)1L/(Fix)10L)throw new Exception("Native satellite did not rotate");
+            Fix home=(Fix)AccessTools.Field(typeof(AnimateVelocity),"homeRotation").GetValue(entry.Key);
+            if(home<Fix.Zero || home>=Fix.PiTimes2)throw new Exception("Satellite home angle failed to wrap");
             File.AppendAllText(Path.Combine(MapAudit.Folder,"satellite-audit.txt"),"Scene "+SceneManager.GetActiveScene().buildIndex+" native satellite "+entry.Key.name+" spin="+entry.Value.spin+" angle="+body.rotation+"\n");
         }
         File.AppendAllText(Path.Combine(MapAudit.Folder, "physics-audit.txt"), "Scene " + (MapAudit.NextScene - 1) + " initialized, resized and moving islands simulated successfully\n");
