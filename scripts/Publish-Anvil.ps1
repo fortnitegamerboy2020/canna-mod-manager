@@ -14,16 +14,21 @@ try {
     $cannaCommit = Invoke-CannaApi "git/commits/$($cannaRef.object.sha)"
     $cannaGameFile = Invoke-CannaApi 'contents/bopl-battle/game.json?ref=main'
     $cannaGame = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($cannaGameFile.content)) | ConvertFrom-Json
-    $cannaModFile = Join-Path $cannaRoot 'mods\Anvil\build\Canna-Anvil-1.0.0.zip'
+    $cannaModFile = Join-Path $cannaRoot 'mods\Anvil\build\Canna-Anvil-1.0.1.zip'
     $cannaHash = (Get-FileHash -LiteralPath $cannaModFile -Algorithm SHA256).Hash.ToLowerInvariant()
-    $cannaMod = @{ name = 'Canna Anvil'; version = '1.0.0'; description = 'Turn into an animated steel anvil and slam down with heavy native physics. Separate selectable ability with six-second cooldown, native contact combat and return-to-slime flow. All players need this version; family online verification is pending.'; file = 'Mods/Canna-Anvil-1.0.0.zip'; sha256 = $cannaHash }
+    $cannaMod = @{ name = 'Canna Anvil'; version = '1.0.1'; description = 'Larger steel anvil with full slime-to-anvil morph, padded eyeless menu icon and native combat. Entry completes before cancellation. Requires AbilityScrollBar for the expanded picker. All players need this version; family online verification is pending.'; file = 'Mods/Canna-Anvil-1.0.1.zip'; sha256 = $cannaHash; dependencies = @('AbilityScrollBar') }
+    $cannaScrollFile=Join-Path $cannaRoot 'mods/FamilyCatalog/build/YuralGonnadi-AbilityScrollBar-1.0.1.zip'
+    $cannaScroll=@{name='AbilityScrollBar';version='1.0.1';description='Allows the expanded native ability picker to scroll with the wheel and follow selection. Original mod by YuralGonnadi.';file='Mods/YuralGonnadi-AbilityScrollBar-1.0.1.zip';sha256=(Get-FileHash -LiteralPath $cannaScrollFile -Algorithm SHA256).Hash.ToLowerInvariant()}
+    $cannaGame.mods=@($cannaGame.mods|Where-Object {$_.name -ne 'AbilityScrollBar'})+@($cannaScroll)
     $cannaGame.mods = @($cannaGame.mods | Where-Object { $_.name -ne $cannaMod.name }) + @($cannaMod)
     $cannaUploads = @(
-        @{ path = 'bopl-battle/Mods/Canna-Anvil-1.0.0.zip'; bytes = [IO.File]::ReadAllBytes($cannaModFile) },
+        @{ path = 'bopl-battle/Mods/YuralGonnadi-AbilityScrollBar-1.0.1.zip'; bytes = [IO.File]::ReadAllBytes($cannaScrollFile) },
+        @{ path = 'bopl-battle/Mods/AbilityScrollBar-SOURCE.md'; bytes = [Text.Encoding]::UTF8.GetBytes("Original unmodified AbilityScrollBar 1.0.1 by YuralGonnadi.`nSource: https://thunderstore.io/c/bopl-battle/p/YuralGonnadi/AbilityScrollBar/`nThe upstream package README incorrectly describes a gravity bubble; the DLL is the ability scrolling mod.`n") },
+        @{ path = 'bopl-battle/Mods/Canna-Anvil-1.0.1.zip'; bytes = [IO.File]::ReadAllBytes($cannaModFile) },
         @{ path = 'bopl-battle/Mods/Anvil-README.md'; bytes = [IO.File]::ReadAllBytes((Join-Path $cannaRoot 'mods\Anvil\README.md')) },
         @{ path = 'bopl-battle/game.json'; bytes = [Text.Encoding]::UTF8.GetBytes(($cannaGame | ConvertTo-Json -Depth 20)) }
     )
-    foreach ($cannaSourceName in @('Plugin.cs', 'Art.cs', 'Audit.cs', 'build.ps1', 'README.md')) {
+    foreach ($cannaSourceName in @('Plugin.cs', 'Art.cs', 'Audit.cs', 'MenuAudit.cs', 'build.ps1', 'README.md')) {
         $cannaUploads += @{ path = ('bopl-battle/Mods/Source/CannaAnvil/' + $cannaSourceName); bytes = [IO.File]::ReadAllBytes((Join-Path $cannaRoot ('mods/Anvil/' + $cannaSourceName))) }
     }
     $cannaUploads += @{ path = 'bopl-battle/Mods/Family-Anvil-Bopl.canna.json'; bytes = [IO.File]::ReadAllBytes((Join-Path $cannaRoot 'examples/Family-Anvil-Bopl.canna.json')) }

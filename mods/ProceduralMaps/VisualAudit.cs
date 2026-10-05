@@ -17,7 +17,7 @@ public class VisualAudit : BaseUnityPlugin {
   Active=Array.IndexOf(Environment.GetCommandLineArgs(),"--canna-visual-audit")>=0;
   if(!Active)return;
   Folder=Path.Combine(Paths.ConfigPath,"CannaMaps");
-  new Harmony("family.canna.visualaudit").PatchAll(typeof(VisualAudit).Assembly);
+  // Compiled with Plugin.cs: the production plugin installs this assembly's hooks once.
  }
 }
 [HarmonyPatch]
@@ -26,6 +26,7 @@ static class VisualSuppress {
   yield return AccessTools.Method(typeof(GameSessionHandler),"StartSpawnPlayersRoutine");
   yield return AccessTools.Method(typeof(GameSessionHandler),"Update");
   yield return AccessTools.Method(typeof(GameSessionHandler),"UpdateSim");
+  yield return AccessTools.Method(typeof(AchievementHandler),"OnStartedAGame");
  }
  static bool Prefix(){return !VisualAudit.Active;}
 }
@@ -54,6 +55,11 @@ static class VisualDrive {
     foreach(KeyValuePair<AnimateVelocity,Canna.ProceduralMaps.Island> pair in Canna.ProceduralMaps.Plugin.Moving) {
      SpriteRenderer s=pair.Key.GetComponent<SpriteRenderer>();Material m=s.material;
      DPhysicsRoundedRect rr=pair.Key.GetComponent<DPhysicsRoundedRect>();
+     Canna.ProceduralMaps.Island p=pair.Value;
+     if(p.width+p.radius<390)throw new Exception("Generated platform remains too small");
+     if(Math.Abs((float)(rr.CalcExtents().x+rr.radius)-(p.width+p.radius)/100f)>.02f)throw new Exception("Generated width differs from native collision geometry");
+     foreach(Canna.ProceduralMaps.Island q in Canna.ProceduralMaps.Plugin.Map.islands)
+      if(!object.ReferenceEquals(p,q) && Math.Abs(p.x-q.x)<=p.width+q.width+p.radius+q.radius+p.drift+q.drift+200 && Math.Abs(p.y-q.y)<=p.height+q.height+p.radius+q.radius+200)throw new Exception("Native geometry or motion envelopes overlap");
      report+="PHYS scale="+rr.Scale+" base="+pair.Key.GetComponent<StickyRoundedRectangle>().baseScaleForPlatform+" start="+AccessTools.Field(typeof(DPhysicsRoundedRect),"startExtents").GetValue(rr)+" actual="+rr.CalcExtents()+" radius="+rr.radius+"\n";
      foreach(Component component in pair.Key.GetComponents<Component>())report+=component.GetType().Name+",";report+="\n";
      pair.Key.GetComponent<FixTransform>().SyncTransform();
@@ -69,7 +75,14 @@ static class VisualDrive {
     Camera camera=Camera.main;camera.transform.position=new Vector3(0,0,-10);camera.orthographicSize=18;
     VisualAudit.Stage=2;VisualAudit.Next=Time.unscaledTime+1;return;
    }
-   if(VisualAudit.Stage==2){ScreenCapture.CaptureScreenshot(Path.Combine(VisualAudit.Folder,"visual-audit.png"));VisualAudit.Stage=3;VisualAudit.Next=Time.unscaledTime+2;return;}
+   if(VisualAudit.Stage==2){
+    Camera camera=Camera.main;RenderTexture target=new RenderTexture(1600,900,24);
+    RenderTexture old=RenderTexture.active;camera.targetTexture=target;camera.Render();RenderTexture.active=target;
+    Texture2D pixels=new Texture2D(1600,900,TextureFormat.RGB24,false);pixels.ReadPixels(new Rect(0,0,1600,900),0,0);pixels.Apply();
+    File.WriteAllBytes(Path.Combine(VisualAudit.Folder,"visual-audit.png"),ImageConversion.EncodeToPNG(pixels));
+    camera.targetTexture=null;RenderTexture.active=old;UnityEngine.Object.Destroy(target);UnityEngine.Object.Destroy(pixels);
+    VisualAudit.Stage=3;VisualAudit.Next=Time.unscaledTime+2;return;
+   }
    Application.Quit();VisualAudit.Next=float.MaxValue;
   }catch(Exception error){File.WriteAllText(Path.Combine(VisualAudit.Folder,"visual-failure.txt"),error.ToString());Application.Quit();VisualAudit.Next=float.MaxValue;}
  }

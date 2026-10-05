@@ -5,6 +5,7 @@ namespace Canna.Anvil
     internal static class Art
     {
         internal static Sprite[] Frames;
+        internal static Sprite Icon;
         static readonly Vector2[] Outline = new Vector2[] {
             new Vector2(22,88),new Vector2(96,88),new Vector2(105,82),
             new Vector2(103,72),new Vector2(82,64),new Vector2(78,51),
@@ -44,9 +45,9 @@ namespace Canna.Anvil
                             {
                                 float light=Mathf.Lerp(.63f,.86f,Mathf.Clamp01((p.y-25)/65));
                                 if(p.y>80 && t>.6f)light=.94f;
-                                sample=new Color(light*.88f,light*.94f,light,1);
-                                if(Ellipse(p,57,68,7,10)||Ellipse(p,75,68,7,10))sample=Color.white;
-                                if(Ellipse(p,59,67,3,5)||Ellipse(p,77,67,3,5))sample=new Color(.12f,.14f,.18f,1);
+                                sample=Color.Lerp(Color.white,new Color(light*.88f,light*.94f,light,1),t);
+                                if(t<.65f && (Ellipse(p,57,68,7,10)||Ellipse(p,75,68,7,10)))sample=Color.Lerp(sample,Color.white,1-t/.65f);
+                                if(t<.65f && (Ellipse(p,59,67,3,5)||Ellipse(p,77,67,3,5)))sample=Color.Lerp(sample,new Color(.12f,.14f,.18f,1),1-t/.65f);
                                 if(p.y>83 && p.y<85 && p.x>32 && p.x<93 && t>.6f)sample=Color.white;
                             }
                         }
@@ -58,10 +59,23 @@ namespace Canna.Anvil
                 }
                 texture.SetPixels(pixels);texture.Apply(false,false);texture.filterMode=FilterMode.Bilinear;
                 UnityEngine.Object.DontDestroyOnLoad(texture);
-                Frames[f]=Sprite.Create(texture,new Rect(0,0,128,128),new Vector2(.5f,60f/128),48);
+                Frames[f]=Sprite.Create(texture,new Rect(0,0,128,128),new Vector2(.5f,60f/128),24);
                 Frames[f].name="Canna Anvil "+f;
                 UnityEngine.Object.DontDestroyOnLoad(Frames[f]);
             }
+            // UI images use sprite PPU as well as their rect. Keep a padded, centered
+            // icon independent of the much larger gameplay sprite.
+            Texture2D iconTexture=new Texture2D(128,128,TextureFormat.RGBA32,false);
+            for(int y=0;y<128;y++)for(int x=0;x<128;x++)
+            {
+                float sx=(x-64)/.68f+64,sy=(y-64)/.68f+60;
+                Color c=sx>=0 && sx<128 && sy>=0 && sy<128 ? Frames[16].texture.GetPixelBilinear(sx/128,sy/128) : Color.clear;
+                iconTexture.SetPixel(x,y,c);
+            }
+            iconTexture.Apply();iconTexture.filterMode=FilterMode.Bilinear;
+            Icon=Sprite.Create(iconTexture,new Rect(0,0,128,128),new Vector2(.5f,.5f),100);
+            Icon.name="Canna Anvil menu icon";
+            UnityEngine.Object.DontDestroyOnLoad(iconTexture);UnityEngine.Object.DontDestroyOnLoad(Icon);
         }
         static bool Ellipse(Vector2 p,float x,float y,float rx,float ry)
         { float a=(p.x-x)/rx,b=(p.y-y)/ry;return a*a+b*b<=1; }

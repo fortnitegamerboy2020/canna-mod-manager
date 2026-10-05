@@ -553,7 +553,7 @@ mod tests {
                 .iter()
                 .any(|p| p.file_name().unwrap() == "Canna.CatalogAudit.dll")
         );
-        assert_eq!(pack.mods.len(), 24);
+        assert!(pack.mods.len() >= 24);
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

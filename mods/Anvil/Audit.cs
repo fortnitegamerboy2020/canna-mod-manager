@@ -37,6 +37,7 @@ namespace Canna.Anvil
             yield return AccessTools.Method(typeof(GameSessionHandler),"StartSpawnPlayersRoutine");
             yield return AccessTools.Method(typeof(GameSessionHandler),"Update");
             yield return AccessTools.Method(typeof(GameSessionHandler),"UpdateSim");
+            yield return AccessTools.Method(typeof(AchievementHandler),"OnStartedAGame");
         }
         static bool Prefix(){return !Audit.Active;}
     }
@@ -68,6 +69,9 @@ namespace Canna.Anvil
                             if(entries!=null)Audit.Check(entries.Length==list.sprites.Count-1,"Native ability grid includes appended entry");
                         }
                     for(int i=0;i<17;i++)File.WriteAllBytes(Path.Combine(Audit.Folder,"morph-"+i+".png"),ImageConversion.EncodeToPNG(Art.Frames[i].texture));
+                    File.WriteAllBytes(Path.Combine(Audit.Folder,"icon.png"),ImageConversion.EncodeToPNG(Art.Icon.texture));
+                    Audit.Check(list.sprites[list.IndexOf("Anvil")].sprite==Art.Icon && Art.Icon.pixelsPerUnit==100,"Menu uses independent padded icon at native UI PPU");
+                    Audit.Check(Art.Frames[16].pixelsPerUnit==24,"Gameplay sprite twice the previous size");
                     Player player=new Player(1,0);
                     player.Scale=Fix.One;player.Color=Plugin.Prefab.GetComponent<SpriteRenderer>().sharedMaterial;
                     player.Abilities=new List<GameObject>{Plugin.Prefab,Plugin.Prefab,Plugin.Prefab};
@@ -105,7 +109,12 @@ namespace Canna.Anvil
                     Audit.Check(body.velocity.y<(Fix)(-10L),"Midair downward slam applied");
                     Audit.Check(body.PhysicsBody().gravityScale>Fix.One,"Heavy gravity reaches native physics body");
                     Audit.Check(Audit.Ability.GetCooldown()==(Fix)6L,"Six second native cooldown");
-                    for(int tick=0;tick<24;tick++)Updater.TickSimulation((Fix)1L/(Fix)60L);
+                    Audit.Check(Audit.Ability.GetComponent<SpriteRenderer>().sprite==Art.Frames[0],"Entry begins as slime, not final anvil");
+                    for(int tick=0;tick<12;tick++){body.position=new Vec2(Fix.Zero,(Fix)12L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
+                    Sprite intermediate=Audit.Ability.GetComponent<SpriteRenderer>().sprite;
+                    Audit.Check(intermediate!=Art.Frames[0] && intermediate!=Art.Frames[16],"Native simulation displays intermediate morph frames");
+                    Audit.Check(!(bool)AccessTools.Field(typeof(BounceBall),"IsExiting").GetValue(Audit.Ability.GetComponent<BounceBall>()),"Released input cannot cancel the entry morph immediately");
+                    for(int tick=0;tick<28;tick++){body.position=new Vec2(Fix.Zero,(Fix)12L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
                     Audit.Check(Audit.Ability.GetComponent<SpriteRenderer>().sprite==Art.Frames[16],"Entry morph reaches steel anvil sprite");
                     foreach(PlayerAverageCamera c in UnityEngine.Object.FindObjectsOfType<PlayerAverageCamera>())c.enabled=false;
                     Camera.main.transform.position=new Vector3(0,0,-10);Camera.main.orthographicSize=18;

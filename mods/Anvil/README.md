@@ -1,4 +1,10 @@
-# Canna Anvil 1.0.0
+# Canna Anvil 1.0.1
+
+1.0.1 separates the padded, eyeless menu icon from a gameplay sprite twice as large.
+The native circular collision radius is doubled too. A tap now completes the
+0.55-second morph and holds the finished pose briefly before release cancels it.
+The morph begins with your slime color and fades into steel; exit reverses it.
+AbilityScrollBar 1.0.1 is a catalog dependency so the appended ability fits the picker.
 
 Adds **Anvil** at the end of Bopl Battle's ability picker, without replacing Rock.
 Turn into a cartoon steel anvil, slam downward in midair, and crush opponents using

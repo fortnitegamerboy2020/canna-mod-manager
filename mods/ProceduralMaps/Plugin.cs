@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace Canna.ProceduralMaps
 {
-    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.0.3")]
+    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.0.4")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
@@ -20,13 +20,13 @@ namespace Canna.ProceduralMaps
         public static readonly Dictionary<AnimateVelocity, Island> Moving = new Dictionary<AnimateVelocity, Island>();
         internal static GameSessionHandler Session;
         internal static Layout Map;
-        internal const string Protocol = "canna-proc-1.0.3";
+        internal const string Protocol = "canna-proc-1.0.4";
         private void Awake()
         {
             Log = Logger;
             Enabled = Config.Bind("General", "Enabled", true, "Use the same generator version and enabled state on every family member's PC. Online start is blocked while a lobby member is missing the matching generator.");
             new Harmony("family.canna.proceduralmaps").PatchAll(typeof(Plugin).Assembly);
-            Log.LogInfo("Canna Procedural Maps 1.0.3: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
+            Log.LogInfo("Canna Procedural Maps 1.0.4: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
         }
         private void OnDestroy() { Log.LogInfo("Keeping procedural map hooks active across scene changes."); }
         internal static Fix F(int hundredths) { return (Fix)(long)hundredths / (Fix)100L; }
@@ -143,7 +143,8 @@ namespace Canna.ProceduralMaps
             DPhysicsRoundedRect rr = platform.GetComponent<DPhysicsRoundedRect>();
             Vec2 ext = (Vec2)AccessTools.Field(typeof(DPhysicsRoundedRect), "startExtents").GetValue(rr);
             Fix radius = (Fix)AccessTools.Field(typeof(DPhysicsRoundedRect), "startRadius").GetValue(rr);
-            return ext.x + radius > Fix.Zero && ext.y + radius <= (ext.x + radius) * (Fix)101L / (Fix)100L;
+            return ext.x + radius > Fix.Zero && ext.y + radius >= (ext.x + radius) * (Fix)3L/(Fix)10L
+                && ext.y + radius <= (ext.x + radius) * (Fix)101L / (Fix)100L;
         }
         private static void Audit(GameSessionHandler session, StickyRoundedRectangle[] originals, Layout map)
         {
@@ -227,7 +228,7 @@ namespace Canna.ProceduralMaps
             {
                 if (__instance.currentLobby.GetMemberData(member, "canna_map_generator") != Plugin.Protocol)
                 {
-                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.0.3 enabled. Wait a moment after joining, then retry.");
+                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.0.4 enabled. Wait a moment after joining, then retry.");
                     return false;
                 }
             }

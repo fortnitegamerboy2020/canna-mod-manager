@@ -1,4 +1,9 @@
-# Canna Procedural Maps 1.0.3
+# Canna Procedural Maps 1.0.4
+
+1.0.4 increases island spans to roughly native small/medium-platform sizes,
+rejects very flat terrain templates, and expands row/column spacing to preserve
+clearance for the larger native collision shapes and full movement envelopes.
+The original textured sprites, shaders and terrain/Drill components are retained.
 
 Bopl Battle 2.5.1 / Windows Mono / BepInEx 5.4.23.5. Version 1.0.3 preserves native ground textures, sprite materials, slime trails, terrain layers, and platform components. It uses Bopl's uniform scaling API, keeps the generated horizontal spans while allowing full native vertical depth, and stops authored map paths and startup growth from overriding the generated layout. Native Drill collision queries are checked in the scene audit.
 

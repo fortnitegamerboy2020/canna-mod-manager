@@ -26,19 +26,22 @@
       "enabled": true
     },
     {
-      "name": "Canna Procedural Maps",
-      "file": "Mods/Canna-ProceduralMaps-1.0.3.zip",
-      "sha256": "ecebffe8b9f9943fc0bf37c515d48bd6812e819ec389510146301266dc63f7de",
+      "sha256": "4c3fd6138a94364944a8928e2d0be5eaa0dc9d2dbf90a033323fec9d5715b5a7",
+      "version": "1.0.4",
       "description": "Fresh generated maps with native ground textures and Drill terrain, fuller vertical island shapes, moving platforms, and occasional moon gravity. Shared seeds and matching-generator lobby checks. All players need this version enabled. Family online gameplay verification is pending.",
-      "version": "1.0.3",
+      "file": "Mods/Canna-ProceduralMaps-1.0.4.zip",
+      "name": "Canna Procedural Maps",
       "enabled": true
     },
     {
-      "version": "1.0.0",
-      "sha256": "12c8bfa066609d3b951a8da3412e88540b07ecfc1b1c6046e1c3f5b3c8ad152e",
-      "description": "Turn into an animated steel anvil and slam down with heavy native physics. Separate selectable ability with six-second cooldown, native contact combat and return-to-slime flow. All players need this version; family online verification is pending.",
-      "file": "Mods/Canna-Anvil-1.0.0.zip",
       "name": "Canna Anvil",
+      "file": "Mods/Canna-Anvil-1.0.1.zip",
+      "version": "1.0.1",
+      "dependencies": [
+        "AbilityScrollBar"
+      ],
+      "sha256": "572e4d113c7843e2fe455b485dfcae6fed9f9c95b8677792eee78fcd1a467ba0",
+      "description": "Larger steel anvil with full slime-to-anvil morph, padded eyeless menu icon and native combat. Entry completes before cancellation. Requires AbilityScrollBar for the expanded picker. All players need this version; family online verification is pending.",
       "enabled": true
     },
     {
@@ -234,6 +237,14 @@
       "version": "1.0.0",
       "file": "Mods/C1audim-FourthAbility-1.0.0.zip",
       "name": "FourthAbility",
+      "enabled": true
+    },
+    {
+      "sha256": "c68e5c5c7ced764d55dc45ff259a7a8ee8c6075301a8406131d306cbaf520e3e",
+      "version": "1.0.1",
+      "description": "Allows the expanded native ability picker to scroll with the wheel and follow selection. Original mod by YuralGonnadi.",
+      "file": "Mods/YuralGonnadi-AbilityScrollBar-1.0.1.zip",
+      "name": "AbilityScrollBar",
       "enabled": true
     }
   ]
