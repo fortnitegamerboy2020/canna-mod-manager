@@ -37,7 +37,7 @@
       "name": "Canna Anvil",
       "file": "Mods/Canna-Anvil-1.0.3.zip",
       "version": "1.0.3",
-      "sha256": "551606d4698cc4b8de3dfaea79550df218454742fb02a1da31b6804e88f69ade",
+      "sha256": "a5a205bc175fd1d8921c7d0ffb929b71e3836de047eea206df8d03d39504b716",
       "dependencies": [
         "AbilityScrollBar"
       ],
