@@ -19,10 +19,10 @@
   "mods": [
     {
       "name": "Drill Through Ball",
-      "version": "1.0.4",
-      "file": "Mods/Canna-DrillThroughBall-1.0.4.zip",
-      "sha256": "fcbefb84fc3c57431a937fbe844fd46c00f047a7b1226018684e7be44802d270",
-      "description": "An actively spinning drill wins confirmed Bounce Ball contact; scaled attack hitboxes cut balls too. All players need the same mod. Gameplay testing is pending."
+      "version": "1.0.5",
+      "file": "Mods/Canna-DrillThroughBall-1.0.5.zip",
+      "sha256": "9c4b2242ec7f5c4d0bd320311c093d31d8c3257732a9b9fac397bf2fcec4e237",
+      "description": "Active Drill pierces normal Rock, but steel Anvils are excluded and retain native lethal contact."
     },
     {
       "sha256": "dc6611f1c0f46996c63d595fc178d6f8100df8fd9537fc8a36afdd569a658128",
