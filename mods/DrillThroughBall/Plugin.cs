@@ -8,7 +8,7 @@ using UnityEngine;
 
 namespace Canna.DrillThroughBall
 {
-    [BepInPlugin("family.canna.drillthroughball", "Drill Through Ball", "1.0.4")]
+    [BepInPlugin("family.canna.drillthroughball", "Drill Through Ball", "1.0.5")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ConfigEntry<bool> Enabled;
@@ -22,7 +22,7 @@ namespace Canna.DrillThroughBall
             harmony.PatchAll(typeof(Plugin).Assembly);
             foreach (System.Reflection.MethodBase method in harmony.GetPatchedMethods())
                 Logger.LogInfo("Hook registered: " + method.DeclaringType.Name + "." + method.Name);
-            Logger.LogInfo("Drill Through Ball 1.0.4 loaded. Rock collision, player collision, killPlayer and Drill.ExitAbility are hooked. Enabled=" + Enabled.Value + ". All players must use the same version and setting.");
+            Logger.LogInfo("Drill Through Ball 1.0.5 loaded. Rock collision, player collision, killPlayer and Drill.ExitAbility are hooked. Enabled=" + Enabled.Value + ". All players must use the same version and setting.");
         }
         private void OnDestroy()
         {
@@ -89,6 +89,15 @@ namespace Canna.DrillThroughBall
         private static readonly System.Reflection.FieldInfo hitboxOwnerField = AccessTools.Field(typeof(Hitbox), "hitboxHandler");
         private static readonly System.Reflection.FieldInfo killedField = AccessTools.Field(typeof(PlayerCollision), "wasKilledThisFrame");
         [ThreadStatic] internal static BounceBall ContactBall;
+        internal static bool IsPierceable(BounceBall ball)
+        {
+            if(ball==null)return false;
+            // Anvil deliberately reuses BounceBall's lifecycle, but steel is not
+            // Rock. No hard assembly dependency: Anvil remains an optional mod.
+            foreach(Component component in ball.GetComponents<Component>())
+                if(component!=null && component.GetType().FullName=="Canna.Anvil.AnvilState")return false;
+            return true;
+        }
         internal static BounceBall FindBall(PhysicsParent parent)
         {
             BounceBall ball = FindBall(parent.monobehaviourCollider as Component);
@@ -98,7 +107,8 @@ namespace Canna.DrillThroughBall
         }
         private static BounceBall FindBall(Component component)
         {
-            return component == null ? null : component.GetComponentInParent<BounceBall>();
+            BounceBall ball=component == null ? null : component.GetComponentInParent<BounceBall>();
+            return IsPierceable(ball)?ball:null;
         }
         internal static Drill FindDrill(PhysicsParent parent)
         {
@@ -141,7 +151,7 @@ namespace Canna.DrillThroughBall
             {
                 if (current == null || !current.activeInHierarchy) continue;
                 BounceBall ball = current.GetComponent<BounceBall>();
-                if (ball != null && !ball.IsDestroyed) return ball;
+                if (IsPierceable(ball) && !ball.IsDestroyed) return ball;
             }
             return null;
         }
@@ -164,6 +174,7 @@ namespace Canna.DrillThroughBall
             Ability attacker = drill.GetComponent<Ability>();
             if (attacker == null || attacker.GetPlayerId() == killerId) return false;
             BounceBall ball = ContactBall;
+            if(ball!=null && !IsPierceable(ball))return false;
             bool confirmed = ball != null && ball.GetComponent<Ability>().GetPlayerId() == killerId;
             if (!confirmed) { ball = BallOwnedBy(killerId); if (ball == null || !TouchesBall(drill, ball)) return false; }
             Plugin.Log.LogInfo("Blocked Rock death at " + entry + ": driller=" + attacker.GetPlayerId() + ", rock=" + killerId + ", tick=" + Updater.SimulationTicks);
@@ -175,7 +186,7 @@ namespace Canna.DrillThroughBall
 
         internal static bool CutBall(BounceBall ball, int attackerId)
         {
-            if (ball == null || ball.IsDestroyed || !ball.gameObject.activeInHierarchy) return false;
+            if (!IsPierceable(ball) || ball.IsDestroyed || !ball.gameObject.activeInHierarchy) return false;
             Player target = ball.getPlayer();
             if (target == null || target.Id == attackerId || !target.IsAlive) return false;
             Ability ability = ball.GetComponent<Ability>();
@@ -245,6 +256,7 @@ namespace Canna.DrillThroughBall
         private static bool errorReported;
         private static bool Prefix(BounceBall __instance, CollisionInformation collision)
         {
+            if(!DrillRules.IsPierceable(__instance))return true;
             try
             {
                 Drill drill = DrillRules.FindDrill(collision.colliderPP);
