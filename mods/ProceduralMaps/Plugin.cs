@@ -249,7 +249,8 @@ namespace Canna.ProceduralMaps
                 !(bool)InProgress.GetValue(Plugin.Session)) return;
             if(p.spin!=0) {
                 FieldInfo rotation=AccessTools.Field(typeof(AnimateVelocity),"homeRotation");
-                rotation.SetValue(__instance,(Fix)rotation.GetValue(__instance)+Plugin.F(p.spin)*simDeltaTime*GameTime.PlayerTimeScale);
+                Fix angle=(Fix)rotation.GetValue(__instance)+Plugin.F(p.spin)*simDeltaTime*GameTime.PlayerTimeScale;
+                rotation.SetValue(__instance,((angle % Fix.PiTimes2)+Fix.PiTimes2)%Fix.PiTimes2);
             }
             if(p.drift==0)return;
             // Fixed simulation ticks advance together in Bopl's lockstep network, including replay timing.
