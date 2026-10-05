@@ -15,8 +15,8 @@ class TestLayout
                 for (int j = i + 1; j < a.islands.Length; j++)
                 {
                     Island q = a.islands[j];
-                    bool separateX = Math.Abs(p.x - q.x) > p.width + q.width + p.radius + q.radius + p.drift + q.drift;
-                    bool separateY = Math.Abs(p.y - q.y) > p.height + q.height + p.radius + q.radius + 200;
+                    bool separateX = Math.Abs(p.x - q.x) > p.width + q.width + p.radius + q.radius + p.drift + q.drift + 300;
+                    bool separateY = Math.Abs(p.y - q.y) > p.height + q.height + p.radius + q.radius + 300;
                     if (!separateX && !separateY) throw new Exception("Islands can overlap");
                 }
                 for (int tick = 0; tick < p.period * 2; tick++)

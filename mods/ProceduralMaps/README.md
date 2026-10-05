@@ -1,4 +1,4 @@
-# Canna Procedural Maps 1.0.0
+# Canna Procedural Maps 1.0.1
 
 Bopl Battle 2.5.1 / Windows Mono / BepInEx 5.4.23.5.
 

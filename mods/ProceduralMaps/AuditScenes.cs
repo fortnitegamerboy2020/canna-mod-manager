@@ -43,7 +43,16 @@ static class AuditNextScene
     {
         if (!MapAudit.Active || Time.unscaledTime < MapAudit.NextAt) return;
         MapAudit.NextAt = Time.unscaledTime + 0.25f;
-        if (MapAudit.NextScene > 6) ValidateCurrentScene();
+        if (MapAudit.NextScene > 6)
+        {
+            try { ValidateCurrentScene(); }
+            catch (Exception error)
+            {
+                File.WriteAllText(Path.Combine(MapAudit.Folder, "audit-failure.txt"), "Scene " + SceneManager.GetActiveScene().buildIndex + ": " + error);
+                MapAudit.NextAt = float.MaxValue;
+                Application.Quit(); return;
+            }
+        }
         if (MapAudit.NextScene >= SceneManager.sceneCountInBuildSettings)
         {
             File.WriteAllText(Path.Combine(MapAudit.Folder, "audit-complete.txt"), "Audited playable build scenes 6 through " + (MapAudit.NextScene - 1));
@@ -74,6 +83,25 @@ static class AuditNextScene
         }
         GameSessionHandler session = UnityEngine.Object.FindObjectOfType<GameSessionHandler>();
         AccessTools.Field(typeof(GameSessionHandler), "gameInProgress").SetValue(session, true);
+        List<AnimateVelocity> platforms = new List<AnimateVelocity>(Canna.ProceduralMaps.Plugin.Moving.Keys);
+        for (int i = 0; i < platforms.Count; i++)
+        {
+            DPhysicsRoundedRect a = platforms[i].GetComponent<DPhysicsRoundedRect>();
+            Canna.ProceduralMaps.Island planned = Canna.ProceduralMaps.Plugin.Moving[platforms[i]];
+            Vec2 extA = a.CalcExtents();
+            Fix tolerance = (Fix)1L / (Fix)1000L;
+            if (Fix.Abs(extA.x - (Fix)(long)planned.width / (Fix)100L) > tolerance || Fix.Abs(extA.y - (Fix)(long)planned.height / (Fix)100L) > tolerance)
+                throw new Exception("World collider dimensions mismatch on " + platforms[i].name + ": actual=" + extA.x + "," + extA.y + "; expected=" + planned.width + "," + planned.height + "; resizer=" + (platforms[i].GetComponent<ResizablePlatform>() != null));
+            for (int j = i + 1; j < platforms.Count; j++)
+            {
+                DPhysicsRoundedRect b = platforms[j].GetComponent<DPhysicsRoundedRect>();
+                Vec2 delta = platforms[i].GetComponent<BoplBody>().position - platforms[j].GetComponent<BoplBody>().position;
+                Vec2 extB = b.CalcExtents();
+                if (Fix.Abs(delta.x) <= extA.x + extB.x + a.radius + b.radius + (Fix)3L &&
+                    Fix.Abs(delta.y) <= extA.y + extB.y + a.radius + b.radius + (Fix)3L)
+                    throw new Exception("Actual spawned island colliders overlap their safety margin");
+            }
+        }
         foreach (KeyValuePair<AnimateVelocity, Canna.ProceduralMaps.Island> entry in Canna.ProceduralMaps.Plugin.Moving)
             if (entry.Value.drift != 0)
             {

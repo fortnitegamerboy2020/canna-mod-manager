@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace Canna.ProceduralMaps
 {
-    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.0.0")]
+    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.0.1")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
@@ -20,13 +20,13 @@ namespace Canna.ProceduralMaps
         public static readonly Dictionary<AnimateVelocity, Island> Moving = new Dictionary<AnimateVelocity, Island>();
         internal static GameSessionHandler Session;
         internal static Layout Map;
-        internal const string Protocol = "canna-proc-1.0.0";
+        internal const string Protocol = "canna-proc-1.0.1";
         private void Awake()
         {
             Log = Logger;
             Enabled = Config.Bind("General", "Enabled", true, "Use the same generator version and enabled state on every family member's PC. Online start is blocked while a lobby member is missing the matching generator.");
             new Harmony("family.canna.proceduralmaps").PatchAll(typeof(Plugin).Assembly);
-            Log.LogInfo("Canna Procedural Maps 1.0.0: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
+            Log.LogInfo("Canna Procedural Maps 1.0.1: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
         }
         private void OnDestroy() { Log.LogInfo("Keeping procedural map hooks active across scene changes."); }
         internal static Fix F(int hundredths) { return (Fix)(long)hundredths / (Fix)100L; }
@@ -59,7 +59,9 @@ namespace Canna.ProceduralMaps
             }
             while (platforms.Count < map.islands.Length)
             {
-                StickyRoundedRectangle copy = UnityEngine.Object.Instantiate(originals[0], originals[0].transform.parent);
+                // Native prefab registration assigns unique deterministic hierarchy numbers.
+                StickyRoundedRectangle copy = FixTransform.InstantiateFixed(originals[0], Plugin.Position(map.islands[platforms.Count]), Fix.Zero);
+                copy.transform.SetParent(originals[0].transform.parent, false);
                 copy.name = "Canna generated island " + platforms.Count;
                 platforms.Add(copy);
             }
@@ -71,6 +73,15 @@ namespace Canna.ProceduralMaps
                 Plugin.Set(ft, "_rotation", Fix.Zero);
                 Plugin.Set(ft, "_up", Vec2.up); Plugin.Set(ft, "_right", Vec2.right);
                 ft.position = Plugin.Position(p); ft.rotation = Fix.Zero;
+                ft.offset = Vec2.zero;
+                ft.SetScale_DPhysicsOnly(Fix.One);
+                BoplBody body = platforms[i].GetComponent<BoplBody>();
+                if (body != null)
+                {
+                    body.StartVelocity = Vec2.zero;
+                    body.StartAngularVelocity = Fix.Zero;
+                    body.gravityScale = Fix.Zero;
+                }
                 DPhysicsRoundedRect rr = platforms[i].GetComponent<DPhysicsRoundedRect>();
                 Plugin.Set(rr, "startExtents", new Vec2(Plugin.F(p.width), Plugin.F(p.height)));
                 Plugin.Set(rr, "startRadius", Plugin.F(p.radius));
@@ -116,17 +127,17 @@ namespace Canna.ProceduralMaps
         }
     }
 
-    [HarmonyPatch(typeof(GameSessionHandler), "StartSpawnPlayersRoutine")]
+    [HarmonyPatch(typeof(DPhysicsRoundedRect), "Initialize")]
     internal static class ResizeAfterInit
     {
-        private static void Prefix()
+        private static void Postfix(DPhysicsRoundedRect __instance)
         {
             if (Plugin.Map == null) return;
-            foreach (KeyValuePair<AnimateVelocity, Island> entry in Plugin.Moving)
-            {
-                ResizablePlatform resizer = entry.Key.GetComponent<ResizablePlatform>();
-                if (resizer != null) resizer.ResizePlatform(Plugin.F(entry.Value.height), Plugin.F(entry.Value.width), Plugin.F(entry.Value.radius), false);
-            }
+            AnimateVelocity movement = __instance.GetComponent<AnimateVelocity>();
+            Island p;
+            if (movement == null || !Plugin.Moving.TryGetValue(movement, out p)) return;
+            ResizablePlatform resizer = __instance.GetComponent<ResizablePlatform>();
+            if (resizer != null) resizer.ResizePlatform(Plugin.F(p.height), Plugin.F(p.width), Plugin.F(p.radius), false);
         }
     }
 
@@ -172,7 +183,7 @@ namespace Canna.ProceduralMaps
             {
                 if (__instance.currentLobby.GetMemberData(member, "canna_map_generator") != Plugin.Protocol)
                 {
-                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.0.0 enabled. Wait a moment after joining, then retry.");
+                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.0.1 enabled. Wait a moment after joining, then retry.");
                     return false;
                 }
             }

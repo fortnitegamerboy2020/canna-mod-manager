@@ -163,30 +163,36 @@ $staged = {staged}
 $backup = {backup}
 $log = {log}
 try {{
-    $parent = Get-Process -Id {pid} -ErrorAction SilentlyContinue
-    if ($parent) {{ $parent.WaitForExit() }}
-    if ((Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash.ToLowerInvariant() -ne '{hash}') {{ throw 'Staged checksum mismatch' }}
+    try {{ [Diagnostics.Process]::GetProcessById({pid}).WaitForExit() }} catch [ArgumentException] {{ }}
+    $stream = [IO.File]::OpenRead($staged)
+    $hasher = [Security.Cryptography.SHA256]::Create()
+    try {{ $actual = [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }} finally {{ $stream.Dispose(); $hasher.Dispose() }}
+    if ($actual -ne '{hash}') {{ throw 'Staged checksum mismatch' }}
     $installed = $false
-    if (Test-Path -LiteralPath $backup) {{ Remove-Item -LiteralPath $backup -Force }}
+    if ([IO.File]::Exists($backup)) {{ [IO.File]::Delete($backup) }}
     for ($attempt = 0; $attempt -lt 30; $attempt++) {{
         try {{
-            Move-Item -LiteralPath $target -Destination $backup -Force
+            [IO.File]::Move($target, $backup)
             $installed = $true
             break
-        }} catch {{ Start-Sleep -Milliseconds 500 }}
+        }} catch {{ [Threading.Thread]::Sleep(500) }}
     }}
     if (-not $installed) {{ throw 'Could not replace application; previous application retained' }}
     try {{
-        Copy-Item -LiteralPath $staged -Destination $target -Force
-        Start-Process -FilePath $target -WorkingDirectory (Split-Path -LiteralPath $target)
+        [IO.File]::Copy($staged, $target, $true)
+        $launch = New-Object Diagnostics.ProcessStartInfo
+        $launch.FileName = $target
+        $launch.WorkingDirectory = [IO.Path]::GetDirectoryName($target)
+        $launch.UseShellExecute = $true
+        $null = [Diagnostics.Process]::Start($launch)
     }} catch {{
-        if (Test-Path -LiteralPath $target) {{ Remove-Item -LiteralPath $target -Force }}
-        Move-Item -LiteralPath $backup -Destination $target -Force
-        Start-Process -FilePath $target
+        if ([IO.File]::Exists($target)) {{ [IO.File]::Delete($target) }}
+        [IO.File]::Move($backup, $target)
+        $null = [Diagnostics.Process]::Start($target)
         throw 'Replacement or launch failed; restored previous application'
     }}
-    'Update installed successfully' | Set-Content -LiteralPath $log
-}} catch {{ $_.Exception.Message | Set-Content -LiteralPath $log }}
+    [IO.File]::WriteAllText($log, 'Update installed successfully')
+}} catch {{ [IO.File]::WriteAllText($log, $_.Exception.Message) }}
 "#,
             target = literal(&target),
             staged = literal(&ready.file),

@@ -34,7 +34,7 @@ namespace Canna.ProceduralMaps
                 Island p = new Island();
                 if (i < 4)
                 {
-                    p.x = -1800 + i * 1200 + map.Next(-80, 81);
+                    p.x = -2100 + i * 1400 + map.Next(-80, 81);
                     p.y = -600 + map.Next(-100, 101);
                     p.width = map.Next(230, 331); p.height = map.Next(40, 81);
                     p.drift = 0; // Stable starting islands for all four team spawns.
@@ -42,8 +42,8 @@ namespace Canna.ProceduralMaps
                 else
                 {
                     int row = (i - 4) / 4;
-                    p.x = -1800 + ((i - 4) % 4) * 1200 + map.Next(-100, 101);
-                    p.y = 150 + row * 700 + map.Next(-70, 71);
+                    p.x = -2100 + ((i - 4) % 4) * 1400 + map.Next(-100, 101);
+                    p.y = 250 + row * 900 + map.Next(-70, 71);
                     p.width = map.Next(170, 291); p.height = map.Next(30, 71);
                     p.drift = map.Next(50, 121);
                 }
