@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.2', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.3', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -23,7 +23,7 @@ try {
     foreach ($cannaFolder in @('src', 'scripts', 'examples', 'repository-template')) {
         $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
     }
-    foreach ($cannaFolder in @('mods/DrillThroughBall', 'mods/ProceduralMaps')) {
+    foreach ($cannaFolder in @('mods/DrillThroughBall', 'mods/ProceduralMaps', 'mods/Anvil', 'mods/FamilyVisuals', 'mods/FamilyCatalog')) {
         $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -File | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
     }
     $cannaEntries = @()
@@ -32,10 +32,10 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: Discover, retained game process controls and native procedural terrain"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: automatic mod dependencies and family online visual extensions"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
-    $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = "Discover browses the family catalog and adds or updates mods in a selected pack. Install Mods is now Apply modpack. Stop instance retains and terminates only the game process Canna launched. Procedural Maps 1.0.3 preserves native textured ground and Drill terrain components, keeps the current horizontal spans with more vertical room, and prevents authored map scripts from overriding generated layouts. Startup updates retain separate application/mod credentials. Family online gameplay still needs a real multi-PC match test." }
+    $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = "Discover adds required catalog dependencies automatically. Enabling a mod enables its required libraries; disabling a library still used by a mod is rejected. The family catalog now includes all 20 requested Thunderstore mods, FourthAbility and AntiMatchmaking dependency support. Canna extensions add F8 shared lobby colors and F9 configurable own/team/opponent arrow paths. Family Workshop example keeps gameplay-changing mods opt-in and AcidTrip disabled. Local native fixtures and Steam color metadata transport passed; a real multi-PC family match and all gameplay effects remain unverified. Application and mod repository credentials remain separate." }
     foreach ($cannaUpload in @(
         @{ file = 'dist/Canna Mod Manager.exe'; name = 'Canna-Mod-Manager.exe'; mime = 'application/octet-stream' },
         @{ file = 'dist/Canna-Mod-Manager-Windows.zip'; name = 'Canna-Mod-Manager-Windows.zip'; mime = 'application/zip' }

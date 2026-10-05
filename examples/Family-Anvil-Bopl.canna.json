@@ -1,0 +1,43 @@
+{
+  "format": "canna_modpack",
+  "schema_version": 1,
+  "id": "pack-family-anvil-bopl",
+  "name": "Family Anvil Bopl",
+  "description": "Anvil ability, native procedural maps and Drill Through Ball. Enable this same pack on every family PC.",
+  "game": {
+    "app_id": 1686940,
+    "name": "Bopl Battle",
+    "folder": "bopl-battle",
+    "framework": "bepinex"
+  },
+  "repository": {
+    "owner": "fortnitegamerboy2020",
+    "repository": "manager-uploaded-mods",
+    "branch": "main",
+    "catalog_folder": ""
+  },
+  "mods": [
+    {
+      "name": "Drill Through Ball",
+      "version": "1.0.4",
+      "file": "Mods/Canna-DrillThroughBall-1.0.4.zip",
+      "sha256": "fcbefb84fc3c57431a937fbe844fd46c00f047a7b1226018684e7be44802d270",
+      "description": "An actively spinning drill wins confirmed Bounce Ball contact; scaled attack hitboxes cut balls too. All players need the same mod. Gameplay testing is pending."
+    },
+    {
+      "sha256": "ecebffe8b9f9943fc0bf37c515d48bd6812e819ec389510146301266dc63f7de",
+      "name": "Canna Procedural Maps",
+      "version": "1.0.3",
+      "description": "Native textured islands, Drill terrain, moving platforms and shared online round seeds. All family players need the same version enabled.",
+      "file": "Mods/Canna-ProceduralMaps-1.0.3.zip"
+    },
+    {
+      "enabled": true,
+      "name": "Canna Anvil",
+      "version": "1.0.0",
+      "file": "Mods/Canna-Anvil-1.0.0.zip",
+      "sha256": "12c8bfa066609d3b951a8da3412e88540b07ecfc1b1c6046e1c3f5b3c8ad152e",
+      "description": "Animated heavy anvil ability with native contact combat and return-to-slime flow."
+    }
+  ]
+}

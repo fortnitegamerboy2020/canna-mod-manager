@@ -1,0 +1,240 @@
+{
+  "format": "canna_modpack",
+  "schema_version": 1,
+  "id": "pack-family-workshop-bopl",
+  "name": "Family Workshop Bopl",
+  "description": "All requested mods available to try. Gameplay-changing additions are disabled initially; enable the same selection on all family PCs. F8 shared colors; F9 trajectory visibility. AcidTrip includes flashing colors and is disabled.",
+  "game": {
+    "app_id": 1686940,
+    "name": "Bopl Battle",
+    "folder": "bopl-battle",
+    "framework": "bepinex"
+  },
+  "repository": {
+    "owner": "fortnitegamerboy2020",
+    "repository": "manager-uploaded-mods",
+    "branch": "main",
+    "catalog_folder": ""
+  },
+  "mods": [
+    {
+      "name": "Drill Through Ball",
+      "version": "1.0.4",
+      "file": "Mods/Canna-DrillThroughBall-1.0.4.zip",
+      "sha256": "fcbefb84fc3c57431a937fbe844fd46c00f047a7b1226018684e7be44802d270",
+      "description": "An actively spinning drill wins confirmed Bounce Ball contact; scaled attack hitboxes cut balls too. All players need the same mod. Gameplay testing is pending.",
+      "enabled": true
+    },
+    {
+      "name": "Canna Procedural Maps",
+      "file": "Mods/Canna-ProceduralMaps-1.0.3.zip",
+      "sha256": "ecebffe8b9f9943fc0bf37c515d48bd6812e819ec389510146301266dc63f7de",
+      "description": "Fresh generated maps with native ground textures and Drill terrain, fuller vertical island shapes, moving platforms, and occasional moon gravity. Shared seeds and matching-generator lobby checks. All players need this version enabled. Family online gameplay verification is pending.",
+      "version": "1.0.3",
+      "enabled": true
+    },
+    {
+      "version": "1.0.0",
+      "sha256": "12c8bfa066609d3b951a8da3412e88540b07ecfc1b1c6046e1c3f5b3c8ad152e",
+      "description": "Turn into an animated steel anvil and slam down with heavy native physics. Separate selectable ability with six-second cooldown, native contact combat and return-to-slime flow. All players need this version; family online verification is pending.",
+      "file": "Mods/Canna-Anvil-1.0.0.zip",
+      "name": "Canna Anvil",
+      "enabled": true
+    },
+    {
+      "dependencies": [],
+      "description": "Play with custom colors (locally). Updated to latest Bopl :D Author: KaiiLordofOrder. Canna extension: F8 color picker; colors shared with modded family lobby members.",
+      "sha256": "f0dcd6e3350211f6f64fa39ee801fb981730159004c859db1f6a34a719f033d9",
+      "version": "1.0.0-canna.1",
+      "file": "Mods/KaiiLordofOrder-CustomLocalColorsRedux-1.0.0-canna.1.zip",
+      "name": "CustomLocalColorsRedux",
+      "enabled": true
+    },
+    {
+      "dependencies": [],
+      "description": "A ray gun that freezes whoever it hits in place for 1.5 seconds. Handles like the shrink and grow rays. 3 second cooldown. Author: Amir_Nilf.",
+      "sha256": "1199b3ce5c0bb5d011bda660d494f7a7653f0fc55011f9b07109589679503ddf",
+      "version": "1.0.0",
+      "file": "Mods/Amir_Nilf-FreezeRay-1.0.0.zip",
+      "name": "FreezeRay",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Throw a boomerang. It flies out, hangs spinning, then races back to you, cutting anyone it touches and setting off anything explosive on the way. Author: Amir_Nilf.",
+      "sha256": "6e5aed54ad7a1928444549ac38dd3212b9e5cb6d43cec5fe49be1e52e895b6fa",
+      "version": "1.0.0",
+      "file": "Mods/Amir_Nilf-Boomerang-1.0.0.zip",
+      "name": "Boomerang",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Adds a custom Invisi-Ray to the game that turns players and objects invisible! Author: Jeroy.",
+      "sha256": "73097bf0a0309dac26c3abb38c08929edec0c5c8f5a9b756c88849c1c751b99f",
+      "version": "2.0.1",
+      "file": "Mods/Jeroy-InvisiRay-2.0.1.zip",
+      "name": "InvisiRay",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Grenades will now home onto the closest player (that has line of sight). \nAdditionally, grenades will not home onto the thrower, but will home onto teammates. Author: erwer.",
+      "sha256": "f3452271695c5bb50c17e7bf92e8d2405e72c2997d5df02a5d67fed6d9448ade",
+      "version": "1.0.0",
+      "file": "Mods/erwer-homingNade-1.0.0.zip",
+      "name": "homingNade",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Adds 20+ new death sprites Author: Lofen.",
+      "sha256": "d3a49ff2b0104f68148576eaa6effca35b279dd0aff06bcab91bea29bed6b4ae",
+      "version": "1.0.0",
+      "file": "Mods/Lofen-DumbWaysToDie-1.0.0.zip",
+      "name": "DumbWaysToDie",
+      "enabled": true
+    },
+    {
+      "dependencies": [],
+      "description": "Applies random forces to rockets and platforms. Author: ComradeCheeses.",
+      "sha256": "327f62b3556b50037b2cbae4aa61977fc6463222ddebcb573d459e9b07df05e3",
+      "version": "1.0.2",
+      "file": "Mods/ComradeCheeses-Random_Engines-1.0.2.zip",
+      "name": "Random_Engines",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "allows the grappling hook to pull black holes and white holes (customizable) Author: maxgamertyper1.",
+      "sha256": "c9a7e4009afe78ce996eddb05a5761adc0da998ac621d66e55ffbca6dba6fe5f",
+      "version": "1.0.0",
+      "file": "Mods/maxgamertyper1-PullableBlackHoles-1.0.0.zip",
+      "name": "PullableBlackHoles",
+      "enabled": false
+    },
+    {
+      "dependencies": [
+        "AntiMatchmaking"
+      ],
+      "description": "Makes the gust extremely overpowered (if you know how to use it right)! Author: ReallyBadDeveloper.",
+      "sha256": "e9dd232f09d262904f320e0a42dded57cf219ffdcc7e83e7896b236031c41864",
+      "version": "1.0.0",
+      "file": "Mods/ReallyBadDeveloper-AlmightyPush-1.0.0.zip",
+      "name": "AlmightyPush",
+      "enabled": false
+    },
+    {
+      "dependencies": [
+        "AntiMatchmaking"
+      ],
+      "description": "Grenades detonate on impact. Author: erwer.",
+      "sha256": "fad5584dd165dafeb62d7ba5212204cbdf39fc87878d5f98262d616e2c68dba1",
+      "version": "1.0.0",
+      "file": "Mods/erwer-ImpactNade-1.0.0.zip",
+      "name": "ImpactNade",
+      "enabled": false
+    },
+    {
+      "dependencies": [
+        "AntiMatchmaking"
+      ],
+      "description": "PHOTOSENSITIVITY WARNING: flashing/changing colors. Leave disabled if sensitive. (PHOTOSENSITIVITY WARNING) \nMakes your Bopl have a f#@$ing stroke! Author: ReallyBadDeveloper.",
+      "sha256": "d4a1c89966570b38ea7ff8e269cea72072455a7aae586cf5a9ba64744571469b",
+      "version": "1.0.0",
+      "file": "Mods/ReallyBadDeveloper-AcidTrip-1.0.0.zip",
+      "name": "AcidTrip",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "It makes beams push platforms stronger. TYSM DAVID LOVES JELLYCAR WORLDS Author: RedFox_1692.",
+      "sha256": "97cc01571a7d33ef44d82211bb15840728c8ef81993ba1b197a0e8adcc46a162",
+      "version": "1.0.1",
+      "file": "Mods/RedFox_1692-BiggerLazerPush-1.0.1.zip",
+      "name": "BiggerLazerPush",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Removes bounds around map Author: almafa64.",
+      "sha256": "85fe951ae74a3d340bfc033ce4c3b9e2fb5f761dbfa4bd6bab3b8c15f96432d6",
+      "version": "1.0.0",
+      "file": "Mods/almafa64-NoMapBounds-1.0.0.zip",
+      "name": "NoMapBounds",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Shows where arrows will land, OFFLINE only. Author: Obelous. Canna extension: F9 own/team/opponent visibility; native arrow prediction works online. Opponent paths default off.",
+      "sha256": "32a8aa338c64977b4500e896e247e8597572cfb97f3273dd7ddb0b82f782d773",
+      "version": "1.2.2-canna.1",
+      "file": "Mods/Obelous-ArrowTrajectories-1.2.2-canna.1.zip",
+      "name": "ArrowTrajectories",
+      "enabled": true
+    },
+    {
+      "dependencies": [],
+      "description": "Make as many black holes as you wish from a single ability! Author: Antimality.",
+      "sha256": "f85361b6b0736c82f63b1cd8680cbe6df8b3400b107efe259689b526d0ce4d93",
+      "version": "1.0.1",
+      "file": "Mods/Antimality-InfiniteBlackHoles-1.0.1.zip",
+      "name": "InfiniteBlackHoles",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Makes the bow shoot a literal wall of arrows. Pretty OP. Author: WackyModer.",
+      "sha256": "448f9c6b6261547f183e1782fd4d26fe79864641526d4f4aeb912bf817963046",
+      "version": "1.0.0",
+      "file": "Mods/WackyModer-ArrowWall-1.0.0.zip",
+      "name": "ArrowWall",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Disables the spawning of abilities. Author: 000Diggity000.",
+      "sha256": "3f3b233645473e5888795d2e6deafda0133ccb65a8541343aefadc5fad642ea3",
+      "version": "1.0.0",
+      "file": "Mods/000Diggity000-NoAbilitySpawn-1.0.0.zip",
+      "name": "NoAbilitySpawn",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Removes the cooldowns from abilities, what more could you want. Also it disables achievements because cheating is cringe Author: Mangochicken.",
+      "sha256": "cf17b399c77a10b6bc7824fe944432bc77bc8e374fcf77e89bb0e5e3251f9961",
+      "version": "1.3.2",
+      "file": "Mods/Mangochicken-ZeroAbilityCooldowns-1.3.2.zip",
+      "name": "ZeroAbilityCooldowns",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Displays how long unti Time Stop starts and how long until it ends. Author: Antimality.",
+      "sha256": "a886bae45d77109d8b7995af0e148ded4a30cd0d86a014b51652ae68d19ec47a",
+      "version": "1.1.0",
+      "file": "Mods/Antimality-TimeStopTimer-1.1.0.zip",
+      "name": "TimeStopTimer",
+      "enabled": true
+    },
+    {
+      "dependencies": [],
+      "description": "Disables the matchmaking button Author: AbstractMelon.",
+      "sha256": "45874bae49f8ead256eddacd42a3e94772de9cf99cf42d214645e6c18be3c926",
+      "version": "1.0.1",
+      "file": "Mods/AbstractMelon-AntiMatchmaking-1.0.1.zip",
+      "name": "AntiMatchmaking",
+      "enabled": false
+    },
+    {
+      "dependencies": [],
+      "description": "Adds a fourth ability slot to Bopl Battle with local and online multiplayer support, rebindable input, pickups, HUD layouts, and between-round ability selection. Author: C1audim.",
+      "sha256": "0f712ad3f96e3b2c679fee44bf67b4f939713df5f8eb03e142c26f4ba0396b03",
+      "version": "1.0.0",
+      "file": "Mods/C1audim-FourthAbility-1.0.0.zip",
+      "name": "FourthAbility",
+      "enabled": true
+    }
+  ]
+}

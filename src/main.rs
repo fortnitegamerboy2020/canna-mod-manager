@@ -771,6 +771,17 @@ impl Canna {
                 }
                 if ui
                     .add(
+                        egui::Button::new("Discover")
+                            .selected(self.discover_page)
+                            .min_size(egui::vec2(170.0, 44.0)),
+                    )
+                    .clicked()
+                {
+                    self.discover_page = true;
+                    self.console_page = false;
+                }
+                if ui
+                    .add(
                         egui::Button::new("Console")
                             .selected(self.console_page)
                             .min_size(egui::vec2(170.0, 44.0)),
@@ -782,17 +793,7 @@ impl Canna {
                     self.last_console_poll =
                         std::time::Instant::now() - std::time::Duration::from_secs(2);
                 }
-                if ui
-                    .add(
-                        egui::Button::new("Discover")
-                            .selected(self.discover_page)
-                            .min_size(egui::vec2(170.0, 44.0)),
-                    )
-                    .clicked()
-                {
-                    self.discover_page = true;
-                    self.console_page = false;
-                }
+
                 for id in self.owned_games.keys().copied().collect::<Vec<_>>() {
                     let name = self
                         .games

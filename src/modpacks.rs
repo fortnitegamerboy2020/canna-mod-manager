@@ -87,9 +87,43 @@ pub fn add_local(path: &Path) -> Result<ModInfo> {
         file: format!("Mods/{file}"),
         sha256: hash,
         local_file: file,
+        dependencies: Vec::new(),
     })
 }
 impl Modpack {
+    pub fn set_mod_enabled(&mut self, file: &str, enabled: bool) -> Result<()> {
+        let index = self
+            .mods
+            .iter()
+            .position(|m| m.file == file)
+            .context("Mod no longer exists")?;
+        let mut pending = vec![index];
+        let mut visited = BTreeSet::new();
+        while let Some(index) = pending.pop() {
+            if !visited.insert(index) {
+                continue;
+            }
+            if enabled {
+                for name in &self.mods[index].dependencies {
+                    pending.push(
+                        self.mods
+                            .iter()
+                            .position(|m| &m.name == name)
+                            .with_context(|| {
+                                format!("Required mod {name} is missing; add it through Discover")
+                            })?,
+                    );
+                }
+            }
+        }
+        let mut changed = self.clone();
+        for index in visited {
+            changed.mods[index].enabled = enabled;
+        }
+        changed.validate()?;
+        *self = changed;
+        Ok(())
+    }
     pub fn create(
         name: String,
         description: String,
@@ -159,6 +193,25 @@ impl Modpack {
         }
         let mut files = BTreeSet::new();
         for item in &self.mods {
+            if item.dependencies.len() > 32
+                || item
+                    .dependencies
+                    .iter()
+                    .any(|name| name.is_empty() || name.len() > 200)
+            {
+                bail!("Invalid dependency list for {}", item.name)
+            }
+            if item.enabled {
+                for dependency in &item.dependencies {
+                    if !self.mods.iter().any(|m| m.name == *dependency && m.enabled) {
+                        bail!(
+                            "{} requires {} enabled in this modpack",
+                            item.name,
+                            dependency
+                        )
+                    }
+                }
+            }
             if !item.local_file.is_empty()
                 && (item.sha256.len() != 64
                     || ![
@@ -510,8 +563,30 @@ mod tests {
                 file: "mods/fixture.zip".into(),
                 sha256: "a".repeat(64),
                 local_file: String::new(),
+                dependencies: Vec::new(),
             }],
         )
+    }
+    #[test]
+    fn dependencies_enable_together_and_cannot_be_removed_while_used() {
+        let mut pack = fixture();
+        let mut library = pack.mods[0].clone();
+        library.name = "Required library".into();
+        library.file = "Mods/library.zip".into();
+        library.enabled = false;
+        pack.mods[0].dependencies = vec![library.name.clone()];
+        pack.mods[0].enabled = false;
+        pack.mods.push(library);
+        assert!(pack.validate().is_ok());
+        pack.set_mod_enabled("mods/fixture.zip", true).unwrap();
+        assert!(pack.mods.iter().all(|m| m.enabled));
+        assert!(pack.set_mod_enabled("Mods/library.zip", false).is_err());
+        assert!(pack.mods[1].enabled);
+        pack.set_mod_enabled("mods/fixture.zip", false).unwrap();
+        pack.set_mod_enabled("Mods/library.zip", false).unwrap();
+        pack.mods.pop();
+        assert!(pack.set_mod_enabled("mods/fixture.zip", true).is_err());
+        assert!(!pack.mods[0].enabled);
     }
     #[test]
     fn export_import_preserves_pins_and_does_not_overwrite() {

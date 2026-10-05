@@ -482,6 +482,81 @@ mod tests {
         assert!(archive_files(&bytes).is_err());
     }
     #[test]
+    #[ignore = "Downloads family catalog into a temporary game fixture; never launches the game"]
+    fn family_catalog_visuals_and_dependencies_install() {
+        let root =
+            std::env::temp_dir().join(format!("canna-catalog-install-{}", std::process::id()));
+        fs::create_dir_all(root.join("BoplBattle_Data/Managed")).unwrap();
+        fs::write(
+            root.join("BoplBattle_Data/Managed/Assembly-CSharp.dll"),
+            b"fixture",
+        )
+        .unwrap();
+        let settings = Settings::load();
+        let token = crate::EMBEDDED_GITHUB_TOKEN;
+        let data = repository::sync(&settings, token).unwrap();
+        let info = data.games.iter().find(|g| g.app_id == 1686940).unwrap();
+        let mut mods = info.mods.clone();
+        for item in &mut mods {
+            item.enabled = true;
+        }
+        let pack = Modpack::create(
+            "Full catalog fixture".into(),
+            String::new(),
+            info,
+            crate::cache::Source::from_settings(&settings),
+            mods,
+        );
+        pack.validate().unwrap();
+        let game = InstalledGame {
+            app_id: 1686940,
+            name: "Fixture".into(),
+            path: root.clone(),
+            loader: String::new(),
+            plugins: 0,
+            icon: None,
+        };
+        install_pack(&game, &pack, token, &|_| {}).unwrap();
+        fn files(path: &Path, result: &mut Vec<PathBuf>) {
+            for entry in fs::read_dir(path).unwrap() {
+                let path = entry.unwrap().path();
+                if path.is_dir() {
+                    files(&path, result);
+                } else {
+                    result.push(path);
+                }
+            }
+        }
+        let mut installed = vec![];
+        files(&root.join("BepInEx/plugins/Canna"), &mut installed);
+        for required in [
+            "Canna.SharedColors.dll",
+            "Canna.FriendsTrajectories.dll",
+            "FourthAbilitySlot.dll",
+            "FourthAbilitySlotStableRepair.dll",
+        ] {
+            assert!(
+                installed.iter().any(|p| p.file_name().unwrap() == required),
+                "Missing {required}"
+            );
+        }
+        assert!(
+            installed
+                .iter()
+                .filter(|p| p.extension().is_some_and(|e| e == "png")
+                    && p.to_string_lossy().contains("Assets"))
+                .count()
+                >= 22
+        );
+        assert!(
+            !installed
+                .iter()
+                .any(|p| p.file_name().unwrap() == "Canna.CatalogAudit.dll")
+        );
+        assert_eq!(pack.mods.len(), 24);
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     #[ignore = "Authenticated repository downloads and installation in a temporary fixture; never launches a game"]
     fn family_framework_and_mod_install() {
         let root = std::env::temp_dir().join(format!("canna-install-{}", std::process::id()));

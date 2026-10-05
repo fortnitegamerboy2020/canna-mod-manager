@@ -192,6 +192,42 @@ impl PackUi {
         );
         item.enabled = true;
         item.local_file.clear();
+        let mut dependencies = vec![];
+        let mut visited = BTreeSet::new();
+        let mut pending = item.dependencies.clone();
+        while let Some(name) = pending.pop() {
+            anyhow::ensure!(
+                name != item.name,
+                "Dependency cycle involving {}",
+                item.name
+            );
+            if !visited.insert(name.clone()) {
+                continue;
+            }
+            let mut dependency = game
+                .mods
+                .iter()
+                .find(|m| m.name == name)
+                .cloned()
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Required mod {name} is missing from the catalog")
+                })?;
+            pending.extend(dependency.dependencies.clone());
+            dependency.enabled = true;
+            dependency.local_file.clear();
+            dependencies.push(dependency);
+        }
+        for dependency in dependencies {
+            if let Some(old) = pack
+                .mods
+                .iter_mut()
+                .find(|m| m.local_file.is_empty() && m.name == dependency.name)
+            {
+                *old = dependency;
+            } else {
+                pack.mods.push(dependency);
+            }
+        }
         if let Some(old) = pack
             .mods
             .iter_mut()
@@ -845,10 +881,10 @@ impl PackUi {
             Some(Action::Stop(id)) => self.runtime_requests.push_back(RuntimeAction::Stop(id)),
             Some(Action::Discover(id)) => self.discover_pack = Some(id),
             Some(Action::Toggle(mut pack, file, enabled)) => {
-                if let Some(item) = pack.mods.iter_mut().find(|item| item.file == file) {
-                    item.enabled = enabled;
-                }
-                match pack.save() {
+                match pack
+                    .set_mod_enabled(&file, enabled)
+                    .and_then(|()| pack.save())
+                {
                     Ok(()) => {
                         self.upsert(pack);
                         self.status = "Mod state saved. Apply modpack or Launch modded to apply it with the game closed.".into();
@@ -1331,6 +1367,7 @@ mod tests {
             description: String::new(),
             sha256: "a".repeat(64),
             local_file: String::new(),
+            dependencies: Vec::new(),
         };
         let first = Modpack::create(
             "Discover fixture".into(),

@@ -50,6 +50,8 @@ pub struct ModInfo {
     pub sha256: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub local_file: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<String>,
 }
 fn default_enabled() -> bool {
     true
