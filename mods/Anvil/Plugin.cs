@@ -9,13 +9,13 @@ using UnityEngine;
 
 namespace Canna.Anvil
 {
-    [BepInPlugin("family.canna.anvil", "Canna Anvil", "1.0.4")]
+    [BepInPlugin("family.canna.anvil", "Canna Anvil", "1.0.5")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
         internal static GameObject Prefab;
         internal static Material Steel;
-        internal const string Protocol = "canna-anvil-1.0.4";
+        internal const string Protocol = "canna-anvil-1.0.5";
         void Awake()
         {
             Log = Logger;
@@ -23,7 +23,7 @@ namespace Canna.Anvil
             Steel = new Material(Shader.Find("Sprites/Default"));
             UnityEngine.Object.DontDestroyOnLoad(Steel);
             new Harmony("family.canna.anvil").PatchAll(typeof(Plugin).Assembly);
-            Logger.LogInfo("Anvil 1.0.4 loaded: separate selectable ability, native Rock lifecycle, heavy falling physics and 17-frame morph. All online players need the same mod.");
+            Logger.LogInfo("Anvil 1.0.5 loaded: separate selectable ability, native Rock lifecycle, native gravity and free rotation and 17-frame morph. All online players need the same mod.");
         }
         internal static void Register(NamedSpriteList list)
         {
@@ -46,10 +46,9 @@ namespace Canna.Anvil
                 BoplBody body = Prefab.GetComponent<BoplBody>();
                 FieldInfo mass = AccessTools.Field(typeof(BoplBody), "mass");
                 mass.SetValue(body, (Fix)mass.GetValue(body) * (Fix)2L);
-                body.gravityScale *= (Fix)5L / (Fix)2L;
-                body.bounciness = (Fix)5L / (Fix)100L;
-                body.friction = (Fix)4L / (Fix)5L;
-                body.dynamicFriction = (Fix)3L / (Fix)5L;
+                body.gravityScale = Fix.One;
+                // Retain native friction, bounce and angular physics. Mass remains
+                // twice Rock's; gravity must not add an artificial acceleration boost.
                 DPhysicsCircle hull=Prefab.GetComponent<DPhysicsCircle>();
                 FieldInfo startRadius=AccessTools.Field(typeof(DPhysicsCircle),"startRadius");
                 // Bottom opaque pixel is y=22; sprite pivot is y=60 at 24 PPU.
@@ -125,18 +124,13 @@ namespace Canna.Anvil
     [HarmonyPatch(typeof(BounceBall), "OnEnterAbility")]
     static class EnterAnvil
     {
-        static void Postfix(BounceBall __instance, BoplBody ___body, PlayerInfo ___playerInfo)
+        static void Postfix(BounceBall __instance, PlayerInfo ___playerInfo)
         {
             AnvilState state = __instance.GetComponent<AnvilState>();
             if (state == null) return;
             Material material = ___playerInfo.playerMaterial;
             if (material != null && material.HasProperty("_ShadowColor")) state.SlimeColor = material.GetColor("_ShadowColor");
             else if (material != null && material.HasProperty("_Color")) state.SlimeColor = material.color;
-            ___body.angularVelocity = Fix.Zero;
-            ___body.rotation = Fix.Zero;
-            // Preserve native inherited velocity; add a deterministic downward slam in midair.
-            if (!___playerInfo.isGrounded)
-                ___body.velocity += new Vec2(Fix.Zero, (Fix)(-12L));
             state.Paint();
         }
     }
@@ -150,12 +144,10 @@ namespace Canna.Anvil
             if(__instance.GetComponent<AnvilState>()!=null)
                 ___IsCancellable=false;
         }
-        static void Postfix(BounceBall __instance, BoplBody ___body)
+        static void Postfix(BounceBall __instance)
         {
             AnvilState state = __instance.GetComponent<AnvilState>();
             if (state == null || !__instance.gameObject.activeInHierarchy) return;
-            ___body.angularVelocity = Fix.Zero;
-            ___body.rotation = Fix.Zero;
             state.Paint();
         }
     }
@@ -200,13 +192,14 @@ namespace Canna.Anvil
             foreach (Steamworks.Friend member in __instance.currentLobby.Members)
                 if (__instance.currentLobby.GetMemberData(member, "canna_anvil") != expected)
                 {
-                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Anvil 1.0.4 and the same ability list/order. Wait a moment after joining, then retry.");
+                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Anvil 1.0.5 and the same ability list/order. Wait a moment after joining, then retry.");
                     return false;
                 }
             return true;
         }
     }
 }
+
 
 
 

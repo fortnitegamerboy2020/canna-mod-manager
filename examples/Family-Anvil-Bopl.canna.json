@@ -33,11 +33,11 @@
       "enabled": true
     },
     {
-      "description": "Native team-colored HUD circle and border, transparent picker artwork, 1.5x faster entry/exit animations and half the previous mass. Five-second transformation.",
+      "description": "Standard gravity, native inherited momentum, bounce and free rotation. Twice Rock mass, team-colored HUD circle and five-second transformation.",
       "name": "Canna Anvil",
-      "file": "Mods/Canna-Anvil-1.0.4.zip",
-      "version": "1.0.4",
-      "sha256": "a79f7618a7c3d5e139dfec31d7dd5d069161cd2d68f6e3379605624b8d46d4e8",
+      "file": "Mods/Canna-Anvil-1.0.5.zip",
+      "version": "1.0.5",
+      "sha256": "8ce9b1b608ef20d855054cc6fce97d56f77f559e9e79bb6f4af42b3d34801aec",
       "dependencies": [
         "AbilityScrollBar"
       ],

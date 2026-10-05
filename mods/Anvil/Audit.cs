@@ -123,21 +123,28 @@ namespace Canna.Anvil
                     PlayerHandler.Get().GetPlayer(1).CanUseAbilities=true;
                     Audit.Slime.GetComponent<FixTransform>().position=new Vec2(Fix.Zero,(Fix)12L);
                     AccessTools.Field(typeof(PlayerPhysics),"isGrounded").SetValue(Audit.Slime.GetComponent<PlayerPhysics>(),false);
-                    Audit.Slime.GetComponent<PlayerBody>().selfImposedVelocity=Vec2.zero;
-                    Audit.Slime.GetComponent<PlayerBody>().externalVelocity=Vec2.zero;
+                    Audit.Slime.GetComponent<PlayerBody>().selfImposedVelocity=new Vec2((Fix)4L,Fix.Zero);
+                    Audit.Slime.GetComponent<PlayerBody>().externalVelocity=new Vec2((Fix)3L,(Fix)2L);
                     AccessTools.Method(typeof(SlimeController),"EnterAbility").Invoke(Audit.Slime,new object[]{0,false});
                     Audit.Ability=PlayerHandler.Get().GetPlayer(1).CurrentAbilities[0].GetComponent<Ability>();
                     Audit.Check(Audit.Ability.gameObject.activeInHierarchy,"Native slime EnterAbility activates Anvil");
                     Audit.Check(Audit.Ability.GetPlayerId()==1,"Native player ownership retained");
                     BoplBody body=Audit.Ability.GetComponent<BoplBody>();
-                    Audit.Check(body.velocity.y<(Fix)(-10L),"Midair downward slam applied");
-                    Audit.Check(body.PhysicsBody().gravityScale>Fix.One,"Heavy gravity reaches native physics body");
+                    Audit.Check(body.velocity.x==(Fix)7L && body.velocity.y==(Fix)2L,"Native entry inherits momentum without a downward impulse");
+                    Audit.Check(body.angularVelocity!=Fix.Zero,"Native entry retains momentum-derived spin");
+                    Audit.Check(body.PhysicsBody().gravityScale==Fix.One,"Standard gravity reaches native physics body");
+
                     Audit.Check(Audit.Ability.GetCooldown()==(Fix)6L,"Six second native cooldown");
                     Audit.Check(Audit.Ability.GetComponent<SpriteRenderer>().sprite==Art.Frames[0],"Entry begins as slime, not final anvil");
                     Audit.Check((Fix)AccessTools.Field(typeof(BounceBall),"maxDuration").GetValue(Audit.Ability.GetComponent<BounceBall>())==(Fix)5L,"Five second native Anvil duration");
                     for(int tick=0;tick<3;tick++){body.position=new Vec2(Fix.Zero,(Fix)12L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
                     Sprite intermediate=Audit.Ability.GetComponent<SpriteRenderer>().sprite;
                     Audit.Check(intermediate!=Art.Frames[0] && intermediate!=Art.Frames[16],"Native simulation displays intermediate morph frames");
+                    body.angularVelocity=(Fix)2L;
+                    Fix beforeRotation=body.rotation;
+                    body.position=new Vec2(Fix.Zero,(Fix)12L);
+                    Updater.TickSimulation((Fix)1L/(Fix)60L);
+                    Audit.Check(body.rotation!=beforeRotation && body.angularVelocity!=Fix.Zero,"Native simulation rotates freely without frame-by-frame locks");
                     Audit.Check(!(bool)AccessTools.Field(typeof(BounceBall),"IsExiting").GetValue(Audit.Ability.GetComponent<BounceBall>()),"Released input cannot cancel the entry morph immediately");
                     for(int tick=0;tick<4;tick++){body.position=new Vec2(Fix.Zero,(Fix)12L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
                     Audit.Check(Audit.Ability.GetComponent<SpriteRenderer>().sprite==Art.Frames[16],"Entry morph reaches steel anvil sprite");
@@ -183,6 +190,7 @@ namespace Canna.Anvil
         }
     }
 }
+
 
 
 
