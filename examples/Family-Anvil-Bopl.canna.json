@@ -25,7 +25,7 @@
       "description": "An actively spinning drill wins confirmed Bounce Ball contact; scaled attack hitboxes cut balls too. All players need the same mod. Gameplay testing is pending."
     },
     {
-      "sha256": "d0ef4f6d4e70d174bbd7f5857a26f0408c37e68039c2c871fbf85ba708f8f025",
+      "sha256": "dc6611f1c0f46996c63d595fc178d6f8100df8fd9537fc8a36afdd569a658128",
       "version": "1.1.1",
       "description": "Six varied layouts, large islands, actual native moon environments and optional spinning satellite panels. Native Drill terrain, shared theme/layout/spin seeds.",
       "file": "Mods/Canna-ProceduralMaps-1.1.1.zip",
