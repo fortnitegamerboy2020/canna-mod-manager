@@ -91,6 +91,10 @@ namespace Canna.Anvil
                     player.CanUseAbilities=true;player.ignoreAllInputs=true;player.IsLocalPlayer=false;
                     Player victim=new Player(2,1);victim.Scale=Fix.One;victim.Color=player.Color;
                     victim.Abilities=new List<GameObject>(player.Abilities);victim.AbilityIcons=new List<Sprite>(player.AbilityIcons);victim.ignoreAllInputs=true;victim.IsLocalPlayer=false;
+                    if(Array.IndexOf(Environment.GetCommandLineArgs(),"--canna-anvil-drill-audit")>=0){
+                        NamedSprite drill=list.sprites.Find(delegate(NamedSprite e){return e.associatedGameObject!=null && e.associatedGameObject.GetComponent<Drill>()!=null;});
+                        victim.Abilities[0]=drill.associatedGameObject;victim.AbilityIcons[0]=drill.sprite;
+                    }
                     PlayerHandler.Get().SetPlayerList(new List<Player>{player,victim});
                     AccessTools.Field(typeof(Host),"recordReplay").SetValue(null,false);
                     Updater.PreLevelLoad();SceneManager.LoadScene(17);Updater.PostLevelLoad();
@@ -169,12 +173,30 @@ namespace Canna.Anvil
                     victimSlime.Spawn();
                     victimSlime.GetComponent<FixTransform>().position=new Vec2((Fix)20L,(Fix)50L);
                     PlayerCollision collisionHandler=victimSlime.GetPlayerCollision();
+                    if(Array.IndexOf(Environment.GetCommandLineArgs(),"--canna-anvil-drill-audit")>=0){
+                        victim.CanUseAbilities=true;
+                        AccessTools.Field(typeof(PlayerPhysics),"isGrounded").SetValue(victimSlime.GetComponent<PlayerPhysics>(),false);
+                        AccessTools.Method(typeof(SlimeController),"EnterAbility").Invoke(victimSlime,new object[]{0,false});
+                        Ability drillAbility=victim.CurrentAbilities[0].GetComponent<Ability>();
+                        Drill drill=drillAbility.GetComponent<Drill>();
+                        Audit.Check(drill!=null && drill.gameObject.activeInHierarchy,"Native victim enters Drill ability");
+                        AccessTools.Field(typeof(Drill),"isDrilling").SetValue(drill,true);
+                        collisionHandler=drillAbility.GetPlayerCollision();
+                        Type rules=AccessTools.TypeByName("Canna.DrillThroughBall.DrillRules");
+                        BounceBall anvil=Audit.Ability.GetComponent<BounceBall>();
+                        Audit.Check(!(bool)AccessTools.Method(rules,"CutBall").Invoke(null,new object[]{anvil,2}),"Drill cut hook rejects steel Anvil");
+                        Audit.Check(AccessTools.Method(rules,"FindBall",new Type[]{typeof(PhysicsParent)}).Invoke(null,new object[]{anvil.GetComponent<DPhysicsCircle>().GetPhysicsParent()})==null,"Drill tip/contact resolver excludes Anvil box");
+                        NamedSpriteList icons=(NamedSpriteList)AccessTools.Field(typeof(SteamManager),"abilityIconsFull").GetValue(__instance);
+                        BounceBall rock=icons.sprites.Find(delegate(NamedSprite e){return e.name!="Anvil" && e.associatedGameObject!=null && e.associatedGameObject.GetComponent<BounceBall>()!=null;}).associatedGameObject.GetComponent<BounceBall>();
+                        Audit.Check((bool)AccessTools.Method(rules,"IsPierceable").Invoke(null,new object[]{rock}),"Normal Rock remains pierceable");
+                    }
                     AccessTools.Field(typeof(PlayerCollision),"isInvulnerableMask").SetValue(collisionHandler,0u);
                     DPhysicsCircle anvilHull=Audit.Ability.GetComponent<DPhysicsCircle>();
                     CollisionInformation contact=new CollisionInformation();contact.colliderPP=anvilHull.GetPhysicsParent();contact.layer=LayerMask.NameToLayer("Player");contact.normal=Vec2.up;
                     Audit.Check(victim.IsAlive,"Opponent alive before contact fixture");
                     collisionHandler.OnCollide(contact);
                     Audit.Check(!victim.IsAlive,"Native contact combat kills opponent");
+                    Audit.Check(PlayerHandler.Get().GetPlayer(1).IsAlive,"Anvil survives opponent contact, including active Drill fixture");
                     Audit.Stage=3;Audit.Next=Time.unscaledTime+.1f;return;
                 }
                 if(Audit.Stage==3)
