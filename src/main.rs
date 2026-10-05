@@ -3,6 +3,7 @@ mod cache;
 mod console;
 mod model;
 mod modpacks;
+mod owned_game;
 mod pack_ui;
 mod repository;
 mod runtime;
@@ -24,7 +25,7 @@ include!(concat!(env!("OUT_DIR"), "/canna_update_token.rs"));
 enum Event {
     Update(Result<Option<updater::Ready>, String>),
     ConsoleData(Vec<(u32, console::Snapshot)>),
-    Launched(u32, bool, std::time::SystemTime),
+    Launched(u32, bool, std::time::SystemTime, owned_game::OwnedGame),
     RuntimeProgress(String),
     Runtime(Result<String, String>),
     Scanned(Scan),
@@ -37,6 +38,9 @@ enum Event {
 struct Canna {
     update_status: String,
     pending_update: Option<updater::Ready>,
+    owned_games: BTreeMap<u32, owned_game::OwnedGame>,
+    discover_page: bool,
+    discover: pack_ui::DiscoverState,
     console_page: bool,
     console: console::Console,
     console_polling: bool,
@@ -102,6 +106,9 @@ impl Canna {
         let settings = Settings::load();
         let configured = !settings.owner.is_empty();
         let mut app = Self {
+            owned_games: BTreeMap::new(),
+            discover_page: std::env::args().any(|arg| arg == "--discover"),
+            discover: Default::default(),
             update_status: String::new(),
             pending_update: None,
             console_page: std::env::args().any(|arg| arg == "--console"),
@@ -284,7 +291,15 @@ impl Canna {
                     }
                     self.console.record(&self.update_status, &self.token);
                 }
-                Event::Launched(id, modded, requested) => {
+                Event::Launched(id, modded, requested, owned) => {
+                    self.console.record(
+                        &format!(
+                            "Retained game process {}. Stop instance is available.",
+                            owned.pid
+                        ),
+                        &self.token,
+                    );
+                    self.owned_games.insert(id, owned);
                     self.console.game_id = id;
                     self.launch_watch = Some(console::LaunchWatch::new(id, modded, requested));
                     self.last_console_poll =
@@ -465,6 +480,29 @@ impl Canna {
     }
 }
 impl Canna {
+    fn stop_game(&mut self, id: u32) {
+        let result = self.owned_games.get(&id).map(|game| game.stop());
+        self.runtime_status = match result {
+            Some(Ok(())) => {
+                self.owned_games.remove(&id);
+                self.launch_watch = None;
+                "Game stopped.".into()
+            }
+            Some(Err(error)) => format!("Could not stop game: {error}"),
+            None => "No running game owned by Canna.".into(),
+        };
+        self.pack_ui.set_runtime_status(&self.runtime_status);
+        self.console.record(&self.runtime_status, &self.token);
+    }
+    fn discover_ui(&mut self, ui: &mut egui::Ui) {
+        self.pack_ui.discover(
+            ui,
+            &self.catalog,
+            self.active_source.as_ref(),
+            &mut self.discover,
+            self.syncing || self.runtime_busy,
+        );
+    }
     fn queue_game_launch(&mut self, game: &InstalledGame, info: &GameInfo, modded: bool) {
         let pack = modpacks::Modpack::create(
             format!("{} current setup", game.name),
@@ -492,7 +530,12 @@ impl Canna {
         let Some(request) = self.pack_ui.runtime_requests.pop_front() else {
             return;
         };
+        if let pack_ui::RuntimeAction::Stop(id) = request {
+            self.stop_game(id);
+            return;
+        }
         let id = match &request {
+            pack_ui::RuntimeAction::Stop(_) => unreachable!(),
             pack_ui::RuntimeAction::Setup(p)
             | pack_ui::RuntimeAction::Install(p)
             | pack_ui::RuntimeAction::Launch(p, _) => p.game.app_id,
@@ -515,6 +558,7 @@ impl Canna {
             };
             let result = (|| -> anyhow::Result<String> {
                 match request {
+                    pack_ui::RuntimeAction::Stop(_) => unreachable!(),
                     pack_ui::RuntimeAction::Setup(pack) => {
                         runtime::setup(&game, &pack, &token)?;
                         Ok("BepInEx is ready. Choose mods for your pack.".into())
@@ -532,8 +576,8 @@ impl Canna {
                             runtime::install_pack(&game, &pack, &token, &progress)?;
                         }
                         let requested = std::time::SystemTime::now();
-                        runtime::launch(&game, modded)?;
-                        let _ = tx.send(Event::Launched(game.app_id, modded, requested));
+                        let owned = runtime::launch(&game, modded)?;
+                        let _ = tx.send(Event::Launched(game.app_id, modded, requested, owned));
                         Ok(if modded {
                             "Steam launch requested (modded)."
                         } else {
@@ -543,8 +587,8 @@ impl Canna {
                     }
                     pack_ui::RuntimeAction::LaunchCurrent(_) => {
                         let requested = std::time::SystemTime::now();
-                        runtime::launch(&game, true)?;
-                        let _ = tx.send(Event::Launched(game.app_id, true, requested));
+                        let owned = runtime::launch(&game, true)?;
+                        let _ = tx.send(Event::Launched(game.app_id, true, requested, owned));
                         Ok("Steam launch requested (current modded setup).".into())
                     }
                 }
@@ -556,8 +600,20 @@ impl Canna {
     }
     fn render(&mut self, ctx: &egui::Context) {
         self.events(ctx);
+        self.owned_games.retain(|_, game| game.running());
+        self.pack_ui.owned_games = self.owned_games.keys().copied().collect();
+        if !self.owned_games.is_empty() {
+            ctx.request_repaint_after(std::time::Duration::from_secs(1));
+        }
+        if let Some(id) = self.pack_ui.discover_pack.take() {
+            self.discover.game = self.pack_ui.pack_game(&id).unwrap_or(0);
+            self.discover.target = Some(id);
+            self.discover_page = true;
+            self.console_page = false;
+        }
         if self.pending_update.is_some()
             && !self.runtime_busy
+            && self.owned_games.is_empty()
             && !self.pack_ui.editing()
             && !self.settings_open
             && self.pack_ui.runtime_requests.is_empty()
@@ -569,6 +625,23 @@ impl Canna {
                     self.update_status = format!("Could not apply update: {error}");
                     self.console.record(&self.update_status, &self.token);
                 }
+            }
+        }
+        if self.pack_ui.discover_return {
+            self.pack_ui.discover_return = false;
+            self.discover_page = false;
+            self.modpacks_page = true;
+        }
+        while let Some(index) = self
+            .pack_ui
+            .runtime_requests
+            .iter()
+            .position(|request| matches!(request, pack_ui::RuntimeAction::Stop(_)))
+        {
+            if let Some(pack_ui::RuntimeAction::Stop(id)) =
+                self.pack_ui.runtime_requests.remove(index)
+            {
+                self.stop_game(id);
             }
         }
         self.run_runtime(ctx);
@@ -614,6 +687,7 @@ impl Canna {
                     }
                     ui.label(&self.runtime_status);
                     if ui.button("Open Console").clicked() {
+                        self.discover_page = false;
                         self.console_page = true;
                     }
                 });
@@ -669,11 +743,14 @@ impl Canna {
                 if ui
                     .add(
                         egui::Button::new("Game library")
-                            .selected(!self.modpacks_page && !self.console_page)
+                            .selected(
+                                !self.modpacks_page && !self.console_page && !self.discover_page,
+                            )
                             .min_size(egui::vec2(170.0, 44.0)),
                     )
                     .clicked()
                 {
+                    self.discover_page = false;
                     self.modpacks_page = false;
                     self.game_details = false;
                     self.console_page = false;
@@ -681,11 +758,14 @@ impl Canna {
                 if ui
                     .add(
                         egui::Button::new("Modpacks")
-                            .selected(self.modpacks_page && !self.console_page)
+                            .selected(
+                                self.modpacks_page && !self.console_page && !self.discover_page,
+                            )
                             .min_size(egui::vec2(170.0, 44.0)),
                     )
                     .clicked()
                 {
+                    self.discover_page = false;
                     self.modpacks_page = true;
                     self.console_page = false;
                 }
@@ -697,9 +777,32 @@ impl Canna {
                     )
                     .clicked()
                 {
+                    self.discover_page = false;
                     self.console_page = true;
                     self.last_console_poll =
                         std::time::Instant::now() - std::time::Duration::from_secs(2);
+                }
+                if ui
+                    .add(
+                        egui::Button::new("Discover")
+                            .selected(self.discover_page)
+                            .min_size(egui::vec2(170.0, 44.0)),
+                    )
+                    .clicked()
+                {
+                    self.discover_page = true;
+                    self.console_page = false;
+                }
+                for id in self.owned_games.keys().copied().collect::<Vec<_>>() {
+                    let name = self
+                        .games
+                        .iter()
+                        .find(|g| g.app_id == id)
+                        .map(|g| g.name.as_str())
+                        .unwrap_or("game");
+                    if ui.button(format!("Stop {name}")).clicked() {
+                        self.stop_game(id);
+                    }
                 }
                 if ui.button("Repository settings").clicked() {
                     self.settings_open = true;
@@ -738,7 +841,7 @@ impl Canna {
                     ui.label(RichText::new(&self.update_status).small().color(MUTED));
                 });
             });
-        if !self.modpacks_page && !self.game_details && !self.console_page {
+        if !self.modpacks_page && !self.game_details && !self.console_page && !self.discover_page {
             egui::SidePanel::right("detail").exact_width(310.0).resizable(false).frame(egui::Frame::new().corner_radius(ui_helpers::SURFACE_RADIUS).fill(Color32::from_rgb(23,29,26)).inner_margin(22)).show(ctx,|ui| {
             egui::ScrollArea::vertical().show(ui,|ui| {
                 let installed=self.games.iter().find(|g|g.app_id==self.selected);
@@ -782,6 +885,7 @@ impl Canna {
                     .inner_margin(28),
             )
             .show(ctx, |ui| {
+                if self.discover_page { self.discover_ui(ui); return; }
                 if self.console_page {if self.console.show(ui,&self.games){self.last_console_poll=std::time::Instant::now()-std::time::Duration::from_secs(2);}return;}
                 if self.modpacks_page {
                     let artwork = self.textures.iter().chain(self.repository_textures.iter()).map(|(&id, texture)| (id, texture.clone())).collect();
@@ -812,6 +916,7 @@ impl Canna {
                         let info = self.catalog.iter().find(|g| g.app_id == game.app_id).cloned().unwrap_or_else(|| GameInfo { app_id:game.app_id, name:game.name.clone(), folder:format!("steam-{}",game.app_id),description:String::new(),icon:String::new(),mods:vec![],mod_folder_status:String::new() });
                         ui.horizontal_wrapped(|ui| {
                             if ui.button("+ Create modpack").clicked() { self.pack_ui.start_new(&info,self.active_source.as_ref()); self.modpacks_page=true; }
+                            if self.owned_games.contains_key(&game.app_id) && ui.button("Stop instance").clicked() { self.stop_game(game.app_id); }
                             if ui.button("Launch vanilla").clicked() { self.queue_game_launch(&game, &info, false); }
                             if ui.button("Launch modded").clicked() { self.queue_game_launch(&game, &info, true); }
                         });
@@ -956,7 +1061,8 @@ impl Canna {
                                             if create.clicked() {
                                                 self.selected = id;
                                                 self.pack_ui.start_new(&pack_game, self.active_source.as_ref());
-                                                self.modpacks_page = true;
+                                                self.discover_page = false;
+                    self.modpacks_page = true;
                                             }
                                         },
                                     );

@@ -91,7 +91,7 @@ pub fn game_running(game: &InstalledGame) -> Result<bool> {
         use std::os::windows::process::CommandExt;
         let output = Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command",
             "$r=$env:CANNA_GAME_ROOT; $p=@(Get-Process | Where-Object { $_.Path -and [System.IO.Path]::GetDirectoryName($_.Path) -eq $r }); if ($p.Count) { exit 2 }"])
-            .env("CANNA_GAME_ROOT", &game.path).creation_flags(0x08000000).output()?;
+            .env("CANNA_GAME_ROOT", game.path.to_string_lossy().replace('/' , "\\")).creation_flags(0x08000000).output()?;
         match output.status.code() {
             Some(0) => Ok(false),
             Some(2) => Ok(true),
@@ -418,18 +418,59 @@ pub fn set_mode(root: &Path, modded: bool) -> Result<()> {
     fs::write(path, updated)?;
     Ok(())
 }
-pub fn launch(game: &InstalledGame, modded: bool) -> Result<()> {
+pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::OwnedGame> {
     ensure_closed(game)?;
     set_mode(&game.path, modded)?;
+    let earliest = crate::owned_game::OwnedGame::now();
     Command::new("explorer.exe")
         .arg(format!("steam://rungameid/{}", game.app_id))
         .spawn()?;
-    Ok(())
+    let waiting = std::time::Instant::now();
+    while waiting.elapsed() < Duration::from_secs(45) {
+        use std::os::windows::process::CommandExt;
+        let output = Command::new("powershell.exe")
+            .args(["-NoProfile", "-NonInteractive", "-Command", "Get-Process | Where-Object { $_.Path -and $_.Name -notmatch 'crash|helper|uninstall|setup|launcher' -and [IO.Path]::GetDirectoryName($_.Path) -eq $env:CANNA_GAME_ROOT } | ForEach-Object { $_.Id }"])
+            .env("CANNA_GAME_ROOT", game.path.to_string_lossy().replace('/' , "\\"))
+            .creation_flags(0x08000000).output()?;
+        for line in String::from_utf8_lossy(&output.stdout).lines() {
+            if let Ok(pid) = line.trim().parse()
+                && let Ok(owned) = crate::owned_game::OwnedGame::capture(pid, &game.path, earliest)
+            {
+                return Ok(owned);
+            }
+        }
+        std::thread::sleep(std::time::Duration::from_secs(1));
+    }
+    bail!(
+        "Steam launch requested, but no game process could be retained. Check Steam or the Console."
+    )
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "Starts Bopl Battle through Steam and terminates only the retained launch process"]
+    fn steam_launch_retains_and_stops_bopl() {
+        let game = InstalledGame {
+            app_id: 1686940,
+            name: "Bopl Battle".into(),
+            path: "D:/SteamLibrary/steamapps/common/Bopl Battle".into(),
+            loader: String::new(),
+            plugins: 0,
+            icon: None,
+        };
+        let owned = launch(&game, true).unwrap();
+        assert!(owned.running());
+        owned.stop().unwrap();
+        for _ in 0..100 {
+            if !owned.running() {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+        }
+        panic!("Owned game failed to exit");
+    }
     #[test]
     fn rejects_zip_traversal() {
         use std::io::Write;

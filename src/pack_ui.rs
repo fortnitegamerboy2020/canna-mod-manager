@@ -7,8 +7,17 @@ const TEXT: Color32 = Color32::from_rgb(233, 240, 234);
 const MUTED: Color32 = Color32::from_rgb(149, 164, 153);
 const SURFACE: Color32 = Color32::from_rgb(29, 39, 33);
 
+#[derive(Default)]
+pub struct DiscoverState {
+    pub query: String,
+    pub game: u32,
+    pub target: Option<String>,
+}
 pub struct PackUi {
     pub console_game: Option<u32>,
+    pub discover_pack: Option<String>,
+    pub discover_return: bool,
+    pub owned_games: BTreeSet<u32>,
     #[cfg(test)]
     add_mods_rect: Option<egui::Rect>,
     pub runtime_requests: std::collections::VecDeque<RuntimeAction>,
@@ -29,12 +38,15 @@ pub struct PackUi {
     deleted: Option<std::path::PathBuf>,
 }
 pub enum RuntimeAction {
+    Stop(u32),
     Setup(Modpack),
     Install(Modpack),
     Launch(Modpack, bool),
     LaunchCurrent(u32),
 }
 enum Action {
+    Stop(u32),
+    Discover(String),
     Toggle(Modpack, String, bool),
     Delete(Modpack),
     UndoDelete,
@@ -55,6 +67,151 @@ enum Action {
     SaveGroup,
 }
 impl PackUi {
+    pub fn discover(
+        &mut self,
+        ui: &mut egui::Ui,
+        catalog: &[GameInfo],
+        source: Option<&Source>,
+        state: &mut DiscoverState,
+        busy: bool,
+    ) {
+        let DiscoverState {
+            query,
+            game: game_filter,
+            target,
+        } = state;
+        ui.label(RichText::new("Discover").size(32.0).strong().color(TEXT));
+        ui.label(RichText::new("Find your family's next favorite mod.").color(MUTED));
+        ui.add_space(14.0);
+        ui.add_sized(
+            [ui.available_width(), 40.0],
+            egui::TextEdit::singleline(query)
+                .hint_text("Search mods, games, or descriptions…")
+                .desired_width(f32::INFINITY),
+        );
+        ui.horizontal_wrapped(|ui| {
+            egui::ComboBox::from_id_salt("discover_game")
+                .selected_text(
+                    catalog
+                        .iter()
+                        .find(|g| g.app_id == *game_filter)
+                        .map(|g| g.name.as_str())
+                        .unwrap_or("All games"),
+                )
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(game_filter, 0, "All games");
+                    for game in catalog {
+                        ui.selectable_value(game_filter, game.app_id, &game.name);
+                    }
+                });
+            ui.label("Add to");
+            egui::ComboBox::from_id_salt("discover_pack")
+                .selected_text(
+                    self.packs
+                        .iter()
+                        .find(|p| Some(&p.id) == target.as_ref())
+                        .map(|p| p.name.as_str())
+                        .unwrap_or("Choose a modpack"),
+                )
+                .show_ui(ui, |ui| {
+                    for pack in &self.packs {
+                        ui.selectable_value(
+                            target,
+                            Some(pack.id.clone()),
+                            format!("{} · {}", pack.name, pack.game.name),
+                        );
+                    }
+                });
+            if ui.button("Open modpack").clicked() {
+                self.selected = target.clone();
+                self.discover_return = target.is_some();
+            }
+        });
+        ui.label(RichText::new("Adding a mod saves your pack. Apply modpack or Launch modded to install its enabled mods.").small().color(MUTED));
+        let mut addition = None;
+        let mut matches = 0;
+        let query = query.to_lowercase();
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for game in catalog.iter().filter(|g| *game_filter==0 || g.app_id==*game_filter) {
+                for item in &game.mods {
+                    if !format!("{} {} {}",game.name,item.name,item.description).to_lowercase().contains(&query) { continue; }
+                    matches += 1;
+                    egui::Frame::new().fill(SURFACE).corner_radius(crate::ui_helpers::SURFACE_RADIUS).inner_margin(20).show(ui, |ui| {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new(&item.name).size(20.0).strong());
+                            ui.label(RichText::new(format!("v{}",item.version)).color(GREEN));
+                        });
+                        ui.label(RichText::new(&game.name).color(GREEN));
+                        ui.label(&item.description);
+                        let pack = self.packs.iter().find(|p|Some(&p.id)==target.as_ref());
+                        let compatible = pack.is_some_and(|p|p.game.app_id==game.app_id && Some(&p.repository)==source);
+                        let existing = pack.and_then(|p|p.mods.iter().find(|m|m.local_file.is_empty() && m.name==item.name));
+                        let current = existing.is_some_and(|m|m.version==item.version && m.sha256==item.sha256 && m.file==item.file);
+                        let label = if current {"Added"} else if existing.is_some() {"Update in modpack"} else {"+ Add to modpack"};
+                        if ui.add_enabled(compatible && !current && !busy, egui::Button::new(label)).clicked() {
+                            addition = target.clone().map(|id|(id,game.clone(),item.clone()));
+                        }
+                        if !compatible { ui.label(RichText::new("Choose a modpack for this game and connected repository.").small().color(MUTED)); }
+                    });
+                    ui.add_space(12.0);
+                }
+            }
+            if matches == 0 { empty_panel(ui,"Nothing here yet.","Try another search, or add mods to your game's Mods folder and game.json on GitHub."); }
+        });
+        if let Some((id, game, item)) = addition {
+            match self.add_catalog_mod(&id, &game, source, item) {
+                Ok(()) => {
+                    self.status =
+                        "Saved to modpack. Apply modpack or Launch modded when you're ready.".into()
+                }
+                Err(error) => self.status = format!("Could not add mod: {error}"),
+            }
+        }
+        if !self.status.is_empty() {
+            ui.label(&self.status);
+        }
+    }
+    fn add_catalog_mod(
+        &mut self,
+        id: &str,
+        game: &GameInfo,
+        source: Option<&Source>,
+        mut item: crate::model::ModInfo,
+    ) -> anyhow::Result<()> {
+        let index = self
+            .packs
+            .iter()
+            .position(|p| p.id == id)
+            .ok_or_else(|| anyhow::anyhow!("Modpack no longer exists"))?;
+        let mut pack = self.packs[index].clone();
+        anyhow::ensure!(
+            pack.game.app_id == game.app_id
+                && pack.game.folder == game.folder
+                && Some(&pack.repository) == source,
+            "Game or repository does not match this pack"
+        );
+        item.enabled = true;
+        item.local_file.clear();
+        if let Some(old) = pack
+            .mods
+            .iter_mut()
+            .find(|m| m.local_file.is_empty() && m.name == item.name)
+        {
+            item.enabled = old.enabled;
+            *old = item;
+        } else {
+            pack.mods.push(item);
+        }
+        pack.save()?;
+        self.packs[index] = pack;
+        Ok(())
+    }
+    pub fn pack_game(&self, id: &str) -> Option<u32> {
+        self.packs
+            .iter()
+            .find(|p| p.id == id)
+            .map(|p| p.game.app_id)
+    }
     pub fn editing(&self) -> bool {
         self.draft.is_some() || self.group_dialog || self.chooser
     }
@@ -84,6 +241,9 @@ impl PackUi {
         }
         Self {
             console_game: None,
+            discover_pack: None,
+            discover_return: false,
+            owned_games: BTreeSet::new(),
             #[cfg(test)]
             add_mods_rect: None,
             runtime_requests: Default::default(),
@@ -156,7 +316,13 @@ impl PackUi {
                 });
             });
             crate::ui_helpers::context_menu(&header.response, |ui| {
-                pack_menu(ui, &pack, &mut action, connection_busy)
+                pack_menu(
+                    ui,
+                    &pack,
+                    &mut action,
+                    connection_busy,
+                    self.owned_games.contains(&pack.game.app_id),
+                )
             });
             ui.add_space(14.0);
             ui.horizontal_wrapped(|ui| {
@@ -166,9 +332,18 @@ impl PackUi {
                     self.add_mods_rect = Some(add_mods.rect);
                 }
                 if add_mods.clicked() {
-                    action = Some(Action::Edit(pack.clone()));
+                    self.discover_pack = Some(pack.id.clone());
                 }
-                if ui.button("Install Mods").clicked() {
+                if ui
+                    .add_enabled(
+                        !connection_busy && !self.owned_games.contains(&pack.game.app_id),
+                        egui::Button::new("Apply modpack"),
+                    )
+                    .on_hover_text(
+                        "Install this pack's enabled mods into the game. Close the game first.",
+                    )
+                    .clicked()
+                {
                     self.runtime_requests
                         .push_back(RuntimeAction::Install(pack.clone()));
                 }
@@ -177,6 +352,12 @@ impl PackUi {
                 }
                 if ui.button("Duplicate pack").clicked() {
                     action = Some(Action::Duplicate(pack.clone()));
+                }
+                if self.owned_games.contains(&pack.game.app_id)
+                    && ui.button("Stop instance").clicked()
+                {
+                    self.runtime_requests
+                        .push_back(RuntimeAction::Stop(pack.game.app_id));
                 }
                 if ui.button("Launch modded").clicked() {
                     self.runtime_requests
@@ -233,7 +414,7 @@ impl PackUi {
                     empty_panel(
                         ui,
                         "Room for a little chaos.",
-                        "Use Add Mods to choose mods from your family's catalog, then Install Mods or Launch modded.",
+                        "Use Add Mods to choose mods from your family's catalog, then Apply modpack or Launch modded.",
                     );
                 }
                 egui::ScrollArea::vertical().show(ui, |ui| {
@@ -344,7 +525,7 @@ impl PackUi {
                         });
                 });
             } else {
-                panel().show(ui, |ui| { ui.set_min_width(ui.available_width()); ui.heading("About this pack"); ui.label(if pack.description.is_empty() { "No description yet." } else { &pack.description }); ui.add_space(14.0); ui.label(RichText::new("SOURCE REPOSITORY").small().color(GREEN)); ui.label(repository_label(&pack.repository)); ui.add_space(14.0); ui.label("Export format: .canna.zip"); ui.label(RichText::new("Contains mod selections, version pins and local files. Use Install Mods or Launch modded after importing.").small().color(MUTED)); });
+                panel().show(ui, |ui| { ui.set_min_width(ui.available_width()); ui.heading("About this pack"); ui.label(if pack.description.is_empty() { "No description yet." } else { &pack.description }); ui.add_space(14.0); ui.label(RichText::new("SOURCE REPOSITORY").small().color(GREEN)); ui.label(repository_label(&pack.repository)); ui.add_space(14.0); ui.label("Export format: .canna.zip"); ui.label(RichText::new("Contains mod selections, version pins and local files. Use Apply modpack or Launch modded after importing.").small().color(MUTED)); });
             }
         } else {
             ui.label(RichText::new("YOUR FAMILY COLLECTION").small().color(GREEN));
@@ -484,12 +665,24 @@ impl PackUi {
                                                 action = Some(Action::Open(pack.id.clone()));
                                             }
                                             ui.menu_button("•••", |ui| {
-                                                pack_menu(ui, pack, &mut action, connection_busy);
+                                                pack_menu(
+                                                    ui,
+                                                    pack,
+                                                    &mut action,
+                                                    connection_busy,
+                                                    self.owned_games.contains(&pack.game.app_id),
+                                                );
                                             });
                                         });
                                     });
                                     crate::ui_helpers::context_menu(&card.response, |ui| {
-                                        pack_menu(ui, pack, &mut action, connection_busy)
+                                        pack_menu(
+                                            ui,
+                                            pack,
+                                            &mut action,
+                                            connection_busy,
+                                            self.owned_games.contains(&pack.game.app_id),
+                                        )
                                     });
                                     #[cfg(test)]
                                     ui.ctx().data_mut(|data| {
@@ -649,6 +842,8 @@ impl PackUi {
             }
         }
         match action {
+            Some(Action::Stop(id)) => self.runtime_requests.push_back(RuntimeAction::Stop(id)),
+            Some(Action::Discover(id)) => self.discover_pack = Some(id),
             Some(Action::Toggle(mut pack, file, enabled)) => {
                 if let Some(item) = pack.mods.iter_mut().find(|item| item.file == file) {
                     item.enabled = enabled;
@@ -656,7 +851,7 @@ impl PackUi {
                 match pack.save() {
                     Ok(()) => {
                         self.upsert(pack);
-                        self.status = "Mod state saved. Install Mods or Launch modded to apply it with the game closed.".into();
+                        self.status = "Mod state saved. Apply modpack or Launch modded to apply it with the game closed.".into();
                     }
                     Err(error) => self.status = error.to_string(),
                 }
@@ -675,7 +870,7 @@ impl PackUi {
                         RuntimeAction::Setup(p)
                         | RuntimeAction::Install(p)
                         | RuntimeAction::Launch(p, _) => p.id != pack.id,
-                        RuntimeAction::LaunchCurrent(_) => true,
+                        RuntimeAction::LaunchCurrent(_) | RuntimeAction::Stop(_) => true,
                     });
                     self.group_members.remove(&pack.id);
                     self.status = format!(
@@ -716,7 +911,7 @@ impl PackUi {
                             match pack.save() {
                                 Ok(()) => {
                                     self.upsert(pack);
-                                    self.status="Local mod added. Use Install Mods or Launch modded to apply it.".into();
+                                    self.status="Local mod added. Use Apply modpack or Launch modded to apply it.".into();
                                 }
                                 Err(error) => self.status = error.to_string(),
                             }
@@ -730,7 +925,8 @@ impl PackUi {
                 match pack.save() {
                     Ok(()) => {
                         self.upsert(pack);
-                        self.status = "Removed from pack. Install Mods to apply the change.".into();
+                        self.status =
+                            "Removed from pack. Apply modpack to apply the change.".into();
                     }
                     Err(error) => self.status = error.to_string(),
                 }
@@ -903,10 +1099,21 @@ impl PackUi {
     }
 }
 
-fn pack_menu(ui: &mut egui::Ui, pack: &Modpack, action: &mut Option<Action>, busy: bool) {
+fn pack_menu(
+    ui: &mut egui::Ui,
+    pack: &Modpack,
+    action: &mut Option<Action>,
+    busy: bool,
+    owned: bool,
+) {
+    if owned && ui.button("Stop instance").clicked() {
+        *action = Some(Action::Stop(pack.game.app_id));
+        ui.close();
+    }
     for (label, next) in [
         ("Open modpack", Action::Open(pack.id.clone())),
-        ("Add Mods / Edit", Action::Edit(pack.clone())),
+        ("Discover mods", Action::Discover(pack.id.clone())),
+        ("Edit modpack", Action::Edit(pack.clone())),
         ("Import local mod…", Action::Local(pack.clone())),
         ("Duplicate", Action::Duplicate(pack.clone())),
         ("Export…", Action::Export(pack.clone())),
@@ -918,7 +1125,7 @@ fn pack_menu(ui: &mut egui::Ui, pack: &Modpack, action: &mut Option<Action>, bus
     }
     ui.separator();
     for (label, next) in [
-        ("Install Mods", Action::Install(pack.clone())),
+        ("Apply modpack", Action::Install(pack.clone())),
         ("Launch modded", Action::Launch(pack.clone(), true)),
         ("Launch vanilla", Action::Launch(pack.clone(), false)),
     ] {
@@ -1113,6 +1320,62 @@ fn repository_label(source: &Source) -> String {
 mod tests {
     use super::*;
     #[test]
+    fn discover_updates_only_target_pack_and_rejects_other_repositories() {
+        let game = crate::model::bopl();
+        let source = Source::from_settings(&crate::model::Settings::load());
+        let item = crate::model::ModInfo {
+            enabled: false,
+            name: "Discovery fixture".into(),
+            version: "1.0.0".into(),
+            file: "Mods/fixture.zip".into(),
+            description: String::new(),
+            sha256: "a".repeat(64),
+            local_file: String::new(),
+        };
+        let first = Modpack::create(
+            "Discover fixture".into(),
+            String::new(),
+            &game,
+            source.clone(),
+            vec![item.clone()],
+        );
+        let second = Modpack::create(
+            "Untouched fixture".into(),
+            String::new(),
+            &game,
+            source.clone(),
+            vec![],
+        );
+        let mut page = PackUi::new();
+        page.packs = vec![first.clone(), second];
+        let mut updated = item.clone();
+        updated.version = "1.1.0".into();
+        updated.file = "Mods/fixture-new.zip".into();
+        assert!(
+            page.add_catalog_mod(&first.id, &game, None, updated.clone())
+                .is_err()
+        );
+        let mut wrong = game.clone();
+        wrong.app_id += 1;
+        assert!(
+            page.add_catalog_mod(&first.id, &wrong, Some(&source), updated.clone())
+                .is_err()
+        );
+        page.add_catalog_mod(&first.id, &game, Some(&source), updated)
+            .unwrap();
+        let saved: Modpack = serde_json::from_slice(
+            &std::fs::read(crate::modpacks::directory().join(format!("{}.canna.json", first.id)))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved.mods.len(), 1);
+        assert_eq!(saved.mods[0].version, "1.1.0");
+        assert!(!saved.mods[0].enabled);
+        assert!(page.packs[1].mods.is_empty());
+        std::fs::remove_file(crate::modpacks::directory().join(format!("{}.canna.json", first.id)))
+            .unwrap();
+    }
+    #[test]
     fn right_click_on_card_opens_pack_actions_without_opening_the_pack() {
         let context = egui::Context::default();
         let game = crate::model::bopl();
@@ -1179,7 +1442,7 @@ mod tests {
         );
     }
     #[test]
-    fn add_mods_opens_editor_with_catalog_selection() {
+    fn add_mods_opens_discover_for_selected_pack() {
         let context = egui::Context::default();
         let game = crate::model::bopl();
         let source = Source {
@@ -1236,6 +1499,7 @@ mod tests {
                 |ctx| render(ctx, &mut page),
             );
         }
-        assert_eq!(page.draft_game_id(), Some(game.app_id));
+        assert_eq!(page.discover_pack, page.selected);
+        assert!(page.draft.is_none());
     }
 }

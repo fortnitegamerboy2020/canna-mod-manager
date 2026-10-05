@@ -35,7 +35,7 @@ namespace Canna.ProceduralMaps
                 if (i < 4)
                 {
                     p.x = -2100 + i * 1400 + map.Next(-80, 81);
-                    p.y = -600 + map.Next(-100, 101);
+                    p.y = -600 + map.Next(-80, 81);
                     p.width = map.Next(230, 331); p.height = map.Next(40, 81);
                     p.drift = 0; // Stable starting islands for all four team spawns.
                 }
@@ -43,20 +43,22 @@ namespace Canna.ProceduralMaps
                 {
                     int row = (i - 4) / 4;
                     p.x = -2100 + ((i - 4) % 4) * 1400 + map.Next(-100, 101);
-                    p.y = 250 + row * 900 + map.Next(-70, 71);
+                    p.y = 550 + row * 1100 + map.Next(-50, 51);
                     p.width = map.Next(170, 291); p.height = map.Next(30, 71);
                     p.drift = map.Next(50, 121);
                 }
                 p.radius = 40; p.period = map.Next(480, 841); p.phase = map.Next(0, p.period);
                 map.islands[i] = p;
             }
-            uint hash = 2166136261u;
-            string text = map.ToJson();
-            foreach (byte b in Encoding.UTF8.GetBytes(text)) { hash ^= b; hash = unchecked(hash * 16777619u); }
-            map.fingerprint = hash.ToString("x8");
+            map.RefreshFingerprint();
             return map;
         }
-        public string ToJson()
+        public void RefreshFingerprint()
+        {
+            uint hash = 2166136261u;
+            foreach (byte b in Encoding.UTF8.GetBytes(ToJson())) { hash ^= b; hash = unchecked(hash * 16777619u); }
+            fingerprint = hash.ToString("x8");
+        }        public string ToJson()
         {
             StringBuilder text = new StringBuilder();
             text.Append("{\"seed\":").Append(seed.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append(",\"moon\":").Append(moon ? "true" : "false").Append(",\"islands\":[");
@@ -77,3 +79,5 @@ namespace Canna.ProceduralMaps
         }
     }
 }
+
+

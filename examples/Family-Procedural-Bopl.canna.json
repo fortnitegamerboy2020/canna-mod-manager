@@ -25,11 +25,11 @@
       "description": "An actively spinning drill wins confirmed Bounce Ball contact; scaled attack hitboxes cut balls too. All players need the same mod. Gameplay testing is pending."
     },
     {
-      "sha256": "d821e9771df2a138c1adcd196e9956387cebe52ff909128072273ce4d996c73d",
+      "sha256": "ecebffe8b9f9943fc0bf37c515d48bd6812e819ec389510146301266dc63f7de",
       "name": "Canna Procedural Maps",
-      "version": "1.0.2",
-      "description": "Fresh generated islands, moving platforms and occasional moon gravity. Shared online round seed and matching-generator lobby checks. All players need this version enabled. Family online gameplay verification is pending.",
-      "file": "Mods/Canna-ProceduralMaps-1.0.2.zip"
+      "version": "1.0.3",
+      "description": "Native textured islands, Drill terrain, moving platforms and shared online round seeds. All family players need the same version enabled.",
+      "file": "Mods/Canna-ProceduralMaps-1.0.3.zip"
     }
   ]
 }

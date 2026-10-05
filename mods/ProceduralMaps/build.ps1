@@ -14,6 +14,7 @@ $cannaPluginFolder = Join-Path $cannaOutput 'package\BepInEx\plugins\CannaProced
 New-Item -ItemType Directory -Path $cannaPluginFolder -Force | Out-Null
 Copy-Item -LiteralPath $cannaDll -Destination $cannaPluginFolder
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination (Join-Path $cannaOutput 'package\README.md')
-Compress-Archive -Path (Join-Path $cannaOutput 'package\*') -DestinationPath (Join-Path $cannaOutput 'Canna-ProceduralMaps-1.0.2.zip') -Force
-Write-Output 'Built Canna-ProceduralMaps-1.0.2.zip'
+Compress-Archive -Path (Join-Path $cannaOutput 'package\*') -DestinationPath (Join-Path $cannaOutput 'Canna-ProceduralMaps-1.0.3.zip') -Force
+Write-Output 'Built Canna-ProceduralMaps-1.0.3.zip'
+
 

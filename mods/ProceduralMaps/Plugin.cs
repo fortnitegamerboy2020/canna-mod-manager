@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace Canna.ProceduralMaps
 {
-    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.0.2")]
+    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.0.3")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
@@ -20,13 +20,13 @@ namespace Canna.ProceduralMaps
         public static readonly Dictionary<AnimateVelocity, Island> Moving = new Dictionary<AnimateVelocity, Island>();
         internal static GameSessionHandler Session;
         internal static Layout Map;
-        internal const string Protocol = "canna-proc-1.0.2";
+        internal const string Protocol = "canna-proc-1.0.3";
         private void Awake()
         {
             Log = Logger;
             Enabled = Config.Bind("General", "Enabled", true, "Use the same generator version and enabled state on every family member's PC. Online start is blocked while a lobby member is missing the matching generator.");
             new Harmony("family.canna.proceduralmaps").PatchAll(typeof(Plugin).Assembly);
-            Log.LogInfo("Canna Procedural Maps 1.0.2: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
+            Log.LogInfo("Canna Procedural Maps 1.0.3: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
         }
         private void OnDestroy() { Log.LogInfo("Keeping procedural map hooks active across scene changes."); }
         internal static Fix F(int hundredths) { return (Fix)(long)hundredths / (Fix)100L; }
@@ -51,31 +51,20 @@ namespace Canna.ProceduralMaps
             Audit(__instance, originals, map);
             List<StickyRoundedRectangle> platforms = new List<StickyRoundedRectangle>();
             foreach (StickyRoundedRectangle original in originals)
-                if (original.GetComponent<AnimateVelocity>() != null && original.GetComponent<BoplBody>() != null && original.GetComponent<SpriteRenderer>() != null)
+                if (original.GetComponent<AnimateVelocity>() != null && original.GetComponent<BoplBody>() != null && original.GetComponent<SpriteRenderer>() != null && IsLayoutTemplate(original))
                     platforms.Add(original);
-            if (platforms.Count == 0)
-            {
-                string components = "";
-                foreach (Component component in originals[0].GetComponents<Component>()) components += component == null ? "Missing," : component.GetType().FullName + ",";
-                Plugin.Log.LogWarning("No resizable platform template; components=" + components);
-                return;
-            }
+            if (platforms.Count == 0) { Plugin.Log.LogWarning("No native physics template; retaining native map."); return; }
             foreach (StickyRoundedRectangle original in originals)
                 if (!platforms.Contains(original)) { original.gameObject.SetActive(false); Updater.DestroyFix(original.gameObject); }
             while (platforms.Count > map.islands.Length)
             {
                 StickyRoundedRectangle excess = platforms[platforms.Count - 1];
-                excess.gameObject.SetActive(false);
-                Updater.DestroyFix(excess.gameObject);
-                platforms.RemoveAt(platforms.Count - 1);
+                excess.gameObject.SetActive(false); Updater.DestroyFix(excess.gameObject); platforms.RemoveAt(platforms.Count - 1);
             }
             while (platforms.Count < map.islands.Length)
             {
-                // Native prefab registration assigns unique deterministic hierarchy numbers.
                 StickyRoundedRectangle copy = FixTransform.InstantiateFixed(platforms[0], Plugin.Position(map.islands[platforms.Count]), Fix.Zero);
                 copy.transform.SetParent(platforms[0].transform.parent, false);
-                // Scene templates carry absolute hierarchy numbers, unlike native prefabs.
-                // Preserve their initialization order while reserving unique simulation IDs.
                 MonoUpdatable[] registered = copy.GetComponentsInChildren<MonoUpdatable>();
                 Array.Sort(registered, delegate(MonoUpdatable a, MonoUpdatable b) { return a.HierarchyNumber.CompareTo(b.HierarchyNumber); });
                 for (int component = 0; component < registered.Length; component++)
@@ -86,13 +75,17 @@ namespace Canna.ProceduralMaps
             for (int i = 0; i < platforms.Count; i++)
             {
                 Island p = map.islands[i];
+                // Authored map paths/size animations refer to the old map's coordinates.
+                // Preserve terrain gameplay; let only the generated layout drive motion.
+                foreach (MonoUpdatable controller in platforms[i].GetComponents<MonoUpdatable>())
+                    if (controller is AntiLockPlatform || controller is VectorFieldPlatform || controller is AnimatePlatformSize)
+                        controller.enabled = false;
                 FixTransform ft = platforms[i].GetComponent<FixTransform>();
                 Plugin.Set(ft, "_position", Plugin.Position(p));
                 Plugin.Set(ft, "_rotation", Fix.Zero);
                 Plugin.Set(ft, "_up", Vec2.up); Plugin.Set(ft, "_right", Vec2.right);
                 ft.position = Plugin.Position(p); ft.rotation = Fix.Zero;
-                ft.offset = Vec2.zero;
-                ft.SetScale_DPhysicsOnly(Fix.One);
+
                 BoplBody body = platforms[i].GetComponent<BoplBody>();
                 if (body != null)
                 {
@@ -101,25 +94,23 @@ namespace Canna.ProceduralMaps
                     body.gravityScale = Fix.Zero;
                 }
                 DPhysicsRoundedRect rr = platforms[i].GetComponent<DPhysicsRoundedRect>();
-                rr.Scale = Fix.One;
-                Plugin.Set(rr, "startExtents", new Vec2(Plugin.F(p.width), Plugin.F(p.height)));
-                Plugin.Set(rr, "startRadius", Plugin.F(p.radius));
-                if (platforms[i].GetComponent<ResizablePlatform>() == null)
-                {
-                    // Preset islands have no resizer. Add the native controller so their
-                    // rendered shader geometry follows the new collider dimensions too.
-                    Updater.BeginRegisterPrefab();
-                    ResizablePlatform resizer;
-                    try { resizer = platforms[i].gameObject.AddComponent<ResizablePlatform>(); }
-                    finally { Updater.EndRegisterPrefab(); }
-                    resizer.HierarchyNumber = 200000000 + i * 1000 + 900;
-                    resizer.RemoveAnimation = new AnimationCurveFixed {
-                        keys = new KeyFrameF[] {
-                            new KeyFrameF { time = Fix.Zero, value = Fix.One },
-                            new KeyFrameF { time = (Fix)1L / (Fix)2L, value = Fix.Zero }
-                        }
-                    };
-                }
+                // Use the game's own uniform scaling API. It keeps the stock sprite,
+                // material, slime trails, collision shape and Drill terrain layers together.
+                // Keep the requested horizontal span and the native silhouette's vertical depth.
+                Vec2 extents = (Vec2)AccessTools.Field(typeof(DPhysicsRoundedRect), "startExtents").GetValue(rr);
+                Fix radius = (Fix)AccessTools.Field(typeof(DPhysicsRoundedRect), "startRadius").GetValue(rr);
+                Fix ratio = Plugin.F(p.width + p.radius) / (extents.x + radius);
+                Fix requestedScale = rr.Scale * ratio;
+                rr.MinScale = Fix.Min(rr.MinScale, requestedScale);
+                rr.Scale = requestedScale;
+                platforms[i].baseScaleForPlatform = rr.Scale;
+                GrowOnStart grow = platforms[i].GetComponent<GrowOnStart>();
+                if (grow != null) Plugin.Set(grow, "scaleUp", rr.Scale);
+                extents = (Vec2)AccessTools.Field(typeof(DPhysicsRoundedRect), "startExtents").GetValue(rr);
+                radius = (Fix)AccessTools.Field(typeof(DPhysicsRoundedRect), "startRadius").GetValue(rr);
+                p.width = (int)(long)(extents.x * (Fix)100L);
+                p.height = (int)(long)(extents.y * (Fix)100L);
+                p.radius = (int)(long)(radius * (Fix)100L);
                 AnimateVelocity movement = platforms[i].GetComponent<AnimateVelocity>();
                 if (movement != null)
                 {
@@ -133,12 +124,26 @@ namespace Canna.ProceduralMaps
             for (int i = 0; i < 4; i++)
             {
                 Island p = map.islands[i];
+                // Authored map paths/size animations refer to the old map's coordinates.
+                // Preserve terrain gameplay; let only the generated layout drive motion.
+                foreach (MonoUpdatable controller in platforms[i].GetComponents<MonoUpdatable>())
+                    if (controller is AntiLockPlatform || controller is VectorFieldPlatform || controller is AnimatePlatformSize)
+                        controller.enabled = false;
                 __instance.teamSpawns[i] = new Vec2(Plugin.F(p.x), Plugin.F(p.y + p.height + p.radius + 150));
             }
             __instance.teammateSpawnSpacing = (Fix)2L;
             __instance.levelType = map.moon ? LevelType.space : LevelType.grass;
+            map.RefreshFingerprint();
+            File.WriteAllText(Path.Combine(Paths.ConfigPath, "CannaMaps/last-generated-map.json"), map.ToJson());
             Plugin.Map = map;
             Plugin.Log.LogInfo("Generated " + (map.moon ? "moon" : "normal-gravity") + " map: seed=" + seed + ", islands=" + map.islands.Length + ", layout=" + map.fingerprint + ". Compare this fingerprint on every client.");
+        }
+        private static bool IsLayoutTemplate(StickyRoundedRectangle platform)
+        {
+            DPhysicsRoundedRect rr = platform.GetComponent<DPhysicsRoundedRect>();
+            Vec2 ext = (Vec2)AccessTools.Field(typeof(DPhysicsRoundedRect), "startExtents").GetValue(rr);
+            Fix radius = (Fix)AccessTools.Field(typeof(DPhysicsRoundedRect), "startRadius").GetValue(rr);
+            return ext.x + radius > Fix.Zero && ext.y + radius <= (ext.x + radius) * (Fix)101L / (Fix)100L;
         }
         private static void Audit(GameSessionHandler session, StickyRoundedRectangle[] originals, Layout map)
         {
@@ -162,17 +167,21 @@ namespace Canna.ProceduralMaps
         }
     }
 
-    [HarmonyPatch(typeof(DPhysicsRoundedRect), "Initialize")]
-    internal static class ResizeAfterInit
+    [HarmonyPatch]
+    internal static class AuthoredMapControllers
     {
-        private static void Postfix(DPhysicsRoundedRect __instance)
+        private static IEnumerable<MethodBase> TargetMethods()
         {
-            if (Plugin.Map == null) return;
+            foreach (Type type in new Type[] { typeof(AntiLockPlatform), typeof(VectorFieldPlatform), typeof(AnimatePlatformSize) })
+            {
+                yield return AccessTools.Method(type, "Init");
+                yield return AccessTools.Method(type, "UpdateSim");
+            }
+        }
+        private static bool Prefix(MonoUpdatable __instance)
+        {
             AnimateVelocity movement = __instance.GetComponent<AnimateVelocity>();
-            Island p;
-            if (movement == null || !Plugin.Moving.TryGetValue(movement, out p)) return;
-            ResizablePlatform resizer = __instance.GetComponent<ResizablePlatform>();
-            if (resizer != null) resizer.ResizePlatform(Plugin.F(p.height), Plugin.F(p.width), Plugin.F(p.radius), false);
+            return movement == null || !Plugin.Moving.ContainsKey(movement);
         }
     }
 
@@ -218,7 +227,7 @@ namespace Canna.ProceduralMaps
             {
                 if (__instance.currentLobby.GetMemberData(member, "canna_map_generator") != Plugin.Protocol)
                 {
-                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.0.2 enabled. Wait a moment after joining, then retry.");
+                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.0.3 enabled. Wait a moment after joining, then retry.");
                     return false;
                 }
             }
@@ -226,3 +235,9 @@ namespace Canna.ProceduralMaps
         }
     }
 }
+
+
+
+
+
+

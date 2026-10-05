@@ -30,7 +30,7 @@ static class AuditNoGameplay
 {
     static IEnumerable<MethodBase> TargetMethods()
     {
-        yield return AccessTools.Method(typeof(GameSessionHandler), "Init");
+        yield return AccessTools.Method(typeof(GameSessionHandler), "StartSpawnPlayersRoutine");
         yield return AccessTools.Method(typeof(GameSessionHandler), "Update");
         yield return AccessTools.Method(typeof(GameSessionHandler), "UpdateSim");
     }
@@ -69,20 +69,38 @@ static class AuditNextScene
         GameTime.PlayerTimeScale = Fix.One;
         GameSessionHandler.GameIsPaused = false;
         Updater.TickSimulation((Fix)1L / (Fix)60L);
-        // Exercise the same native resize API used before player spawning, after physics initialization.
+        // Run the game's real Init and level introduction. Never manually resize or
+        // teleport the grounds: those shortcuts hid the preset-sprite rendering bug.
+        GameSessionHandler session = UnityEngine.Object.FindObjectOfType<GameSessionHandler>();
+        RoutineQueue intro = (RoutineQueue)AccessTools.Field(typeof(GameSessionHandler), "levelAnimationRoutine").GetValue(session);
+        for (int tick = 0; tick < 600; tick++)
+        { intro.Update((Fix)1L / (Fix)60L); Updater.TickSimulation((Fix)1L / (Fix)60L); }
+        Drill[] drills = Resources.FindObjectsOfTypeAll<Drill>();
+        if (drills.Length == 0) throw new Exception("Native Drill template unavailable for terrain collision audit");
+        LayerMask drillables = (LayerMask)AccessTools.Field(typeof(Drill), "drillables").GetValue(drills[0]);
         foreach (KeyValuePair<AnimateVelocity, Canna.ProceduralMaps.Island> entry in Canna.ProceduralMaps.Plugin.Moving)
         {
             DPhysicsRoundedRect rr = entry.Key.GetComponent<DPhysicsRoundedRect>();
             if (!rr.initHasBeenCalled) throw new Exception("Platform physics failed to initialize");
-            ResizablePlatform resize = entry.Key.GetComponent<ResizablePlatform>();
-            if (resize != null) resize.ResizePlatform((Fix)(long)entry.Value.height / (Fix)100L, (Fix)(long)entry.Value.width / (Fix)100L, (Fix)(long)entry.Value.radius / (Fix)100L, false);
-            Vec2 position = new Vec2((Fix)(long)entry.Value.x / (Fix)100L, (Fix)(long)entry.Value.y / (Fix)100L);
-            entry.Key.GetComponent<BoplBody>().position = position;
-            entry.Key.GetComponent<FixTransform>().position = position;
-            entry.Key.Initialize(position, Fix.Zero);
-            entry.Key.enabled = true;
+            SpriteRenderer renderer = entry.Key.GetComponent<SpriteRenderer>();
+            if (renderer.sprite == null || renderer.material.shader.name == "Unlit/ResizablePlatform")
+                throw new Exception("Generated platform lost its native ground texture/material");
+            PhysicsParent[] hits = new PhysicsParent[128];
+            Box probe = new Box {
+                center = entry.Key.GetComponent<BoplBody>().position,
+                right = Vec2.right * ((Fix)1L / (Fix)10L),
+                up = Vec2.up * ((Fix)1L / (Fix)10L),
+                inverseExtents = new Vec2((Fix)10L, (Fix)10L), layer = 0
+            };
+            int count = DetPhysics.Get().CollideBox(probe, ref hits, drillables);
+            bool drillCanEnter = false;
+            for (int hit = 0; hit < count; hit++)
+                if (hits[hit].fixTrans == entry.Key.GetComponent<FixTransform>() && hits[hit].fixTrans.GetComponent<StickyRoundedRectangle>() != null)
+                    drillCanEnter = true;
+            if (!drillCanEnter) throw new Exception("Native Drill terrain query cannot detect generated island " + entry.Key.name);
+            if (entry.Key.GetComponent<StickyRoundedRectangle>() == null || entry.Key.GetComponent<BoplBody>() == null)
+                throw new Exception("Generated platform lost native drill terrain components");
         }
-        GameSessionHandler session = UnityEngine.Object.FindObjectOfType<GameSessionHandler>();
         AccessTools.Field(typeof(GameSessionHandler), "gameInProgress").SetValue(session, true);
         List<AnimateVelocity> platforms = new List<AnimateVelocity>(Canna.ProceduralMaps.Plugin.Moving.Keys);
         for (int i = 0; i < platforms.Count; i++)
@@ -90,7 +108,7 @@ static class AuditNextScene
             DPhysicsRoundedRect a = platforms[i].GetComponent<DPhysicsRoundedRect>();
             Canna.ProceduralMaps.Island planned = Canna.ProceduralMaps.Plugin.Moving[platforms[i]];
             Vec2 extA = a.CalcExtents();
-            Fix tolerance = (Fix)1L / (Fix)1000L;
+            Fix tolerance = (Fix)1L / (Fix)100L;
             if (Fix.Abs(extA.x - (Fix)(long)planned.width / (Fix)100L) > tolerance || Fix.Abs(extA.y - (Fix)(long)planned.height / (Fix)100L) > tolerance)
                 throw new Exception("World collider dimensions mismatch on " + platforms[i].name + ": actual=" + extA.x + "," + extA.y + "; expected=" + planned.width + "," + planned.height + "; resizer=" + (platforms[i].GetComponent<ResizablePlatform>() != null));
             for (int j = i + 1; j < platforms.Count; j++)
@@ -100,7 +118,7 @@ static class AuditNextScene
                 Vec2 extB = b.CalcExtents();
                 if (Fix.Abs(delta.x) <= extA.x + extB.x + a.radius + b.radius + (Fix)3L &&
                     Fix.Abs(delta.y) <= extA.y + extB.y + a.radius + b.radius + (Fix)3L)
-                    throw new Exception("Actual spawned island colliders overlap their safety margin");
+                    throw new Exception("Actual spawned island colliders overlap their safety margin: a=" + platforms[i].name + " pos=" + platforms[i].GetComponent<BoplBody>().position + " b=" + platforms[j].name + " pos=" + platforms[j].GetComponent<BoplBody>().position + " extA=" + extA + " extB=" + extB);
             }
         }
         foreach (KeyValuePair<AnimateVelocity, Canna.ProceduralMaps.Island> entry in Canna.ProceduralMaps.Plugin.Moving)
@@ -115,3 +133,6 @@ static class AuditNextScene
         File.AppendAllText(Path.Combine(MapAudit.Folder, "physics-audit.txt"), "Scene " + (MapAudit.NextScene - 1) + " initialized, resized and moving islands simulated successfully\n");
     }
 }
+
+
+

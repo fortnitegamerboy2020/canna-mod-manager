@@ -1,6 +1,6 @@
 [package]
 name = "canna-mod-manager"
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 
 [dependencies]
@@ -20,4 +20,5 @@ winreg = "0.55"
 [profile.release]
 opt-level = 2
 strip = true
+
 
