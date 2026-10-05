@@ -14,9 +14,9 @@ try {
     $cannaCommit = Invoke-CannaApi "git/commits/$($cannaRef.object.sha)"
     $cannaGameFile = Invoke-CannaApi 'contents/bopl-battle/game.json?ref=main'
     $cannaGame = [System.Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($cannaGameFile.content)) | ConvertFrom-Json
-    $cannaModFile = Join-Path $cannaRoot 'mods\DrillThroughBall\build\Canna-DrillThroughBall-1.0.4.zip'
+    $cannaModFile = Join-Path $cannaRoot 'mods\DrillThroughBall\build\Canna-DrillThroughBall-1.0.5.zip'
     $cannaHash = (Get-FileHash -LiteralPath $cannaModFile -Algorithm SHA256).Hash.ToLowerInvariant()
-    $cannaMod = @{ name = 'Drill Through Ball'; version = '1.0.4'; description = 'An actively spinning drill wins confirmed Bounce Ball contact; scaled attack hitboxes cut balls too. All players need the same mod. Gameplay testing is pending.'; file = 'Mods/Canna-DrillThroughBall-1.0.4.zip'; sha256 = $cannaHash }
+    $cannaMod = @{ name = 'Drill Through Ball'; version = '1.0.5'; description = 'An actively spinning drill wins confirmed Bounce Ball contact; scaled attack hitboxes cut balls too. Steel Anvils are excluded and retain their native lethal collision. All players need the same mod. Gameplay testing is pending.'; file = 'Mods/Canna-DrillThroughBall-1.0.5.zip'; sha256 = $cannaHash }
     $cannaGame.mods = @($cannaGame.mods | Where-Object { $_.name -ne $cannaMod.name }) + @($cannaMod)
     $cannaUploads = @(
         @{ path = 'bopl-battle/Framework/LICENSE.txt'; bytes = [System.IO.File]::ReadAllBytes('C:\Users\t_tra\Downloads\bopl-battle\Framework\LICENSE.txt') },
@@ -32,7 +32,7 @@ try {
         $cannaTreeEntries += @{ path = $cannaUpload.path; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaTreeEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = 'Keep drill gameplay hooks active across Bopl scene loading (1.0.4)'; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = 'Exclude steel Anvils from Drill Through Ball piercing and death protection (1.0.5)'; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi 'git/refs/heads/main' 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     Write-Output "Published framework, drill mod and catalog metadata in commit $($cannaNewCommit.sha)."
 } catch {
