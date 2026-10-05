@@ -63,17 +63,26 @@ namespace Canna.Anvil
                 Frames[f].name="Canna Anvil "+f;
                 UnityEngine.Object.DontDestroyOnLoad(Frames[f]);
             }
-            // UI images use sprite PPU as well as their rect. Keep a padded, centered
-            // icon independent of the much larger gameplay sprite.
+        }
+        internal static void CreateIcon(Sprite nativeIcon)
+        {
+            if(Icon!=null)return;
+            // Match the native icon's world diameter: HUD uses SpriteRenderer while
+            // the picker uses Image, so a hardcoded UI PPU made the HUD microscopic.
             Texture2D iconTexture=new Texture2D(128,128,TextureFormat.RGBA32,false);
             for(int y=0;y<128;y++)for(int x=0;x<128;x++)
             {
-                float sx=(x-64)/.68f+64,sy=(y-64)/.68f+60;
+                float sx=(x-64)/.82f+64,sy=(y-64)/.82f+60;
                 Color c=sx>=0 && sx<128 && sy>=0 && sy<128 ? Frames[16].texture.GetPixelBilinear(sx/128,sy/128) : Color.clear;
+                float distance=Vector2.Distance(new Vector2(x+.5f,y+.5f),new Vector2(64,64));
+                Color background=distance<=55?new Color(.32f,.39f,.45f,1):Color.clear;
+                if(distance<49)background=new Color(.69f,.78f,.84f,1);
+                c=Color.Lerp(background,new Color(c.r,c.g,c.b,1),c.a);
                 iconTexture.SetPixel(x,y,c);
             }
             iconTexture.Apply();iconTexture.filterMode=FilterMode.Bilinear;
-            Icon=Sprite.Create(iconTexture,new Rect(0,0,128,128),new Vector2(.5f,.5f),100);
+            float ppu=128f/(nativeIcon.rect.width/nativeIcon.pixelsPerUnit);
+            Icon=Sprite.Create(iconTexture,new Rect(0,0,128,128),new Vector2(.5f,.5f),ppu);
             Icon.name="Canna Anvil menu icon";
             UnityEngine.Object.DontDestroyOnLoad(iconTexture);UnityEngine.Object.DontDestroyOnLoad(Icon);
         }

@@ -41,11 +41,12 @@ static class MenuDrive {
     AccessTools.Property(typeof(AbilityGrid),"SelectedIcon").SetValue(grid,entries.Length-1,null);
     object state=states[grid.gameObject.GetInstanceID()];
     MethodInfo update=AccessTools.Method(AccessTools.TypeByName("AbilityScrollBar.UpdatePatch"),"Postfix");
-    for(int i=0;i<100;i++)update.Invoke(null,new object[]{grid});
+    for(int i=0;i<10000;i++)update.Invoke(null,new object[]{grid});
     float offset=(float)AccessTools.Field(state.GetType(),"scrollOffset").GetValue(state);
     Rect rect=(Rect)AccessTools.Field(state.GetType(),"visibleRect").GetValue(state);
     float size=(float)AccessTools.Field(state.GetType(),"entrySize").GetValue(state);
     float y=entries[entries.Length-1].rectTrans.anchoredPosition.y;
+    File.AppendAllText(Path.Combine(MenuAudit.Folder,"menu-checks.txt"),"Viewport="+rect+", y="+y+", entrySize="+size+", offset="+offset+"\n");
     if(offset<=0 || y-size*.5f<rect.yMin-.5f || y+size*.5f>rect.yMax+.5f)throw new Exception("Last ability does not fit scrolled viewport");
     File.AppendAllText(Path.Combine(MenuAudit.Folder,"menu-checks.txt"),"PASS Last entry scrolls inside native viewport; entries="+entries.Length+", offset="+offset+"\n");
    }

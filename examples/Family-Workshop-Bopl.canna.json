@@ -34,14 +34,14 @@
       "enabled": true
     },
     {
+      "description": "Larger steel anvil with a quick 0.20-second slime morph and five-second duration. Native-sized circular eyeless HUD/menu icon. Requires AbilityScrollBar for the expanded picker. All players need this version; family online verification is pending.",
       "name": "Canna Anvil",
-      "file": "Mods/Canna-Anvil-1.0.1.zip",
-      "version": "1.0.1",
+      "file": "Mods/Canna-Anvil-1.0.2.zip",
+      "version": "1.0.2",
+      "sha256": "369d3bf368b5e7797b30a6de769632850c2360f6bdd703be77d2a9c014ac9068",
       "dependencies": [
         "AbilityScrollBar"
       ],
-      "sha256": "572e4d113c7843e2fe455b485dfcae6fed9f9c95b8677792eee78fcd1a467ba0",
-      "description": "Larger steel anvil with full slime-to-anvil morph, padded eyeless menu icon and native combat. Entry completes before cancellation. Requires AbilityScrollBar for the expanded picker. All players need this version; family online verification is pending.",
       "enabled": true
     },
     {

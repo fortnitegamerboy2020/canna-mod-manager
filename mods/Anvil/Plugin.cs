@@ -9,13 +9,13 @@ using UnityEngine;
 
 namespace Canna.Anvil
 {
-    [BepInPlugin("family.canna.anvil", "Canna Anvil", "1.0.1")]
+    [BepInPlugin("family.canna.anvil", "Canna Anvil", "1.0.2")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
         internal static GameObject Prefab;
         internal static Material Steel;
-        internal const string Protocol = "canna-anvil-1.0.1";
+        internal const string Protocol = "canna-anvil-1.0.2";
         void Awake()
         {
             Log = Logger;
@@ -23,7 +23,7 @@ namespace Canna.Anvil
             Steel = new Material(Shader.Find("Sprites/Default"));
             UnityEngine.Object.DontDestroyOnLoad(Steel);
             new Harmony("family.canna.anvil").PatchAll(typeof(Plugin).Assembly);
-            Logger.LogInfo("Anvil 1.0.1 loaded: separate selectable ability, native Rock lifecycle, heavy falling physics and 17-frame morph. All online players need the same mod.");
+            Logger.LogInfo("Anvil 1.0.2 loaded: separate selectable ability, native Rock lifecycle, heavy falling physics and 17-frame morph. All online players need the same mod.");
         }
         internal static void Register(NamedSpriteList list)
         {
@@ -33,6 +33,7 @@ namespace Canna.Anvil
             });
             // Do not expose a locked DLC/demo ability or change an unrelated sprite list.
             if (source.associatedGameObject == null) return;
+            Art.CreateIcon(source.sprite);
             if (Prefab == null)
             {
                 GameObject root = new GameObject("Canna Anvil prefab container");
@@ -53,7 +54,7 @@ namespace Canna.Anvil
                 FieldInfo startRadius=AccessTools.Field(typeof(DPhysicsCircle),"startRadius");
                 startRadius.SetValue(hull,(Fix)startRadius.GetValue(hull)*(Fix)2L);
                 Prefab.GetComponent<Ability>().Cooldown = (Fix)6L;
-                AccessTools.Field(typeof(BounceBall), "maxDuration").SetValue(Prefab.GetComponent<BounceBall>(), (Fix)4L);
+                AccessTools.Field(typeof(BounceBall), "maxDuration").SetValue(Prefab.GetComponent<BounceBall>(), (Fix)5L);
                 AccessTools.Field(typeof(BounceBall), "playerCollisionBounce").SetValue(Prefab.GetComponent<BounceBall>(), (Fix)2L);
                 Prefab.GetComponent<SpriteRenderer>().sprite = Art.Frames[16];
             }
@@ -90,7 +91,7 @@ namespace Canna.Anvil
         internal BounceBall Ball;
         internal SpriteRenderer Renderer;
         internal Color SlimeColor = new Color(.8f, .9f, .6f, 1);
-        internal static readonly Fix MorphDuration=(Fix)55L/(Fix)100L;
+        internal static readonly Fix MorphDuration=(Fix)20L/(Fix)100L;
         internal void Paint()
         {
             if (Ball == null) Ball = GetComponent<BounceBall>();
@@ -137,12 +138,12 @@ namespace Canna.Anvil
     [HarmonyPatch(typeof(BounceBall), "LateUpdateSim")]
     static class AnimateAnvil
     {
-        // A tap must not start the native exit on the first simulation tick, which
-        // previously jumped straight to frame 16 and hid the entire entry morph.
+        // Timed transformation: releasing the activation button must not shorten
+        // the requested five-second duration. Native timeout/death still exit it.
         static void Prefix(BounceBall __instance, Fix ___timeSinceActivation, ref bool ___IsCancellable)
         {
             if(__instance.GetComponent<AnvilState>()!=null)
-                ___IsCancellable=___timeSinceActivation>=AnvilState.MorphDuration+(Fix)1L/(Fix)4L;
+                ___IsCancellable=false;
         }
         static void Postfix(BounceBall __instance, BoplBody ___body)
         {
@@ -194,7 +195,7 @@ namespace Canna.Anvil
             foreach (Steamworks.Friend member in __instance.currentLobby.Members)
                 if (__instance.currentLobby.GetMemberData(member, "canna_anvil") != expected)
                 {
-                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Anvil 1.0.1 and the same ability list/order. Wait a moment after joining, then retry.");
+                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Anvil 1.0.2 and the same ability list/order. Wait a moment after joining, then retry.");
                     return false;
                 }
             return true;
