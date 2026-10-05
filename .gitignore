@@ -1,0 +1,7 @@
+/target/
+/dist/
+*.log
+/canna-token.txt
+/canna-update-token.txt
+/mods/*/build/
+

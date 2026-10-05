@@ -1,0 +1,35 @@
+{
+  "format": "canna_modpack",
+  "schema_version": 1,
+  "id": "pack-family-procedural-bopl",
+  "name": "Family Procedural Bopl",
+  "description": "Shared-seed generated maps and Drill Through Ball. Install the same pack on every family PC.",
+  "game": {
+    "app_id": 1686940,
+    "name": "Bopl Battle",
+    "folder": "bopl-battle",
+    "framework": "bepinex"
+  },
+  "repository": {
+    "owner": "fortnitegamerboy2020",
+    "repository": "manager-uploaded-mods",
+    "branch": "main",
+    "catalog_folder": ""
+  },
+  "mods": [
+    {
+      "name": "Drill Through Ball",
+      "version": "1.0.4",
+      "file": "Mods/Canna-DrillThroughBall-1.0.4.zip",
+      "sha256": "fcbefb84fc3c57431a937fbe844fd46c00f047a7b1226018684e7be44802d270",
+      "description": "An actively spinning drill wins confirmed Bounce Ball contact; scaled attack hitboxes cut balls too. All players need the same mod. Gameplay testing is pending."
+    },
+    {
+      "version": "1.0.0",
+      "name": "Canna Procedural Maps",
+      "description": "Fresh generated islands, moving platforms and occasional moon gravity. Shared online round seed and matching-generator lobby checks. All players need this version enabled. Family online gameplay verification is pending.",
+      "file": "Mods/Canna-ProceduralMaps-1.0.0.zip",
+      "sha256": "1eb1796e9e6622188a55058a2ef8546223f9a6f2a32212353562d7e986472ca0"
+    }
+  ]
+}

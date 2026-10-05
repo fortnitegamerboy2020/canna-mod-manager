@@ -1,0 +1,20 @@
+{
+  "format": "canna_modpack",
+  "schema_version": 1,
+  "id": "pack-family-bopl-night-starter",
+  "name": "Family Bopl Night",
+  "description": "Our family Bopl Battle pack. Connect a repository and add your mods in the editor.",
+  "game": {
+    "app_id": 1686940,
+    "name": "Bopl Battle",
+    "folder": "bopl-battle",
+    "framework": "bepinex"
+  },
+  "repository": {
+    "owner": "",
+    "repository": "manager-uploaded-mods",
+    "branch": "main",
+    "catalog_folder": ""
+  },
+  "mods": []
+}
