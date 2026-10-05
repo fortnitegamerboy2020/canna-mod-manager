@@ -14,12 +14,12 @@ try {
     $cannaCommit = Invoke-CannaApi "git/commits/$($cannaRef.object.sha)"
     $cannaGameFile = Invoke-CannaApi 'contents/bopl-battle/game.json?ref=main'
     $cannaGame = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($cannaGameFile.content)) | ConvertFrom-Json
-    $cannaModFile = Join-Path $cannaRoot 'mods\ProceduralMaps\build\Canna-ProceduralMaps-1.1.0.zip'
+    $cannaModFile = Join-Path $cannaRoot 'mods\ProceduralMaps\build\Canna-ProceduralMaps-1.1.1.zip'
     $cannaHash = (Get-FileHash -LiteralPath $cannaModFile -Algorithm SHA256).Hash.ToLowerInvariant()
-    $cannaMod = @{ name = 'Canna Procedural Maps'; version = '1.1.0'; description = 'Fresh generated maps with native ground textures and Drill terrain, six varied layout families, one to nine islands including large continents and satellites, moving platforms, and occasional moon gravity. Shared seeds and matching-generator lobby checks. All players need this version enabled. Family online gameplay verification is pending.'; file = 'Mods/Canna-ProceduralMaps-1.1.0.zip'; sha256 = $cannaHash }
+    $cannaMod = @{ name = 'Canna Procedural Maps'; version = '1.1.1'; description = 'Fresh generated maps with native ground textures and Drill terrain, six varied layout families, one to nine islands including large continents and satellites, moving platforms, native moon environments and occasional spinning satellite panels. Shared seeds and matching-generator lobby checks. All players need this version enabled. Family online gameplay verification is pending.'; file = 'Mods/Canna-ProceduralMaps-1.1.1.zip'; sha256 = $cannaHash }
     $cannaGame.mods = @($cannaGame.mods | Where-Object { $_.name -ne $cannaMod.name }) + @($cannaMod)
     $cannaUploads = @(
-        @{ path = 'bopl-battle/Mods/Canna-ProceduralMaps-1.1.0.zip'; bytes = [IO.File]::ReadAllBytes($cannaModFile) },
+        @{ path = 'bopl-battle/Mods/Canna-ProceduralMaps-1.1.1.zip'; bytes = [IO.File]::ReadAllBytes($cannaModFile) },
         @{ path = 'bopl-battle/Mods/ProceduralMaps-README.md'; bytes = [IO.File]::ReadAllBytes((Join-Path $cannaRoot 'mods\ProceduralMaps\README.md')) },
         @{ path = 'bopl-battle/game.json'; bytes = [Text.Encoding]::UTF8.GetBytes(($cannaGame | ConvertTo-Json -Depth 20)) }
     )
@@ -29,7 +29,7 @@ try {
         $cannaEntries += @{ path = $cannaUpload.path; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = 'Fix native textured procedural terrain, Drill collision and authored map controller overrides'; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = 'Load seed-selected native moon scenes and synchronized spinning satellites'; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi 'git/refs/heads/main' 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     "Published procedural mod and catalog: $($cannaNewCommit.sha)"
 } catch {

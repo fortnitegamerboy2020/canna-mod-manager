@@ -7,7 +7,7 @@ namespace Canna.ProceduralMaps
     public sealed class Island
     {
         // All dimensions are integer hundredths of a game unit.
-        public int x, y, width, height, radius, drift, period, phase;
+        public int x, y, width, height, radius, drift, period, phase, spin;
     }
     [Serializable]
     public sealed class Layout
@@ -70,10 +70,13 @@ namespace Canna.ProceduralMaps
             map.RefreshFingerprint();
             return map;
         }
+        public static int NativeScene(uint seed){return Generate(seed,6).moon?((seed & 1)==0?39:41):6+(int)((seed>>16)%33);}
         public static bool Separate(Island p,Island q,int gap){
-            return Math.Abs(p.x-q.x)>p.width+q.width+p.radius+q.radius+p.drift+q.drift+gap
-                || Math.Abs(p.y-q.y)>p.height+q.height+p.radius+q.radius+gap;
+            return Math.Abs(p.x-q.x)>EnvelopeX(p)+EnvelopeX(q)+p.drift+q.drift+gap
+                || Math.Abs(p.y-q.y)>EnvelopeY(p)+EnvelopeY(q)+gap;
         }
+        static int EnvelopeX(Island p){return p.spin==0?p.width+p.radius:IntSqrt((long)p.width*p.width+(long)p.height*p.height)+p.radius+1;}
+        static int EnvelopeY(Island p){return p.spin==0?p.height+p.radius:EnvelopeX(p);}
         public static int IntSqrt(long n){
             if(n<=0)return 0;long lo=0,hi=Math.Min(n,1000000);
             while(lo<hi){long mid=(lo+hi+1)/2;if(mid*mid<=n)lo=mid;else hi=mid-1;}
@@ -92,7 +95,7 @@ namespace Canna.ProceduralMaps
                 for(int pass=0;pass<islands.Length;pass++){
                     bool changed=false;
                     for(int j=0;j<i;j++)if(!Separate(islands[i],islands[j],300)){
-                        islands[i].y=islands[j].y+islands[j].height+islands[j].radius+islands[i].height+islands[i].radius+350;changed=true;
+                        islands[i].y=islands[j].y+EnvelopeY(islands[j])+EnvelopeY(islands[i])+350;changed=true;
                     }
                     if(!changed)break;
                 }
@@ -111,7 +114,7 @@ namespace Canna.ProceduralMaps
             {
                 if (i > 0) text.Append(',');
                 Island p = islands[i];
-                text.AppendFormat(System.Globalization.CultureInfo.InvariantCulture, "{{\"x\":{0},\"y\":{1},\"width\":{2},\"height\":{3},\"radius\":{4},\"drift\":{5},\"period\":{6},\"phase\":{7}}}", p.x, p.y, p.width, p.height, p.radius, p.drift, p.period, p.phase);
+                text.AppendFormat(System.Globalization.CultureInfo.InvariantCulture, "{{\"x\":{0},\"y\":{1},\"width\":{2},\"height\":{3},\"radius\":{4},\"drift\":{5},\"period\":{6},\"phase\":{7},\"spin\":{8}}}", p.x, p.y, p.width, p.height, p.radius, p.drift, p.period, p.phase,p.spin);
             }
             text.Append("]}"); return text.ToString();
         }

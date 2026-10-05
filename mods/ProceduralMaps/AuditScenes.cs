@@ -22,7 +22,23 @@ public class MapAudit : BaseUnityPlugin
         if (!Active) return;
         Folder = Path.Combine(Paths.ConfigPath, "CannaMaps");
         Directory.CreateDirectory(Folder);
+        foreach(string name in new string[]{"audit-failure.txt","audit-complete.txt","satellite-audit.txt","physics-audit.txt"})
+            File.Delete(Path.Combine(Folder,name));
         // Integrated development build: Plugin installs assembly hooks exactly once.
+    }
+}
+[HarmonyPatch(typeof(GameSessionHandler),"Awake")]
+static class AuditThemeSeed
+{
+    [HarmonyPriority(Priority.First)]
+    static void Prefix(GameSessionHandler __instance) {
+        if(!MapAudit.Active)return;
+        uint seed=(uint)SceneManager.GetActiveScene().buildIndex*12347u;
+        bool moon=__instance.levelType==LevelType.space;
+        while(Canna.ProceduralMaps.Layout.Generate(seed,6).moon!=moon || (seed & 12)!=12)seed++;
+        Canna.ProceduralMaps.Theme.OfflineSeed=seed;
+        byte level=GameSession.CurrentLevel();
+        if(level!=Canna.ProceduralMaps.Theme.Level(seed))throw new Exception("Native CurrentLevel hook lost seed-selected theme");
     }
 }
 [HarmonyPatch]
@@ -131,6 +147,12 @@ static class AuditNextScene
                 if (before.x == after.x && before.y == after.y) throw new Exception("Generated moving island did not move");
                 break;
             }
+        foreach(var entry in Canna.ProceduralMaps.Plugin.Moving)if(entry.Value.spin!=0) {
+            BoplBody body=entry.Key.GetComponent<BoplBody>();Fix before=body.rotation;
+            for(int tick=0;tick<120;tick++)Updater.TickSimulation((Fix)1L/(Fix)60L);
+            if(Fix.Abs(body.rotation-before)<(Fix)1L/(Fix)10L)throw new Exception("Native satellite did not rotate");
+            File.AppendAllText(Path.Combine(MapAudit.Folder,"satellite-audit.txt"),"Scene "+SceneManager.GetActiveScene().buildIndex+" native satellite "+entry.Key.name+" spin="+entry.Value.spin+" angle="+body.rotation+"\n");
+        }
         File.AppendAllText(Path.Combine(MapAudit.Folder, "physics-audit.txt"), "Scene " + (MapAudit.NextScene - 1) + " initialized, resized and moving islands simulated successfully\n");
     }
 }

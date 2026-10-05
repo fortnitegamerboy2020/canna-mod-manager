@@ -25,19 +25,19 @@
       "description": "An actively spinning drill wins confirmed Bounce Ball contact; scaled attack hitboxes cut balls too. All players need the same mod. Gameplay testing is pending."
     },
     {
-      "sha256": "4b062b95bef86e37f1d84041c4be524503a723860dcb660d81550ac98a36130f",
-      "version": "1.1.0",
-      "description": "Six varied layout families with one to nine islands, including large continents, twins and satellites. Native textures, Drill terrain and shared online seeds.",
-      "file": "Mods/Canna-ProceduralMaps-1.1.0.zip",
+      "sha256": "d0ef4f6d4e70d174bbd7f5857a26f0408c37e68039c2c871fbf85ba708f8f025",
+      "version": "1.1.1",
+      "description": "Six varied layouts, large islands, actual native moon environments and optional spinning satellite panels. Native Drill terrain, shared theme/layout/spin seeds.",
+      "file": "Mods/Canna-ProceduralMaps-1.1.1.zip",
       "name": "Canna Procedural Maps",
       "enabled": true
     },
     {
-      "description": "Standard gravity, native inherited momentum, bounce and free rotation. Twice Rock mass, team-colored HUD circle and five-second transformation.",
+      "description": "Native flat-sided hull with low bounce and settling friction. Inherited momentum, free rotation, twice Rock mass, team-colored HUD circle and five-second transformation.",
       "name": "Canna Anvil",
-      "file": "Mods/Canna-Anvil-1.0.5.zip",
-      "version": "1.0.5",
-      "sha256": "8ce9b1b608ef20d855054cc6fce97d56f77f559e9e79bb6f4af42b3d34801aec",
+      "file": "Mods/Canna-Anvil-1.0.6.zip",
+      "version": "1.0.6",
+      "sha256": "23603e8adaf354c9661a45684e28bfc8498dd5d1e27f5b9412f89dbca998e505",
       "dependencies": [
         "AbilityScrollBar"
       ],

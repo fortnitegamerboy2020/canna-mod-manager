@@ -1,6 +1,13 @@
-# Canna Procedural Maps 1.1.0
+# Canna Procedural Maps 1.1.1
 
-1.1.0 generates six layout families: one large continent, a large island with two
+1.1.1 loads actual native space scenes for moon rounds, including their moon
+environment, asteroids and satellite platforms. About one third of seeds choose
+space. Optional upper satellites can spin clockwise or counterclockwise at
+seed-selected target speeds of 0.20 to 1.20 radians/second. Bopl's native angular
+controller drives the motion, with full rotating envelopes kept apart.
+Starting islands remain steady. Scene, layout and spin use the same shared seed.
+
+The generator offers six layout families: one large continent, a large island with two
 satellites, large twins, scattered archipelagos, stairways, and mixed-size islands.
 Rounds have one to nine islands, with randomized dimensions and placement.
 Offline rounds use fresh seeds; online rounds retain the host's shared seed.

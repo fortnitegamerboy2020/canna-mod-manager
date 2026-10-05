@@ -60,7 +60,7 @@ namespace Canna.Anvil
                 }
                 texture.SetPixels(pixels);texture.Apply(false,false);texture.filterMode=FilterMode.Bilinear;
                 UnityEngine.Object.DontDestroyOnLoad(texture);
-                Frames[f]=Sprite.Create(texture,new Rect(0,0,128,128),new Vector2(.5f,60f/128),24);
+                Frames[f]=Sprite.Create(texture,new Rect(0,0,128,128),new Vector2(59f/128,56f/128),24);
                 Frames[f].name="Canna Anvil "+f;
                 UnityEngine.Object.DontDestroyOnLoad(Frames[f]);
             }

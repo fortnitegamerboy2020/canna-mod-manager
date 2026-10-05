@@ -1,17 +1,29 @@
 param([string]$GamePath = 'D:\SteamLibrary\steamapps\common\Bopl Battle', [switch]$Run)
 $ErrorActionPreference = 'Stop'
-& (Join-Path $PSScriptRoot 'build.ps1') -GamePath $GamePath
-$cannaManaged = Join-Path $GamePath 'BoplBattle_Data\Managed'
-$cannaCore = Join-Path $PSScriptRoot 'build\references\BepInEx\core'
-$cannaCompiler = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
-& $cannaCompiler /nologo /noconfig /nostdlib /target:library "/out:$PSScriptRoot\build\Canna.MapAudit.dll" "/reference:$cannaManaged\mscorlib.dll" "/reference:$cannaManaged\netstandard.dll" "/reference:$cannaManaged\System.dll" "/reference:$cannaManaged\System.Core.dll" "/reference:$cannaCore\BepInEx.dll" "/reference:$cannaCore\0Harmony.dll" "/reference:$cannaManaged\Assembly-CSharp.dll" "/reference:$cannaManaged\UnityEngine.dll" "/reference:$cannaManaged\UnityEngine.CoreModule.dll" "/reference:$PSScriptRoot\build\Canna.ProceduralMaps.dll" "$PSScriptRoot\AuditScenes.cs"
-if ($LASTEXITCODE -ne 0) { throw 'Audit compilation failed' }
-if ($Run) {
-    if (Get-Process BoplBattle -ErrorAction SilentlyContinue) { throw 'Close Bopl Battle before the audit' }
-    $cannaFolder = Join-Path $GamePath 'BepInEx\plugins\CannaSceneAudit'
-    New-Item -ItemType Directory -Path $cannaFolder -Force | Out-Null
-    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'build\Canna.MapAudit.dll'),(Join-Path $PSScriptRoot 'build\Canna.ProceduralMaps.dll') -Destination $cannaFolder
-    $cannaProcess = Start-Process -FilePath (Join-Path $GamePath 'BoplBattle.exe') -ArgumentList '--canna-map-audit','-screen-fullscreen','0','-screen-width','800','-screen-height','600' -WorkingDirectory $GamePath -PassThru
-    $cannaProcess.Id | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'build\audit-pid.txt')
-    'Started scene audit process ' + $cannaProcess.Id
+& (Join-Path $PSScriptRoot 'build.ps1') -GamePath $GamePath -Audit
+if (-not $Run) { return }
+if (Get-Process BoplBattle -ErrorAction SilentlyContinue) { throw 'Close Bopl Battle before the audit.' }
+$cannaInstalled = @(Get-ChildItem -LiteralPath (Join-Path $GamePath 'BepInEx\plugins') -Filter 'Canna.ProceduralMaps.dll' -Recurse -File)
+if ($cannaInstalled.Count -ne 1) { throw 'Expected exactly one installed Procedural Maps DLL.' }
+$cannaDestination = $cannaInstalled[0].FullName
+$cannaBackup = Join-Path $PSScriptRoot 'build\pre-audit-production.dll'
+Copy-Item -LiteralPath $cannaDestination -Destination $cannaBackup
+$cannaProcess = $null
+try {
+    Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'build\Canna.ProceduralMaps.dll') -Destination $cannaDestination
+    $cannaProcess = Start-Process -FilePath (Join-Path $GamePath 'BoplBattle.exe') -WorkingDirectory $GamePath -ArgumentList '-batchmode','-nographics','--canna-map-audit' -WindowStyle Hidden -PassThru
+    for ($cannaWait = 0; $cannaWait -lt 24 -and -not $cannaProcess.HasExited; $cannaWait++) { $null = $cannaProcess.WaitForExit(10000) }
+    if (-not $cannaProcess.HasExited) { throw 'Owned scene audit timed out.' }
+    $cannaResults = Join-Path $GamePath 'BepInEx\config\CannaMaps'
+    if (Test-Path -LiteralPath (Join-Path $cannaResults 'audit-failure.txt')) { throw ([IO.File]::ReadAllText((Join-Path $cannaResults 'audit-failure.txt'))) }
+    Get-Content -LiteralPath (Join-Path $cannaResults 'audit-complete.txt')
+} finally {
+    if ($null -ne $cannaProcess -and -not $cannaProcess.HasExited) {
+        $cannaOwned = Get-CimInstance Win32_Process -Filter "ProcessId=$($cannaProcess.Id)"
+        if ($cannaOwned.CommandLine -match '--canna-map-audit' -and $cannaOwned.ExecutablePath -eq (Join-Path $GamePath 'BoplBattle.exe')) {
+            Stop-Process -Id $cannaProcess.Id -Force
+            $null = $cannaProcess.WaitForExit(10000)
+        }
+    }
+    Copy-Item -LiteralPath $cannaBackup -Destination $cannaDestination
 }

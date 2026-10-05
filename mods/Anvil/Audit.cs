@@ -52,6 +52,7 @@ namespace Canna.Anvil
                 if(Audit.Stage==0)
                 {
                     File.WriteAllText(Path.Combine(Audit.Folder,"checks.txt"),"");
+                    for(int layer=0;layer<32;layer++)File.AppendAllText(Path.Combine(Audit.Folder,"checks.txt"),"LAYER "+layer+" "+LayerMask.LayerToName(layer)+"\n");
                     NamedSpriteList list=(NamedSpriteList)AccessTools.Field(typeof(SteamManager),"abilityIconsFull").GetValue(__instance);
                     Audit.Check(list.IndexOf("Anvil")==31,"Anvil appended at index 31; stock indices preserved");
                     string signature=Plugin.LobbyProtocol(__instance);
@@ -79,7 +80,7 @@ namespace Canna.Anvil
                     Audit.Check(anvilMass==nativeMass*(Fix)2L,"Anvil mass halved to twice native Rock mass");
                     Audit.Check((float)AnvilState.MorphDuration<.067f,"Entry morph completes in about 67 milliseconds");
                     int bottom=128;for(int y=0;y<128;y++)for(int x=0;x<128;x++)if(Art.Frames[16].texture.GetPixel(x,y).a>.1f)bottom=Math.Min(bottom,y);
-                    float visibleBottom=(60-bottom)/24f;
+                    float visibleBottom=(56-bottom)/24f;
                     float hullBottom=(float)Plugin.Prefab.GetComponent<DPhysicsCircle>().GetStartRadius();
                     Audit.Check(Math.Abs(visibleBottom-hullBottom)<.03f,"Collider bottom matches opaque Anvil feet within 0.03 native units");
                     Audit.Check(Art.Frames[16].pixelsPerUnit==24,"Gameplay sprite twice the previous size");
@@ -121,7 +122,7 @@ namespace Canna.Anvil
                     Audit.Check(badge.Fill.enabled && badge.Border.enabled,"HUD badge returns with Anvil icon");
                     Audit.Slime.Spawn();slimes[1].Spawn();
                     PlayerHandler.Get().GetPlayer(1).CanUseAbilities=true;
-                    Audit.Slime.GetComponent<FixTransform>().position=new Vec2(Fix.Zero,(Fix)12L);
+                    Audit.Slime.GetComponent<FixTransform>().position=new Vec2(Fix.Zero,(Fix)50L);
                     AccessTools.Field(typeof(PlayerPhysics),"isGrounded").SetValue(Audit.Slime.GetComponent<PlayerPhysics>(),false);
                     Audit.Slime.GetComponent<PlayerBody>().selfImposedVelocity=new Vec2((Fix)4L,Fix.Zero);
                     Audit.Slime.GetComponent<PlayerBody>().externalVelocity=new Vec2((Fix)3L,(Fix)2L);
@@ -133,33 +134,40 @@ namespace Canna.Anvil
                     Audit.Check(body.velocity.x==(Fix)7L && body.velocity.y==(Fix)2L,"Native entry inherits momentum without a downward impulse");
                     Audit.Check(body.angularVelocity!=Fix.Zero,"Native entry retains momentum-derived spin");
                     Audit.Check(body.PhysicsBody().gravityScale==Fix.One,"Standard gravity reaches native physics body");
+                    DPhysicsBox nativeBox=Audit.Ability.GetComponent<DPhysicsBox>();
+                    Audit.Check(nativeBox!=null && nativeBox.initHasBeenCalled,"Native box collider is registered and initialized");
+                    Audit.Check(object.ReferenceEquals(AccessTools.Field(typeof(BoplBody),"physicsCollider").GetValue(body),nativeBox),"Anvil rigid body uses box physics rather than circle physics");
+                    Audit.Check(Audit.Ability.GetComponent<DPhysicsCircle>().shape==nativeBox.shape,"Native Rock API facade reports actual box shape");
 
                     Audit.Check(Audit.Ability.GetCooldown()==(Fix)6L,"Six second native cooldown");
                     Audit.Check(Audit.Ability.GetComponent<SpriteRenderer>().sprite==Art.Frames[0],"Entry begins as slime, not final anvil");
                     Audit.Check((Fix)AccessTools.Field(typeof(BounceBall),"maxDuration").GetValue(Audit.Ability.GetComponent<BounceBall>())==(Fix)5L,"Five second native Anvil duration");
-                    for(int tick=0;tick<3;tick++){body.position=new Vec2(Fix.Zero,(Fix)12L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
+                    for(int tick=0;tick<3;tick++){body.position=new Vec2(Fix.Zero,(Fix)50L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
                     Sprite intermediate=Audit.Ability.GetComponent<SpriteRenderer>().sprite;
                     Audit.Check(intermediate!=Art.Frames[0] && intermediate!=Art.Frames[16],"Native simulation displays intermediate morph frames");
                     body.angularVelocity=(Fix)2L;
                     Fix beforeRotation=body.rotation;
-                    body.position=new Vec2(Fix.Zero,(Fix)12L);
+                    body.position=new Vec2(Fix.Zero,(Fix)50L);
                     Updater.TickSimulation((Fix)1L/(Fix)60L);
                     Audit.Check(body.rotation!=beforeRotation && body.angularVelocity!=Fix.Zero,"Native simulation rotates freely without frame-by-frame locks");
                     Audit.Check(!(bool)AccessTools.Field(typeof(BounceBall),"IsExiting").GetValue(Audit.Ability.GetComponent<BounceBall>()),"Released input cannot cancel the entry morph immediately");
-                    for(int tick=0;tick<4;tick++){body.position=new Vec2(Fix.Zero,(Fix)12L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
+                    for(int tick=0;tick<4;tick++){body.position=new Vec2(Fix.Zero,(Fix)50L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
                     Audit.Check(Audit.Ability.GetComponent<SpriteRenderer>().sprite==Art.Frames[16],"Entry morph reaches steel anvil sprite");
                     foreach(PlayerAverageCamera c in UnityEngine.Object.FindObjectsOfType<PlayerAverageCamera>())c.enabled=false;
                     Camera.main.transform.position=new Vector3(0,0,-10);Camera.main.orthographicSize=18;
                     // Hold the preview in view without changing shipped gameplay.
-                    body.position=new Vec2(Fix.Zero,(Fix)5L);body.velocity=Vec2.zero;
+                    body.position=new Vec2(Fix.Zero,(Fix)50L);body.velocity=Vec2.zero;
                     Audit.Stage=2;Audit.Next=Time.unscaledTime+.1f;return;
                 }
                 if(Audit.Stage==2)
                 {
                     ScreenCapture.CaptureScreenshot(Path.Combine(Audit.Folder,"anvil-game.png"));
                     Player victim=PlayerHandler.Get().GetPlayer(2);
-                    SlimeController victimSlime=UnityEngine.Object.FindObjectsOfType<SlimeController>()[0];
-                    foreach(SlimeController s in UnityEngine.Object.FindObjectsOfType<SlimeController>())if(s.GetPlayerId()==2)victimSlime=s;
+                    GameSessionHandler session=UnityEngine.Object.FindObjectOfType<GameSessionHandler>();
+                    SlimeController[] slimes=(SlimeController[])AccessTools.Field(typeof(GameSessionHandler),"slimeControllers").GetValue(session);
+                    SlimeController victimSlime=slimes[1];
+                    victimSlime.Spawn();
+                    victimSlime.GetComponent<FixTransform>().position=new Vec2((Fix)20L,(Fix)50L);
                     PlayerCollision collisionHandler=victimSlime.GetPlayerCollision();
                     AccessTools.Field(typeof(PlayerCollision),"isInvulnerableMask").SetValue(collisionHandler,0u);
                     DPhysicsCircle anvilHull=Audit.Ability.GetComponent<DPhysicsCircle>();
@@ -172,6 +180,7 @@ namespace Canna.Anvil
                 if(Audit.Stage==3)
                 {
                     BounceBall ball=Audit.Ability.GetComponent<BounceBall>();
+                    TestFlatLandings(ball);
                     AccessTools.Field(typeof(BounceBall),"IsExiting").SetValue(ball,true);
                     AccessTools.Field(typeof(BounceBall),"timeSinceExitStarted").SetValue(ball,(Fix)AccessTools.Field(typeof(BounceBall),"exitTime").GetValue(ball)/(Fix)2L);
                     Audit.Ability.GetComponent<AnvilState>().Paint();
@@ -188,8 +197,60 @@ namespace Canna.Anvil
             catch(Exception error)
             {File.WriteAllText(Path.Combine(Audit.Folder,"failure.txt"),error.ToString());Application.Quit();Audit.Next=float.MaxValue;}
         }
+        static void TestFlatLandings(BounceBall ball)
+        {
+            StickyRoundedRectangle[] terrain=UnityEngine.Object.FindObjectsOfType<StickyRoundedRectangle>();
+            if(terrain.Length==0)throw new Exception("No native terrain available for landing fixture");
+            StickyRoundedRectangle floor=terrain[0];
+            foreach(MonoUpdatable controller in floor.GetComponents<MonoUpdatable>())
+                if(controller is AnimateVelocity || controller is AntiLockPlatform || controller is VectorFieldPlatform || controller is AnimatePlatformSize)controller.enabled=false;
+            for(int i=1;i<terrain.Length;i++)terrain[i].gameObject.SetActive(false);
+            DPhysicsRoundedRect rect=floor.GetComponent<DPhysicsRoundedRect>();
+            floor.GetComponent<FixTransform>().offset=Vec2.zero;
+            File.AppendAllText(Path.Combine(Audit.Folder,"checks.txt"),"Original floor layer="+floor.gameObject.layer+" "+LayerMask.LayerToName(floor.gameObject.layer)+" anvil="+LayerMask.LayerToName(ball.gameObject.layer)+"\n");
+            BoplBody floorBody=floor.GetComponent<BoplBody>();
+            floorBody.InverseMass=Fix.Zero;floorBody.InverseMomentOfInertia=Fix.Zero;
+            rect.SetExtents(new Vec2((Fix)50L,(Fix)1L/(Fix)10L));rect.radius=(Fix)1L/(Fix)10L;
+            int floorIndex=DetPhysics.Get().roundedRects.ColliderIndex(rect.GetPhysicsParent().instanceId);
+            DetPhysics.Get().roundedRects.colliders[floorIndex].layer=floor.gameObject.layer;
+            DetPhysics.Get().roundedRects.colliders[floorIndex].box.layer=floor.gameObject.layer;
+            floorBody.position=new Vec2(Fix.Zero,-rect.CalcExtents().y-rect.radius);floorBody.rotation=Fix.Zero;
+            rect.UpdatePhysicsPositions();
+            BoplBody body=ball.GetComponent<BoplBody>();
+            Type physics2d=null;foreach(Assembly assembly in AppDomain.CurrentDomain.GetAssemblies())if(assembly.GetType("UnityEngine.Physics2D")!=null)physics2d=assembly.GetType("UnityEngine.Physics2D");
+            if(physics2d!=null)for(int layer=0;layer<28;layer++)File.AppendAllText(Path.Combine(Audit.Folder,"checks.txt"),"MASK "+LayerMask.LayerToName(layer)+" ignoreWall="+physics2d.GetMethod("GetIgnoreLayerCollision").Invoke(null,new object[]{layer,11})+"\n");
+            File.AppendAllText(Path.Combine(Audit.Folder,"checks.txt"),"FLOOR rect="+DetPhysics.Get().roundedRects.colliders[floorIndex].box.center+" ext="+rect.CalcExtents()+" layer="+DetPhysics.Get().roundedRects.colliders[floorIndex].layer+" anvil layer="+ball.GetComponent<DPhysicsBox>().physicsBox.layer+"\n");
+            Fix[] rotations={Fix.Zero,(Fix)314159L/(Fix)100000L,(Fix)314159L/(Fix)200000L};
+            string[] names={"upright","upside-down","on its side"};
+            for(int i=0;i<rotations.Length;i++)
+            {
+                body.Scale=Fix.One;body.position=new Vec2(Fix.Zero,(Fix)6L);
+                body.rotation=rotations[i];body.velocity=Vec2.zero;body.angularVelocity=Fix.Zero;
+                for(int tick=0;tick<360;tick++)
+                {
+                    AccessTools.Field(typeof(BounceBall),"timeSinceActivation").SetValue(ball,(Fix)1L/(Fix)2L);
+                    Updater.TickSimulation((Fix)1L/(Fix)60L);
+                    if(tick==25 || tick==30)
+                    {
+                        DPhysicsBox box=ball.GetComponent<DPhysicsBox>();Box b=box.physicsBox;RoundedRect r=DetPhysics.Get().roundedRects.colliders[floorIndex];CollisionManifold m=new CollisionManifold();
+                        bool hit=PhysTools.CollisionTest(new RoundedRect{box=b,radius=Fix.Zero,layer=b.layer},r,ref m);
+                        File.AppendAllText(Path.Combine(Audit.Folder,"checks.txt"),"GEOMETRY center="+b.center+" right="+b.right+" up="+b.up+" inv="+b.inverseExtents+" floorCenter="+r.box.center+" floorRight="+r.box.right+" floorUp="+r.box.up+" active="+floor.gameObject.activeInHierarchy+" boxDestroyed="+box.IsDestroyed+" boxEnabled="+box.enabled+" directHit="+hit+" normal="+m.normal+" depth="+m.penetration+"\n");
+                    }
+                    if(tick%30==0)File.AppendAllText(Path.Combine(Audit.Folder,"checks.txt"),"DROP "+names[i]+" tick="+tick+" pos="+body.position+" active="+ball.gameObject.activeInHierarchy+" floor="+floorBody.position+" layer="+floor.gameObject.layer+"\n");
+                }
+                Fix faceAngle=body.rotation % (Fix.Pi/(Fix)2L);
+                Fix expected=Fix.Abs(body.position.y-(Fix)2L)<Fix.Abs(body.position.y-(Fix)17L/(Fix)12L)?(Fix)2L:(Fix)17L/(Fix)12L;
+                string observed=" y="+body.position.y+" angle="+body.rotation+" vy="+body.velocity.y+" spin="+body.angularVelocity;
+                File.AppendAllText(Path.Combine(Audit.Folder,"checks.txt"),"LANDING "+names[i]+observed+"\n");
+                Audit.Check(Fix.Abs(body.position.y-expected)<(Fix)15L/(Fix)100L,"Flat box lands from "+names[i]+" and settles at a flat face height");
+                Audit.Check(Fix.Abs(body.velocity.y)<(Fix)1L/(Fix)2L && Fix.Abs(body.angularVelocity)<(Fix)1L/(Fix)2L,"Anvil stays settled "+names[i]+" without a rotation lock");
+            }
+        }
     }
 }
+
+
+
 
 
 

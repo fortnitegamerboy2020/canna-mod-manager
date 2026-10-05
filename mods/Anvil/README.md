@@ -1,9 +1,10 @@
-# Canna Anvil 1.0.5
+# Canna Anvil 1.0.6
 
-1.0.5 removes the forced downward impulse and rotation locks. Standard gravity
-and native angular physics drive movement, bounce and free rotation. Mass stays
-at twice Rock's, half of version 1.0.3. The team-colored HUD circle, faster entry
-and exit animations, and collider aligned with the drawn feet are retained.
+1.0.6 replaces the circular Rock hull with a native flat-sided box fitted to the
+artwork. It can tip and settle on its top, base or side instead of rolling like
+a ball. Low restitution and native friction help it stay settled; rotation is
+not locked. Standard gravity, inherited momentum, twice Rock's mass,
+team-colored HUD circles and the fast entry/exit animations are retained.
 A tap completes the roughly 0.067-second entry and lasts five seconds, including it;
 release does not cancel it. Native timeout, death and return-to-slime handling remain.
 The morph begins with your slime color and fades into steel; exit reverses it.
@@ -15,9 +16,11 @@ the game's native contact combat. Twice Rock's mass, standard gravity, native bo
 five-second duration, and six-second cooldown.
 
 Original 17-frame vector morph artwork plays forward on entry and backward on exit.
-Native fixed-point physics, rounded Rock collision hull, ownership, scale changes,
-rope support, time stop, and death/exit handling are retained. This first version
-uses the game's circular Rock hull rather than a concave anvil-shaped collider.
+Native fixed-point box physics, ownership, scale changes, time stop and
+death/exit handling are retained. The rectangular hull approximates the
+silhouette rather than tracing its narrow waist. Upright, upside-down and
+sideways drops, native contact combat, momentum, rotation and exit were checked
+in the native audit. Live family multiplayer and rope behavior still need testing.
 
 Requires Bopl Battle 2.5.1, Windows x64, BepInEx 5.4.23.5 (Harmony included).
 Everyone in an online lobby must enable the same version and identical ability mods.
@@ -30,6 +33,7 @@ remain unchanged. Remove saved Anvil selections before playing without the mod.
 
 `build.ps1` compiles against your locally installed game; the package contains only
 original plugin code. `Audit.cs` is a development-only check and is never packaged.
+
 
 
 

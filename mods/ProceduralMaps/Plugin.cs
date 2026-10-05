@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace Canna.ProceduralMaps
 {
-    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.1.0")]
+    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.1.1")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
@@ -20,13 +20,13 @@ namespace Canna.ProceduralMaps
         public static readonly Dictionary<AnimateVelocity, Island> Moving = new Dictionary<AnimateVelocity, Island>();
         internal static GameSessionHandler Session;
         internal static Layout Map;
-        internal const string Protocol = "canna-proc-1.1.0";
+        internal const string Protocol = "canna-proc-1.1.1";
         private void Awake()
         {
             Log = Logger;
             Enabled = Config.Bind("General", "Enabled", true, "Use the same generator version and enabled state on every family member's PC. Online start is blocked while a lobby member is missing the matching generator.");
             new Harmony("family.canna.proceduralmaps").PatchAll(typeof(Plugin).Assembly);
-            Log.LogInfo("Canna Procedural Maps 1.1.0: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
+            Log.LogInfo("Canna Procedural Maps 1.1.1: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
         }
         private void OnDestroy() { Log.LogInfo("Keeping procedural map hooks active across scene changes."); }
         internal static Fix F(int hundredths) { return (Fix)(long)hundredths / (Fix)100L; }
@@ -46,9 +46,7 @@ namespace Canna.ProceduralMaps
             StickyRoundedRectangle[] originals = __instance.Level.transform.root.GetComponentsInChildren<StickyRoundedRectangle>();
             if (originals.Length == 0) { Plugin.Log.LogWarning("No native platform template; retaining native map."); return; }
             // Online packet seed is identical on all participants; no UnityEngine.Random or wall clock.
-            uint seed;
-            if(GameLobby.isOnlineGame)seed=SteamManager.startParameters.seed;
-            else {byte[] bytes=new byte[4];using(var random=new System.Security.Cryptography.RNGCryptoServiceProvider())random.GetBytes(bytes);seed=BitConverter.ToUInt32(bytes,0);}
+            uint seed=Theme.Seed;
             Layout map = Layout.Generate(seed, 6 + (int)((seed >> 16) % 4));
             Audit(__instance, originals, map);
             List<StickyRoundedRectangle> platforms = new List<StickyRoundedRectangle>();
@@ -58,6 +56,22 @@ namespace Canna.ProceduralMaps
             if (platforms.Count == 0) { Plugin.Log.LogWarning("No native physics template; retaining native map."); return; }
             if(map.islands[0].width>=800)platforms.Sort(delegate(StickyRoundedRectangle a,StickyRoundedRectangle b){return Aspect(a).CompareTo(Aspect(b));});
             else {int rotation=(int)(seed%(uint)platforms.Count);for(int i=0;i<rotation;i++){StickyRoundedRectangle first=platforms[0];platforms.RemoveAt(0);platforms.Add(first);}}
+            if(map.moon) {
+                // Keep astronauts spawning on moons. Satellite panels belong to
+                // optional upper platforms and retain their native art/Drill layers.
+                platforms.Sort(delegate(StickyRoundedRectangle a,StickyRoundedRectangle b){
+                    return (IsSatellite(a)?1:0).CompareTo(IsSatellite(b)?1:0);
+                });
+                if((seed & 4)!=0)for(int slot=Math.Min(map.islands.Length,platforms.Count)-1;slot>=0;slot--) {
+                    bool spawn=false;foreach(int index in map.spawnIslands)if(index==slot)spawn=true;
+                    if(spawn)continue;
+                    int source=platforms.FindIndex(IsSatellite);
+                    if(source<0)break;
+                    StickyRoundedRectangle old=platforms[slot];platforms[slot]=platforms[source];platforms[source]=old;
+                    map.islands[slot].spin=(seed & 8)==0?0:((seed & 16)==0?1:-1)*(20+(int)((seed>>8)%101));
+                    break;
+                }
+            }
             foreach (StickyRoundedRectangle original in originals)
                 if (!platforms.Contains(original)) { original.gameObject.SetActive(false); Updater.DestroyFix(original.gameObject); }
             while (platforms.Count > map.islands.Length)
@@ -123,6 +137,12 @@ namespace Canna.ProceduralMaps
                     movement.HomeIsMovable = true;
                     movement.speed = (Fix)10L;
                     movement.mu = (Fix)8L;
+                    Plugin.Set(movement,"inRotationMode",false);
+                    if(p.spin!=0){
+                        movement.interpolateRotationHome=true;
+                        movement.rotationSpeed=(Fix)20L;
+                        movement.rotationMu=(Fix)1L/(Fix)20L;
+                    }
                     Plugin.Moving[movement] = p;
                 }
             }
@@ -159,9 +179,10 @@ namespace Canna.ProceduralMaps
             DPhysicsRoundedRect rr = platform.GetComponent<DPhysicsRoundedRect>();
             Vec2 ext = (Vec2)AccessTools.Field(typeof(DPhysicsRoundedRect), "startExtents").GetValue(rr);
             Fix radius = (Fix)AccessTools.Field(typeof(DPhysicsRoundedRect), "startRadius").GetValue(rr);
-            return ext.x + radius > Fix.Zero && ext.y + radius >= (ext.x + radius) * (Fix)1L/(Fix)10L
+            return ext.x + radius > Fix.Zero && (IsSatellite(platform) || ext.y + radius >= (ext.x + radius) * (Fix)1L/(Fix)10L)
                 && ext.y + radius <= (ext.x + radius) * (Fix)101L / (Fix)100L;
         }
+        private static bool IsSatellite(StickyRoundedRectangle p){return p.platformType==PlatformType.robot;}
         private static Fix Aspect(StickyRoundedRectangle p){
             DPhysicsRoundedRect rr=p.GetComponent<DPhysicsRoundedRect>();
             Vec2 ext=(Vec2)AccessTools.Field(typeof(DPhysicsRoundedRect),"startExtents").GetValue(rr);
@@ -174,6 +195,14 @@ namespace Canna.ProceduralMaps
             {
                 string folder = Path.Combine(Paths.ConfigPath, "CannaMaps"); Directory.CreateDirectory(folder);
                 string scene = SceneManager.GetActiveScene().buildIndex.ToString();
+                if(Array.IndexOf(Environment.GetCommandLineArgs(),"--canna-map-audit")>=0) {
+                    string objects="Native scene "+scene+" type="+session.levelType+" path="+SceneManager.GetActiveScene().path+"\n";
+                    foreach(StickyRoundedRectangle p in originals) {
+                        SpriteRenderer art=p.GetComponent<SpriteRenderer>();
+                        objects+=p.name+" sprite="+(art.sprite==null?"null":art.sprite.name)+" type="+p.platformType+"\n";
+                    }
+                    File.WriteAllText(Path.Combine(folder,"native-objects-"+scene+".txt"),objects);
+                }
                 string audit = "scene,platform,x,y,half_width,half_height,radius,type\n";
                 for (int i = 0; i < originals.Length; i++)
                 {
@@ -212,12 +241,17 @@ namespace Canna.ProceduralMaps
     internal static class MoveIslands
     {
         private static readonly FieldInfo InProgress = AccessTools.Field(typeof(GameSessionHandler), "gameInProgress");
-        private static void Prefix(AnimateVelocity __instance)
+        private static void Prefix(AnimateVelocity __instance,Fix simDeltaTime)
         {
             Island p;
-            if (Plugin.Map == null || Plugin.Session == null || !Plugin.Moving.TryGetValue(__instance, out p) || p.drift == 0 ||
+            if (Plugin.Map == null || Plugin.Session == null || !Plugin.Moving.TryGetValue(__instance, out p) ||
                 __instance.inSuddenDeath || __instance.isBeingControlled || GameSessionHandler.SuddenDeathInProgress ||
                 !(bool)InProgress.GetValue(Plugin.Session)) return;
+            if(p.spin!=0) {
+                FieldInfo rotation=AccessTools.Field(typeof(AnimateVelocity),"homeRotation");
+                rotation.SetValue(__instance,(Fix)rotation.GetValue(__instance)+Plugin.F(p.spin)*simDeltaTime*GameTime.PlayerTimeScale);
+            }
+            if(p.drift==0)return;
             // Fixed simulation ticks advance together in Bopl's lockstep network, including replay timing.
             __instance.HomePosition = Plugin.Position(p) + new Vec2(Plugin.F(Layout.DriftAt(p, Updater.SimulationTicks)), Fix.Zero);
         }
@@ -250,7 +284,7 @@ namespace Canna.ProceduralMaps
             {
                 if (__instance.currentLobby.GetMemberData(member, "canna_map_generator") != Plugin.Protocol)
                 {
-                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.1.0 enabled. Wait a moment after joining, then retry.");
+                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.1.1 enabled. Wait a moment after joining, then retry.");
                     return false;
                 }
             }

@@ -9,13 +9,13 @@ using UnityEngine;
 
 namespace Canna.Anvil
 {
-    [BepInPlugin("family.canna.anvil", "Canna Anvil", "1.0.5")]
+    [BepInPlugin("family.canna.anvil", "Canna Anvil", "1.0.6")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
         internal static GameObject Prefab;
         internal static Material Steel;
-        internal const string Protocol = "canna-anvil-1.0.5";
+        internal const string Protocol = "canna-anvil-1.0.6";
         void Awake()
         {
             Log = Logger;
@@ -23,7 +23,7 @@ namespace Canna.Anvil
             Steel = new Material(Shader.Find("Sprites/Default"));
             UnityEngine.Object.DontDestroyOnLoad(Steel);
             new Harmony("family.canna.anvil").PatchAll(typeof(Plugin).Assembly);
-            Logger.LogInfo("Anvil 1.0.5 loaded: separate selectable ability, native Rock lifecycle, native gravity and free rotation and 17-frame morph. All online players need the same mod.");
+            Logger.LogInfo("Anvil 1.0.6 loaded: separate selectable ability, native Rock lifecycle, native gravity and free rotation and 17-frame morph. All online players need the same mod.");
         }
         internal static void Register(NamedSpriteList list)
         {
@@ -47,13 +47,23 @@ namespace Canna.Anvil
                 FieldInfo mass = AccessTools.Field(typeof(BoplBody), "mass");
                 mass.SetValue(body, (Fix)mass.GetValue(body) * (Fix)2L);
                 body.gravityScale = Fix.One;
+                body.bounciness = (Fix)1L/(Fix)10L;
+                body.friction = (Fix)4L/(Fix)5L;
+                body.dynamicFriction = (Fix)3L/(Fix)5L;
                 // Retain native friction, bounce and angular physics. Mass remains
                 // twice Rock's; gravity must not add an artificial acceleration boost.
                 DPhysicsCircle hull=Prefab.GetComponent<DPhysicsCircle>();
                 FieldInfo startRadius=AccessTools.Field(typeof(DPhysicsCircle),"startRadius");
-                // Bottom opaque pixel is y=22; sprite pivot is y=60 at 24 PPU.
-                // The old doubled Rock radius extended well below the drawn feet.
-                startRadius.SetValue(hull,(Fix)19L/(Fix)12L);
+                // Artwork bounds: x=11..107, y=22..90, centered at (59,56).
+                // Only the box is registered; the circle is a native ability API facade.
+                startRadius.SetValue(hull,(Fix)17L/(Fix)12L);
+                DPhysicsBox box=Prefab.AddComponent<DPhysicsBox>();
+                Prefab.GetComponent<FixTransform>().offset=Vec2.zero;
+                AccessTools.Field(typeof(DPhysicsBox),"startExtents").SetValue(box,new Vec2((Fix)2L,(Fix)17L/(Fix)12L));
+                AccessTools.Field(typeof(DPhysicsBox),"manuallyCallInit").SetValue(box,true);
+                box.MinScale=hull.MinScale;box.MaxScale=hull.MaxScale;
+                Fix boxMass=(Fix)mass.GetValue(body);
+                AccessTools.Field(typeof(BoplBody),"momentOfInertia").SetValue(body,boxMass*((Fix)4L+(Fix)289L/(Fix)144L)/(Fix)3L);
                 Prefab.GetComponent<Ability>().Cooldown = (Fix)6L;
                 AccessTools.Field(typeof(BounceBall), "maxDuration").SetValue(Prefab.GetComponent<BounceBall>(), (Fix)5L);
                 FieldInfo exitTime = AccessTools.Field(typeof(BounceBall), "exitTime");
@@ -192,13 +202,14 @@ namespace Canna.Anvil
             foreach (Steamworks.Friend member in __instance.currentLobby.Members)
                 if (__instance.currentLobby.GetMemberData(member, "canna_anvil") != expected)
                 {
-                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Anvil 1.0.5 and the same ability list/order. Wait a moment after joining, then retry.");
+                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Anvil 1.0.6 and the same ability list/order. Wait a moment after joining, then retry.");
                     return false;
                 }
             return true;
         }
     }
 }
+
 
 
 
