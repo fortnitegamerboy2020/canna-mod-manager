@@ -109,7 +109,7 @@ Native UI framework: https://docs.rs/eframe/0.33.3/eframe/
 
 Console shows live Canna setup/launch messages, BepInEx output, Unity player logs and preloader errors. Select a game and log source, filter or copy output, or open its log folder. Launch status tracks the actual game process and fresh BepInEx startup output, then updates when the game closes.
 
-## Canna 0.2.0: updates and mod switches
+## Canna 0.2.1: updates and mod switches
 
 Canna checks the latest stable release in the private `fortnitegamerboy2020/canna-mod-manager` repository at startup. New Windows executables are downloaded using the separate release read token, bounded by size and checked against GitHub's SHA-256 asset digest. A hidden helper waits for Canna to exit, retains the previous executable, replaces it and restarts. Open pack/group editors, settings and active installations defer the restart. Update failures leave the current app usable; the Console records check errors, and replacement logs are under `%LOCALAPPDATA%/CannaModManager/updates`.
 
@@ -117,4 +117,4 @@ This first updater-enabled version must be installed manually once. Future relea
 
 Each modpack's Content table has an **Enabled** checkbox; right-click a mod for **Enable mod** / **Disable mod**. Switches save immediately without removing the selection or version pin. Use **Install Mods** or **Launch modded** with the game closed to apply them. Disabled mods are excluded from downloads and from the fresh managed plugin directory, and exports/imports retain the enabled states. Existing manifests default to enabled. Plugins installed outside Canna's managed directory are unaffected.
 
-The catalog includes **Canna Procedural Maps 1.0.0**. Add it to a Bopl pack on every family member's PC. It uses Bopl's shared online round seed, integer layout generation, fixed simulation ticks and Steam lobby member version checks. Generated rounds use six to nine islands, four stable spawn islands, moving upper islands and occasional native space gravity. Native scene data and generated layouts are saved under `BepInEx/config/CannaMaps`. Family multiplayer gameplay still needs a two-PC test; matching layout fingerprints alone do not prove full-game synchronization.
+The catalog includes **Canna Procedural Maps 1.0.2**. Add it to a Bopl pack on every family member's PC. It uses Bopl's shared online round seed, integer layout generation, fixed simulation ticks and Steam lobby member version checks. Generated rounds use six to nine islands, four stable spawn islands, moving upper islands and occasional native space gravity. Native scene data and generated layouts are saved under `BepInEx/config/CannaMaps`. Family multiplayer gameplay still needs a two-PC test; matching layout fingerprints alone do not prove full-game synchronization.

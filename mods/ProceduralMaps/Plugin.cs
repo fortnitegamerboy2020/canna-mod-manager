@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace Canna.ProceduralMaps
 {
-    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.0.1")]
+    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.0.2")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
@@ -20,13 +20,13 @@ namespace Canna.ProceduralMaps
         public static readonly Dictionary<AnimateVelocity, Island> Moving = new Dictionary<AnimateVelocity, Island>();
         internal static GameSessionHandler Session;
         internal static Layout Map;
-        internal const string Protocol = "canna-proc-1.0.1";
+        internal const string Protocol = "canna-proc-1.0.2";
         private void Awake()
         {
             Log = Logger;
             Enabled = Config.Bind("General", "Enabled", true, "Use the same generator version and enabled state on every family member's PC. Online start is blocked while a lobby member is missing the matching generator.");
             new Harmony("family.canna.proceduralmaps").PatchAll(typeof(Plugin).Assembly);
-            Log.LogInfo("Canna Procedural Maps 1.0.1: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
+            Log.LogInfo("Canna Procedural Maps 1.0.2: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
         }
         private void OnDestroy() { Log.LogInfo("Keeping procedural map hooks active across scene changes."); }
         internal static Fix F(int hundredths) { return (Fix)(long)hundredths / (Fix)100L; }
@@ -49,7 +49,19 @@ namespace Canna.ProceduralMaps
             uint seed = GameLobby.isOnlineGame ? SteamManager.startParameters.seed : (uint)Updater.RandomInt(1, int.MaxValue);
             Layout map = Layout.Generate(seed, 6 + (int)((seed >> 16) % 4));
             Audit(__instance, originals, map);
-            List<StickyRoundedRectangle> platforms = new List<StickyRoundedRectangle>(originals);
+            List<StickyRoundedRectangle> platforms = new List<StickyRoundedRectangle>();
+            foreach (StickyRoundedRectangle original in originals)
+                if (original.GetComponent<AnimateVelocity>() != null && original.GetComponent<BoplBody>() != null && original.GetComponent<SpriteRenderer>() != null)
+                    platforms.Add(original);
+            if (platforms.Count == 0)
+            {
+                string components = "";
+                foreach (Component component in originals[0].GetComponents<Component>()) components += component == null ? "Missing," : component.GetType().FullName + ",";
+                Plugin.Log.LogWarning("No resizable platform template; components=" + components);
+                return;
+            }
+            foreach (StickyRoundedRectangle original in originals)
+                if (!platforms.Contains(original)) { original.gameObject.SetActive(false); Updater.DestroyFix(original.gameObject); }
             while (platforms.Count > map.islands.Length)
             {
                 StickyRoundedRectangle excess = platforms[platforms.Count - 1];
@@ -60,8 +72,14 @@ namespace Canna.ProceduralMaps
             while (platforms.Count < map.islands.Length)
             {
                 // Native prefab registration assigns unique deterministic hierarchy numbers.
-                StickyRoundedRectangle copy = FixTransform.InstantiateFixed(originals[0], Plugin.Position(map.islands[platforms.Count]), Fix.Zero);
-                copy.transform.SetParent(originals[0].transform.parent, false);
+                StickyRoundedRectangle copy = FixTransform.InstantiateFixed(platforms[0], Plugin.Position(map.islands[platforms.Count]), Fix.Zero);
+                copy.transform.SetParent(platforms[0].transform.parent, false);
+                // Scene templates carry absolute hierarchy numbers, unlike native prefabs.
+                // Preserve their initialization order while reserving unique simulation IDs.
+                MonoUpdatable[] registered = copy.GetComponentsInChildren<MonoUpdatable>();
+                Array.Sort(registered, delegate(MonoUpdatable a, MonoUpdatable b) { return a.HierarchyNumber.CompareTo(b.HierarchyNumber); });
+                for (int component = 0; component < registered.Length; component++)
+                    registered[component].HierarchyNumber = 200000000 + platforms.Count * 1000 + component;
                 copy.name = "Canna generated island " + platforms.Count;
                 platforms.Add(copy);
             }
@@ -83,8 +101,25 @@ namespace Canna.ProceduralMaps
                     body.gravityScale = Fix.Zero;
                 }
                 DPhysicsRoundedRect rr = platforms[i].GetComponent<DPhysicsRoundedRect>();
+                rr.Scale = Fix.One;
                 Plugin.Set(rr, "startExtents", new Vec2(Plugin.F(p.width), Plugin.F(p.height)));
                 Plugin.Set(rr, "startRadius", Plugin.F(p.radius));
+                if (platforms[i].GetComponent<ResizablePlatform>() == null)
+                {
+                    // Preset islands have no resizer. Add the native controller so their
+                    // rendered shader geometry follows the new collider dimensions too.
+                    Updater.BeginRegisterPrefab();
+                    ResizablePlatform resizer;
+                    try { resizer = platforms[i].gameObject.AddComponent<ResizablePlatform>(); }
+                    finally { Updater.EndRegisterPrefab(); }
+                    resizer.HierarchyNumber = 200000000 + i * 1000 + 900;
+                    resizer.RemoveAnimation = new AnimationCurveFixed {
+                        keys = new KeyFrameF[] {
+                            new KeyFrameF { time = Fix.Zero, value = Fix.One },
+                            new KeyFrameF { time = (Fix)1L / (Fix)2L, value = Fix.Zero }
+                        }
+                    };
+                }
                 AnimateVelocity movement = platforms[i].GetComponent<AnimateVelocity>();
                 if (movement != null)
                 {
@@ -183,7 +218,7 @@ namespace Canna.ProceduralMaps
             {
                 if (__instance.currentLobby.GetMemberData(member, "canna_map_generator") != Plugin.Protocol)
                 {
-                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.0.1 enabled. Wait a moment after joining, then retry.");
+                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.0.2 enabled. Wait a moment after joining, then retry.");
                     return false;
                 }
             }

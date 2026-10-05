@@ -1,6 +1,6 @@
-# Canna Procedural Maps 1.0.1
+# Canna Procedural Maps 1.0.2
 
-Bopl Battle 2.5.1 / Windows Mono / BepInEx 5.4.23.5.
+Bopl Battle 2.5.1 / Windows Mono / BepInEx 5.4.23.5. Version 1.0.2 corrects preset sprite resizing and inherited platform scale, resets preset velocities, assigns unique deterministic clone hierarchy numbers, and reserves three game units of clearance over each island's full movement range.
 
 Generates new island positions, sizes and four safe team spawn locations before native level initialization. Reuses Bopl's platform assets and creates additional islands on sparse maps. Some rounds use native space gravity. Upper islands move through the native platform physics controller using deterministic simulation ticks. Sudden death and player control of islands retain native behavior.
 

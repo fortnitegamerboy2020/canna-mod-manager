@@ -64,6 +64,7 @@ static class AuditNextScene
     }
     static void ValidateCurrentScene()
     {
+        if (Canna.ProceduralMaps.Plugin.Moving.Count < 6) throw new Exception("Generator did not create the required platform controllers");
         AccessTools.Field(typeof(Host), "recordReplay").SetValue(null, false);
         GameTime.PlayerTimeScale = Fix.One;
         GameSessionHandler.GameIsPaused = false;
