@@ -75,13 +75,12 @@ namespace Canna.Anvil
                 float sx=(x-64)/.82f+64,sy=(y-64)/.82f+60;
                 Color c=sx>=0 && sx<128 && sy>=0 && sy<128 ? Frames[16].texture.GetPixelBilinear(sx/128,sy/128) : Color.clear;
                 float distance=Vector2.Distance(new Vector2(x+.5f,y+.5f),new Vector2(64,64));
-                Color background=distance<=55?new Color(.32f,.39f,.45f,1):Color.clear;
-                if(distance<49)background=new Color(.69f,.78f,.84f,1);
-                c=Color.Lerp(background,new Color(c.r,c.g,c.b,1),c.a);
+                // Native picker borders and the HUD cooldown shader already draw
+                // team-colored circles. The artwork must remain transparent here.
                 iconTexture.SetPixel(x,y,c);
             }
             iconTexture.Apply();iconTexture.filterMode=FilterMode.Bilinear;
-            float ppu=128f/(nativeIcon.rect.width/nativeIcon.pixelsPerUnit);
+            float ppu=128f/(nativeIcon.rect.width/nativeIcon.pixelsPerUnit)*1.35f;
             Icon=Sprite.Create(iconTexture,new Rect(0,0,128,128),new Vector2(.5f,.5f),ppu);
             Icon.name="Canna Anvil menu icon";
             UnityEngine.Object.DontDestroyOnLoad(iconTexture);UnityEngine.Object.DontDestroyOnLoad(Icon);

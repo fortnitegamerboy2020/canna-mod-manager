@@ -70,9 +70,14 @@ namespace Canna.Anvil
                         }
                     for(int i=0;i<17;i++)File.WriteAllBytes(Path.Combine(Audit.Folder,"morph-"+i+".png"),ImageConversion.EncodeToPNG(Art.Frames[i].texture));
                     File.WriteAllBytes(Path.Combine(Audit.Folder,"icon.png"),ImageConversion.EncodeToPNG(Art.Icon.texture));
-                    Audit.Check(list.sprites[list.IndexOf("Anvil")].sprite==Art.Icon,"Picker and HUD use circular icon independent of gameplay sprite");
+                    Audit.Check(list.sprites[list.IndexOf("Anvil")].sprite==Art.Icon,"Picker and HUD use transparent artwork independent of gameplay sprite");
                     NamedSprite stock=list.sprites.Find(delegate(NamedSprite e){return e.name!="Anvil" && e.associatedGameObject!=null && e.associatedGameObject.GetComponent<BounceBall>()!=null;});
-                    Audit.Check(Math.Abs(Art.Icon.bounds.size.x-stock.sprite.bounds.size.x)<.01f,"HUD icon matches native Rock icon world size");
+                    Audit.Check(Math.Abs(Art.Icon.bounds.size.x-stock.sprite.bounds.size.x/1.35f)<.01f,"HUD icon scaled to match measured standard ability size");
+                    Audit.Check(Art.Icon.texture.GetPixel(64,18).a==0,"Icon has no baked background or border");
+                    int bottom=128;for(int y=0;y<128;y++)for(int x=0;x<128;x++)if(Art.Frames[16].texture.GetPixel(x,y).a>.1f)bottom=Math.Min(bottom,y);
+                    float visibleBottom=(60-bottom)/24f;
+                    float hullBottom=(float)Plugin.Prefab.GetComponent<DPhysicsCircle>().GetStartRadius();
+                    Audit.Check(Math.Abs(visibleBottom-hullBottom)<.03f,"Collider bottom matches opaque Anvil feet within 0.03 native units");
                     Audit.Check(Art.Frames[16].pixelsPerUnit==24,"Gameplay sprite twice the previous size");
                     Player player=new Player(1,0);
                     player.Scale=Fix.One;player.Color=Plugin.Prefab.GetComponent<SpriteRenderer>().sharedMaterial;
@@ -113,11 +118,11 @@ namespace Canna.Anvil
                     Audit.Check(Audit.Ability.GetCooldown()==(Fix)6L,"Six second native cooldown");
                     Audit.Check(Audit.Ability.GetComponent<SpriteRenderer>().sprite==Art.Frames[0],"Entry begins as slime, not final anvil");
                     Audit.Check((Fix)AccessTools.Field(typeof(BounceBall),"maxDuration").GetValue(Audit.Ability.GetComponent<BounceBall>())==(Fix)5L,"Five second native Anvil duration");
-                    for(int tick=0;tick<6;tick++){body.position=new Vec2(Fix.Zero,(Fix)12L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
+                    for(int tick=0;tick<3;tick++){body.position=new Vec2(Fix.Zero,(Fix)12L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
                     Sprite intermediate=Audit.Ability.GetComponent<SpriteRenderer>().sprite;
                     Audit.Check(intermediate!=Art.Frames[0] && intermediate!=Art.Frames[16],"Native simulation displays intermediate morph frames");
                     Audit.Check(!(bool)AccessTools.Field(typeof(BounceBall),"IsExiting").GetValue(Audit.Ability.GetComponent<BounceBall>()),"Released input cannot cancel the entry morph immediately");
-                    for(int tick=0;tick<7;tick++){body.position=new Vec2(Fix.Zero,(Fix)12L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
+                    for(int tick=0;tick<4;tick++){body.position=new Vec2(Fix.Zero,(Fix)12L);body.velocity=Vec2.zero;Updater.TickSimulation((Fix)1L/(Fix)60L);}
                     Audit.Check(Audit.Ability.GetComponent<SpriteRenderer>().sprite==Art.Frames[16],"Entry morph reaches steel anvil sprite");
                     foreach(PlayerAverageCamera c in UnityEngine.Object.FindObjectsOfType<PlayerAverageCamera>())c.enabled=false;
                     Camera.main.transform.position=new Vector3(0,0,-10);Camera.main.orthographicSize=18;

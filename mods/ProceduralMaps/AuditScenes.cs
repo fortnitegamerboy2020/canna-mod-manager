@@ -22,7 +22,7 @@ public class MapAudit : BaseUnityPlugin
         if (!Active) return;
         Folder = Path.Combine(Paths.ConfigPath, "CannaMaps");
         Directory.CreateDirectory(Folder);
-        new Harmony("family.canna.mapaudit").PatchAll(typeof(MapAudit).Assembly);
+        // Integrated development build: Plugin installs assembly hooks exactly once.
     }
 }
 [HarmonyPatch]
@@ -33,6 +33,7 @@ static class AuditNoGameplay
         yield return AccessTools.Method(typeof(GameSessionHandler), "StartSpawnPlayersRoutine");
         yield return AccessTools.Method(typeof(GameSessionHandler), "Update");
         yield return AccessTools.Method(typeof(GameSessionHandler), "UpdateSim");
+        yield return AccessTools.Method(typeof(AchievementHandler), "OnStartedAGame");
     }
     static bool Prefix() { return !MapAudit.Active; }
 }
@@ -64,7 +65,7 @@ static class AuditNextScene
     }
     static void ValidateCurrentScene()
     {
-        if (Canna.ProceduralMaps.Plugin.Moving.Count < 6) throw new Exception("Generator did not create the required platform controllers");
+        if (Canna.ProceduralMaps.Plugin.Moving.Count < 1) throw new Exception("Generator did not create the required platform controllers");
         AccessTools.Field(typeof(Host), "recordReplay").SetValue(null, false);
         GameTime.PlayerTimeScale = Fix.One;
         GameSessionHandler.GameIsPaused = false;
@@ -133,6 +134,7 @@ static class AuditNextScene
         File.AppendAllText(Path.Combine(MapAudit.Folder, "physics-audit.txt"), "Scene " + (MapAudit.NextScene - 1) + " initialized, resized and moving islands simulated successfully\n");
     }
 }
+
 
 
 

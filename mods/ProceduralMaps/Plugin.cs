@@ -12,7 +12,7 @@ using UnityEngine.SceneManagement;
 
 namespace Canna.ProceduralMaps
 {
-    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.0.4")]
+    [BepInPlugin("family.canna.proceduralmaps", "Canna Procedural Maps", "1.1.0")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
@@ -20,13 +20,13 @@ namespace Canna.ProceduralMaps
         public static readonly Dictionary<AnimateVelocity, Island> Moving = new Dictionary<AnimateVelocity, Island>();
         internal static GameSessionHandler Session;
         internal static Layout Map;
-        internal const string Protocol = "canna-proc-1.0.4";
+        internal const string Protocol = "canna-proc-1.1.0";
         private void Awake()
         {
             Log = Logger;
             Enabled = Config.Bind("General", "Enabled", true, "Use the same generator version and enabled state on every family member's PC. Online start is blocked while a lobby member is missing the matching generator.");
             new Harmony("family.canna.proceduralmaps").PatchAll(typeof(Plugin).Assembly);
-            Log.LogInfo("Canna Procedural Maps 1.0.4: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
+            Log.LogInfo("Canna Procedural Maps 1.1.0: shared round seeds, fixed simulation movement and Steam lobby compatibility checks loaded.");
         }
         private void OnDestroy() { Log.LogInfo("Keeping procedural map hooks active across scene changes."); }
         internal static Fix F(int hundredths) { return (Fix)(long)hundredths / (Fix)100L; }
@@ -46,7 +46,9 @@ namespace Canna.ProceduralMaps
             StickyRoundedRectangle[] originals = __instance.Level.transform.root.GetComponentsInChildren<StickyRoundedRectangle>();
             if (originals.Length == 0) { Plugin.Log.LogWarning("No native platform template; retaining native map."); return; }
             // Online packet seed is identical on all participants; no UnityEngine.Random or wall clock.
-            uint seed = GameLobby.isOnlineGame ? SteamManager.startParameters.seed : (uint)Updater.RandomInt(1, int.MaxValue);
+            uint seed;
+            if(GameLobby.isOnlineGame)seed=SteamManager.startParameters.seed;
+            else {byte[] bytes=new byte[4];using(var random=new System.Security.Cryptography.RNGCryptoServiceProvider())random.GetBytes(bytes);seed=BitConverter.ToUInt32(bytes,0);}
             Layout map = Layout.Generate(seed, 6 + (int)((seed >> 16) % 4));
             Audit(__instance, originals, map);
             List<StickyRoundedRectangle> platforms = new List<StickyRoundedRectangle>();
@@ -54,6 +56,8 @@ namespace Canna.ProceduralMaps
                 if (original.GetComponent<AnimateVelocity>() != null && original.GetComponent<BoplBody>() != null && original.GetComponent<SpriteRenderer>() != null && IsLayoutTemplate(original))
                     platforms.Add(original);
             if (platforms.Count == 0) { Plugin.Log.LogWarning("No native physics template; retaining native map."); return; }
+            if(map.islands[0].width>=800)platforms.Sort(delegate(StickyRoundedRectangle a,StickyRoundedRectangle b){return Aspect(a).CompareTo(Aspect(b));});
+            else {int rotation=(int)(seed%(uint)platforms.Count);for(int i=0;i<rotation;i++){StickyRoundedRectangle first=platforms[0];platforms.RemoveAt(0);platforms.Add(first);}}
             foreach (StickyRoundedRectangle original in originals)
                 if (!platforms.Contains(original)) { original.gameObject.SetActive(false); Updater.DestroyFix(original.gameObject); }
             while (platforms.Count > map.islands.Length)
@@ -63,7 +67,8 @@ namespace Canna.ProceduralMaps
             }
             while (platforms.Count < map.islands.Length)
             {
-                StickyRoundedRectangle copy = FixTransform.InstantiateFixed(platforms[0], Plugin.Position(map.islands[platforms.Count]), Fix.Zero);
+                StickyRoundedRectangle template=platforms[platforms.Count>1?1:0];
+                StickyRoundedRectangle copy = FixTransform.InstantiateFixed(template, Plugin.Position(map.islands[platforms.Count]), Fix.Zero);
                 copy.transform.SetParent(platforms[0].transform.parent, false);
                 MonoUpdatable[] registered = copy.GetComponentsInChildren<MonoUpdatable>();
                 Array.Sort(registered, delegate(MonoUpdatable a, MonoUpdatable b) { return a.HierarchyNumber.CompareTo(b.HierarchyNumber); });
@@ -102,6 +107,7 @@ namespace Canna.ProceduralMaps
                 Fix ratio = Plugin.F(p.width + p.radius) / (extents.x + radius);
                 Fix requestedScale = rr.Scale * ratio;
                 rr.MinScale = Fix.Min(rr.MinScale, requestedScale);
+                rr.MaxScale = Fix.Max(rr.MaxScale, requestedScale);
                 rr.Scale = requestedScale;
                 platforms[i].baseScaleForPlatform = rr.Scale;
                 GrowOnStart grow = platforms[i].GetComponent<GrowOnStart>();
@@ -120,16 +126,26 @@ namespace Canna.ProceduralMaps
                     Plugin.Moving[movement] = p;
                 }
             }
+            map.FinishNativeGeometry();
+            for(int i=0;i<platforms.Count;i++){
+                FixTransform ft=platforms[i].GetComponent<FixTransform>();
+                Plugin.Set(ft,"_position",Plugin.Position(map.islands[i]));ft.position=Plugin.Position(map.islands[i]);
+            }
             __instance.teamSpawns = new Vec2[4];
             for (int i = 0; i < 4; i++)
             {
-                Island p = map.islands[i];
+                int host=map.spawnIslands[i];
+                Island p = map.islands[host];
                 // Authored map paths/size animations refer to the old map's coordinates.
                 // Preserve terrain gameplay; let only the generated layout drive motion.
-                foreach (MonoUpdatable controller in platforms[i].GetComponents<MonoUpdatable>())
+                foreach (MonoUpdatable controller in platforms[host].GetComponents<MonoUpdatable>())
                     if (controller is AntiLockPlatform || controller is VectorFieldPlatform || controller is AnimatePlatformSize)
                         controller.enabled = false;
-                __instance.teamSpawns[i] = new Vec2(Plugin.F(p.x), Plugin.F(p.y + p.height + p.radius + 150));
+                int total=0,rank=0;for(int j=0;j<4;j++)if(map.spawnIslands[j]==host){total++;if(j<i)rank++;}
+                int offset=(2*rank-total+1)*Math.Min(150,(p.width+p.radius)/5);
+                int dx=Math.Max(0,Math.Abs(offset)-p.width);
+                int surface=p.height+Layout.IntSqrt((long)p.radius*p.radius-(long)dx*dx);
+                __instance.teamSpawns[i] = new Vec2(Plugin.F(p.x+offset), Plugin.F(p.y+surface+150));
             }
             __instance.teammateSpawnSpacing = (Fix)2L;
             __instance.levelType = map.moon ? LevelType.space : LevelType.grass;
@@ -143,8 +159,14 @@ namespace Canna.ProceduralMaps
             DPhysicsRoundedRect rr = platform.GetComponent<DPhysicsRoundedRect>();
             Vec2 ext = (Vec2)AccessTools.Field(typeof(DPhysicsRoundedRect), "startExtents").GetValue(rr);
             Fix radius = (Fix)AccessTools.Field(typeof(DPhysicsRoundedRect), "startRadius").GetValue(rr);
-            return ext.x + radius > Fix.Zero && ext.y + radius >= (ext.x + radius) * (Fix)3L/(Fix)10L
+            return ext.x + radius > Fix.Zero && ext.y + radius >= (ext.x + radius) * (Fix)1L/(Fix)10L
                 && ext.y + radius <= (ext.x + radius) * (Fix)101L / (Fix)100L;
+        }
+        private static Fix Aspect(StickyRoundedRectangle p){
+            DPhysicsRoundedRect rr=p.GetComponent<DPhysicsRoundedRect>();
+            Vec2 ext=(Vec2)AccessTools.Field(typeof(DPhysicsRoundedRect),"startExtents").GetValue(rr);
+            Fix r=(Fix)AccessTools.Field(typeof(DPhysicsRoundedRect),"startRadius").GetValue(rr);
+            return (ext.y+r)/(ext.x+r);
         }
         private static void Audit(GameSessionHandler session, StickyRoundedRectangle[] originals, Layout map)
         {
@@ -228,7 +250,7 @@ namespace Canna.ProceduralMaps
             {
                 if (__instance.currentLobby.GetMemberData(member, "canna_map_generator") != Plugin.Protocol)
                 {
-                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.0.4 enabled. Wait a moment after joining, then retry.");
+                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Procedural Maps 1.1.0 enabled. Wait a moment after joining, then retry.");
                     return false;
                 }
             }

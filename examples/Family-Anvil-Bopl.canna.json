@@ -25,19 +25,19 @@
       "description": "An actively spinning drill wins confirmed Bounce Ball contact; scaled attack hitboxes cut balls too. All players need the same mod. Gameplay testing is pending."
     },
     {
-      "sha256": "4c3fd6138a94364944a8928e2d0be5eaa0dc9d2dbf90a033323fec9d5715b5a7",
-      "version": "1.0.4",
-      "description": "Fresh generated maps with native ground textures and Drill terrain, fuller vertical island shapes, moving platforms, and occasional moon gravity. Shared seeds and matching-generator lobby checks. All players need this version enabled. Family online gameplay verification is pending.",
-      "file": "Mods/Canna-ProceduralMaps-1.0.4.zip",
+      "sha256": "4b062b95bef86e37f1d84041c4be524503a723860dcb660d81550ac98a36130f",
+      "version": "1.1.0",
+      "description": "Six varied layout families with one to nine islands, including large continents, twins and satellites. Native textures, Drill terrain and shared online seeds.",
+      "file": "Mods/Canna-ProceduralMaps-1.1.0.zip",
       "name": "Canna Procedural Maps",
       "enabled": true
     },
     {
-      "description": "Larger steel anvil with a quick 0.20-second slime morph and five-second duration. Native-sized circular eyeless HUD/menu icon. Requires AbilityScrollBar for the expanded picker. All players need this version; family online verification is pending.",
+      "description": "Steel anvil with a quick 0.10-second morph and five-second duration. Transparent artwork uses native team-colored borders; collider meets its drawn feet.",
       "name": "Canna Anvil",
-      "file": "Mods/Canna-Anvil-1.0.2.zip",
-      "version": "1.0.2",
-      "sha256": "369d3bf368b5e7797b30a6de769632850c2360f6bdd703be77d2a9c014ac9068",
+      "file": "Mods/Canna-Anvil-1.0.3.zip",
+      "version": "1.0.3",
+      "sha256": "551606d4698cc4b8de3dfaea79550df218454742fb02a1da31b6804e88f69ade",
       "dependencies": [
         "AbilityScrollBar"
       ],

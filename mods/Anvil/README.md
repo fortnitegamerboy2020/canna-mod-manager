@@ -1,8 +1,8 @@
-# Canna Anvil 1.0.2
+# Canna Anvil 1.0.3
 
-1.0.2 uses a circular, eyeless menu/HUD icon matched to the native Rock icon size.
-The gameplay sprite and native circular collision radius are twice the original size.
-A tap completes the 0.20-second morph and lasts five seconds, including the entry;
+1.0.3 uses transparent, eyeless menu/HUD artwork with the game's own team-colored
+border and HUD shader. The circular collision radius matches the drawn Anvil feet.
+A tap completes the 0.10-second morph and lasts five seconds, including the entry;
 release does not cancel it. Native timeout, death and return-to-slime handling remain.
 The morph begins with your slime color and fades into steel; exit reverses it.
 AbilityScrollBar 1.0.1 is a catalog dependency so the appended ability fits the picker.
