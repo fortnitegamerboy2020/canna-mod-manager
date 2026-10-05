@@ -34,11 +34,11 @@
       "enabled": true
     },
     {
-      "description": "Steel anvil with a quick 0.10-second morph and five-second duration. Transparent artwork uses native team-colored borders; collider meets its drawn feet.",
+      "description": "Native team-colored HUD circle and border, transparent picker artwork, 1.5x faster entry/exit animations and half the previous mass. Five-second transformation.",
       "name": "Canna Anvil",
-      "file": "Mods/Canna-Anvil-1.0.3.zip",
-      "version": "1.0.3",
-      "sha256": "a5a205bc175fd1d8921c7d0ffb929b71e3836de047eea206df8d03d39504b716",
+      "file": "Mods/Canna-Anvil-1.0.4.zip",
+      "version": "1.0.4",
+      "sha256": "a79f7618a7c3d5e139dfec31d7dd5d069161cd2d68f6e3379605624b8d46d4e8",
       "dependencies": [
         "AbilityScrollBar"
       ],

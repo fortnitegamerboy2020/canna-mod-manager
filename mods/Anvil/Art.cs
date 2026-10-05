@@ -6,6 +6,7 @@ namespace Canna.Anvil
     {
         internal static Sprite[] Frames;
         internal static Sprite Icon;
+        internal static Sprite HudFill, HudBorder;
         static readonly Vector2[] Outline = new Vector2[] {
             new Vector2(22,88),new Vector2(96,88),new Vector2(105,82),
             new Vector2(103,72),new Vector2(82,64),new Vector2(78,51),
@@ -74,9 +75,7 @@ namespace Canna.Anvil
             {
                 float sx=(x-64)/.82f+64,sy=(y-64)/.82f+60;
                 Color c=sx>=0 && sx<128 && sy>=0 && sy<128 ? Frames[16].texture.GetPixelBilinear(sx/128,sy/128) : Color.clear;
-                float distance=Vector2.Distance(new Vector2(x+.5f,y+.5f),new Vector2(64,64));
-                // Native picker borders and the HUD cooldown shader already draw
-                // team-colored circles. The artwork must remain transparent here.
+                // Native picker borders stay separate from the transparent artwork.
                 iconTexture.SetPixel(x,y,c);
             }
             iconTexture.Apply();iconTexture.filterMode=FilterMode.Bilinear;
@@ -84,6 +83,22 @@ namespace Canna.Anvil
             Icon=Sprite.Create(iconTexture,new Rect(0,0,128,128),new Vector2(.5f,.5f),ppu);
             Icon.name="Canna Anvil menu icon";
             UnityEngine.Object.DontDestroyOnLoad(iconTexture);UnityEngine.Object.DontDestroyOnLoad(Icon);
+            HudFill=CircleLayer(ppu,false);HudBorder=CircleLayer(ppu,true);
+        }
+        static Sprite CircleLayer(float ppu,bool border)
+        {
+            Texture2D texture=new Texture2D(128,128,TextureFormat.RGBA32,false);
+            Color[] pixels=new Color[128*128];
+            for(int y=0;y<128;y++)for(int x=0;x<128;x++)
+            {
+                float distance=Vector2.Distance(new Vector2(x+.5f,y+.5f),new Vector2(64,64));
+                float alpha=border?Mathf.Clamp01(61-distance)*Mathf.Clamp01(distance-54):Mathf.Clamp01(55-distance);
+                pixels[y*128+x]=new Color(1,1,1,alpha);
+            }
+            texture.SetPixels(pixels);texture.Apply();texture.filterMode=FilterMode.Bilinear;
+            Sprite sprite=Sprite.Create(texture,new Rect(0,0,128,128),new Vector2(.5f,.5f),ppu);
+            UnityEngine.Object.DontDestroyOnLoad(texture);UnityEngine.Object.DontDestroyOnLoad(sprite);
+            return sprite;
         }
         static bool Ellipse(Vector2 p,float x,float y,float rx,float ry)
         { float a=(p.x-x)/rx,b=(p.y-y)/ry;return a*a+b*b<=1; }

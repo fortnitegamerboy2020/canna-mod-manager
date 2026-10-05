@@ -74,6 +74,10 @@ namespace Canna.Anvil
                     NamedSprite stock=list.sprites.Find(delegate(NamedSprite e){return e.name!="Anvil" && e.associatedGameObject!=null && e.associatedGameObject.GetComponent<BounceBall>()!=null;});
                     Audit.Check(Math.Abs(Art.Icon.bounds.size.x-stock.sprite.bounds.size.x/1.35f)<.01f,"HUD icon scaled to match measured standard ability size");
                     Audit.Check(Art.Icon.texture.GetPixel(64,18).a==0,"Icon has no baked background or border");
+                    Fix nativeMass=(Fix)AccessTools.Field(typeof(BoplBody),"mass").GetValue(stock.associatedGameObject.GetComponent<BoplBody>());
+                    Fix anvilMass=(Fix)AccessTools.Field(typeof(BoplBody),"mass").GetValue(Plugin.Prefab.GetComponent<BoplBody>());
+                    Audit.Check(anvilMass==nativeMass*(Fix)2L,"Anvil mass halved to twice native Rock mass");
+                    Audit.Check((float)AnvilState.MorphDuration<.067f,"Entry morph completes in about 67 milliseconds");
                     int bottom=128;for(int y=0;y<128;y++)for(int x=0;x<128;x++)if(Art.Frames[16].texture.GetPixel(x,y).a>.1f)bottom=Math.Min(bottom,y);
                     float visibleBottom=(60-bottom)/24f;
                     float hullBottom=(float)Plugin.Prefab.GetComponent<DPhysicsCircle>().GetStartRadius();
@@ -82,7 +86,7 @@ namespace Canna.Anvil
                     Player player=new Player(1,0);
                     player.Scale=Fix.One;player.Color=Plugin.Prefab.GetComponent<SpriteRenderer>().sharedMaterial;
                     player.Abilities=new List<GameObject>{Plugin.Prefab,Plugin.Prefab,Plugin.Prefab};
-                    player.AbilityIcons=new List<Sprite>{Art.Frames[16],Art.Frames[16],Art.Frames[16]};
+                    player.AbilityIcons=new List<Sprite>{Art.Icon,Art.Icon,Art.Icon};
                     player.CanUseAbilities=true;player.ignoreAllInputs=true;player.IsLocalPlayer=false;
                     Player victim=new Player(2,1);victim.Scale=Fix.One;victim.Color=player.Color;
                     victim.Abilities=new List<GameObject>(player.Abilities);victim.AbilityIcons=new List<Sprite>(player.AbilityIcons);victim.ignoreAllInputs=true;victim.IsLocalPlayer=false;
@@ -102,6 +106,19 @@ namespace Canna.Anvil
                     for(int tick=0;tick<2;tick++)Updater.TickSimulation((Fix)1L/(Fix)60L);
                     SlimeController[] slimes=(SlimeController[])AccessTools.Field(typeof(GameSessionHandler),"slimeControllers").GetValue(session);
                     Audit.Slime=slimes[0];
+                    AbilityReadyIndicator[] indicators=(AbilityReadyIndicator[])AccessTools.Field(typeof(SlimeController),"AbilityReadyIndicators").GetValue(Audit.Slime);
+                    AnvilHudBadge badge=indicators[0].GetComponent<AnvilHudBadge>();
+                    Audit.Check(badge!=null && badge.Fill.enabled && badge.Border.enabled,"Native HUD creates a visible Anvil circle and border");
+                    Color teamFill=badge.Artwork.material.GetColor("_CircleColor");
+                    Audit.Check(badge.Fill.color==teamFill,"HUD background matches native team fill");
+                    bool matches=false;
+                    foreach(TeamColors palette in Resources.FindObjectsOfTypeAll<TeamColors>())foreach(TeamColor color in palette.teamColors)
+                        if(color.fill==teamFill && color.border==badge.Border.color)matches=true;
+                    Audit.Check(matches,"HUD border uses the actual native team border color");
+                    indicators[0].SetSprite(Art.Frames[16],false);
+                    Audit.Check(!badge.Fill.enabled && !badge.Border.enabled,"HUD badge hides when ability icon changes");
+                    indicators[0].SetSprite(Art.Icon,false);
+                    Audit.Check(badge.Fill.enabled && badge.Border.enabled,"HUD badge returns with Anvil icon");
                     Audit.Slime.Spawn();slimes[1].Spawn();
                     PlayerHandler.Get().GetPlayer(1).CanUseAbilities=true;
                     Audit.Slime.GetComponent<FixTransform>().position=new Vec2(Fix.Zero,(Fix)12L);
@@ -149,7 +166,7 @@ namespace Canna.Anvil
                 {
                     BounceBall ball=Audit.Ability.GetComponent<BounceBall>();
                     AccessTools.Field(typeof(BounceBall),"IsExiting").SetValue(ball,true);
-                    AccessTools.Field(typeof(BounceBall),"timeSinceExitStarted").SetValue(ball,(Fix)1L/(Fix)10L);
+                    AccessTools.Field(typeof(BounceBall),"timeSinceExitStarted").SetValue(ball,(Fix)AccessTools.Field(typeof(BounceBall),"exitTime").GetValue(ball)/(Fix)2L);
                     Audit.Ability.GetComponent<AnvilState>().Paint();
                     Audit.Check(Audit.Ability.GetComponent<SpriteRenderer>().sprite==Art.Frames[8],"Exit morph reverses to halfway frame");
                     AccessTools.Field(typeof(BounceBall),"timeSinceExitStarted").SetValue(ball,(Fix)1L);

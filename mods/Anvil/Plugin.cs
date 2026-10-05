@@ -9,13 +9,13 @@ using UnityEngine;
 
 namespace Canna.Anvil
 {
-    [BepInPlugin("family.canna.anvil", "Canna Anvil", "1.0.3")]
+    [BepInPlugin("family.canna.anvil", "Canna Anvil", "1.0.4")]
     public sealed class Plugin : BaseUnityPlugin
     {
         internal static ManualLogSource Log;
         internal static GameObject Prefab;
         internal static Material Steel;
-        internal const string Protocol = "canna-anvil-1.0.3";
+        internal const string Protocol = "canna-anvil-1.0.4";
         void Awake()
         {
             Log = Logger;
@@ -23,7 +23,7 @@ namespace Canna.Anvil
             Steel = new Material(Shader.Find("Sprites/Default"));
             UnityEngine.Object.DontDestroyOnLoad(Steel);
             new Harmony("family.canna.anvil").PatchAll(typeof(Plugin).Assembly);
-            Logger.LogInfo("Anvil 1.0.3 loaded: separate selectable ability, native Rock lifecycle, heavy falling physics and 17-frame morph. All online players need the same mod.");
+            Logger.LogInfo("Anvil 1.0.4 loaded: separate selectable ability, native Rock lifecycle, heavy falling physics and 17-frame morph. All online players need the same mod.");
         }
         internal static void Register(NamedSpriteList list)
         {
@@ -45,7 +45,7 @@ namespace Canna.Anvil
                 Prefab.SetActive(true); // Inactive parent prevents native Awake on the template.
                 BoplBody body = Prefab.GetComponent<BoplBody>();
                 FieldInfo mass = AccessTools.Field(typeof(BoplBody), "mass");
-                mass.SetValue(body, (Fix)mass.GetValue(body) * (Fix)4L);
+                mass.SetValue(body, (Fix)mass.GetValue(body) * (Fix)2L);
                 body.gravityScale *= (Fix)5L / (Fix)2L;
                 body.bounciness = (Fix)5L / (Fix)100L;
                 body.friction = (Fix)4L / (Fix)5L;
@@ -57,6 +57,9 @@ namespace Canna.Anvil
                 startRadius.SetValue(hull,(Fix)19L/(Fix)12L);
                 Prefab.GetComponent<Ability>().Cooldown = (Fix)6L;
                 AccessTools.Field(typeof(BounceBall), "maxDuration").SetValue(Prefab.GetComponent<BounceBall>(), (Fix)5L);
+                FieldInfo exitTime = AccessTools.Field(typeof(BounceBall), "exitTime");
+                BounceBall ball = Prefab.GetComponent<BounceBall>();
+                exitTime.SetValue(ball, (Fix)exitTime.GetValue(ball) * (Fix)2L / (Fix)3L);
                 AccessTools.Field(typeof(BounceBall), "playerCollisionBounce").SetValue(Prefab.GetComponent<BounceBall>(), (Fix)2L);
                 Prefab.GetComponent<SpriteRenderer>().sprite = Art.Frames[16];
             }
@@ -93,7 +96,7 @@ namespace Canna.Anvil
         internal BounceBall Ball;
         internal SpriteRenderer Renderer;
         internal Color SlimeColor = new Color(.8f, .9f, .6f, 1);
-        internal static readonly Fix MorphDuration=(Fix)10L/(Fix)100L;
+        internal static readonly Fix MorphDuration=(Fix)1L/(Fix)15L;
         internal void Paint()
         {
             if (Ball == null) Ball = GetComponent<BounceBall>();
@@ -197,12 +200,13 @@ namespace Canna.Anvil
             foreach (Steamworks.Friend member in __instance.currentLobby.Members)
                 if (__instance.currentLobby.GetMemberData(member, "canna_anvil") != expected)
                 {
-                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Anvil 1.0.3 and the same ability list/order. Wait a moment after joining, then retry.");
+                    Plugin.Log.LogWarning("Online round blocked: " + member.Name + " needs Canna Anvil 1.0.4 and the same ability list/order. Wait a moment after joining, then retry.");
                     return false;
                 }
             return true;
         }
     }
 }
+
 
 

@@ -1,15 +1,16 @@
-# Canna Anvil 1.0.3
+# Canna Anvil 1.0.4
 
-1.0.3 uses transparent, eyeless menu/HUD artwork with the game's own team-colored
-border and HUD shader. The circular collision radius matches the drawn Anvil feet.
-A tap completes the 0.10-second morph and lasts five seconds, including the entry;
+1.0.4 adds a HUD circle using the game's team fill and border colors, while keeping
+the picker artwork transparent. Mass is halved from 1.0.3. Both entry and exit
+animations are 1.5 times faster. The circular collision radius matches the drawn feet.
+A tap completes the roughly 0.067-second entry and lasts five seconds, including it;
 release does not cancel it. Native timeout, death and return-to-slime handling remain.
 The morph begins with your slime color and fades into steel; exit reverses it.
 AbilityScrollBar 1.0.1 is a catalog dependency so the appended ability fits the picker.
 
 Adds **Anvil** at the end of Bopl Battle's ability picker, without replacing Rock.
 Turn into a cartoon steel anvil, slam downward in midair, and crush opponents using
-the game's native contact combat. Four times Rock's mass, 2.5 times its gravity,
+the game's native contact combat. Twice Rock's mass, 2.5 times its gravity,
 low bounce, five-second duration, and six-second cooldown.
 
 Original 17-frame vector morph artwork plays forward on entry and backward on exit.
@@ -28,3 +29,4 @@ remain unchanged. Remove saved Anvil selections before playing without the mod.
 
 `build.ps1` compiles against your locally installed game; the package contains only
 original plugin code. `Audit.cs` is a development-only check and is never packaged.
+
