@@ -257,6 +257,8 @@ fn read_source(bytes: &[u8]) -> ApiResult<Vec<Value>> {
 pub struct Page {
     #[serde(default)]
     offset: u32,
+    #[serde(default)]
+    category: String,
 }
 pub async fn topics(
     State(app): State<Shared>,
@@ -265,8 +267,8 @@ pub async fn topics(
 ) -> ApiResult<axum::Json<Value>> {
     app.auth(&headers)?;
     let db = app.db.lock().unwrap();
-    let mut stmt=db.prepare("SELECT t.id,t.title,t.category,t.app_id,u.username,t.pinned,t.locked,t.updated,t.mod_id,(SELECT count(*) FROM posts p WHERE p.topic_id=t.id) FROM topics t JOIN users u ON u.id=t.user_id ORDER BY t.pinned DESC,t.updated DESC LIMIT 50 OFFSET ?1")?;
-    let items=stmt.query_map([page.offset.min(100000)],|r|Ok(json!({"id":r.get::<_,String>(0)?,"title":r.get::<_,String>(1)?,"category":r.get::<_,String>(2)?,"app_id":r.get::<_,u32>(3)?,"author":r.get::<_,String>(4)?,"pinned":r.get::<_,bool>(5)?,"locked":r.get::<_,bool>(6)?,"updated":r.get::<_,i64>(7)?,"mod_id":r.get::<_,Option<String>>(8)?,"posts":r.get::<_,i64>(9)?})))?.collect::<Result<Vec<_>,_>>()?;
+    let mut stmt=db.prepare("SELECT t.id,t.title,t.category,t.app_id,u.username,t.pinned,t.locked,t.updated,t.mod_id,(SELECT count(*) FROM posts p WHERE p.topic_id=t.id) FROM topics t JOIN users u ON u.id=t.user_id WHERE (?2='' OR t.category=?2) ORDER BY t.pinned DESC,t.updated DESC LIMIT 50 OFFSET ?1")?;
+    let items=stmt.query_map(params![page.offset.min(100000),page.category],|r|Ok(json!({"id":r.get::<_,String>(0)?,"title":r.get::<_,String>(1)?,"category":r.get::<_,String>(2)?,"app_id":r.get::<_,u32>(3)?,"author":r.get::<_,String>(4)?,"pinned":r.get::<_,bool>(5)?,"locked":r.get::<_,bool>(6)?,"updated":r.get::<_,i64>(7)?,"mod_id":r.get::<_,Option<String>>(8)?,"posts":r.get::<_,i64>(9)?})))?.collect::<Result<Vec<_>,_>>()?;
     Ok(axum::Json(json!(items)))
 }
 #[derive(Deserialize)]
@@ -466,6 +468,51 @@ pub async fn delete_post(
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[tokio::test]
+    async fn section_pages_filter_topics_before_pagination() {
+        let (_dir, app) = fixture();
+        let member = account(&app, "section-reader", false);
+        for (category, title) in [("help", "Help topic"), ("discussion", "Discussion topic")] {
+            let response=call(app.clone(),"POST","/api/v1/topics",json!({"title":title,"body":"A useful forum question","category":category,"app_id":1686940}),Some(&member)).await;
+            assert_eq!(response.status(), StatusCode::OK);
+        }
+        let response = call(
+            app.clone(),
+            "GET",
+            "/api/v1/topics?category=help",
+            Value::Null,
+            Some(&member),
+        )
+        .await;
+        let rows = value(response).await;
+        assert_eq!(rows.as_array().unwrap().len(), 1);
+        assert_eq!(rows[0]["category"], "help");
+        assert_eq!(rows[0]["title"], "Help topic");
+        let rows = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/topics?category=help&offset=1",
+                Value::Null,
+                Some(&member),
+            )
+            .await,
+        )
+        .await;
+        assert!(rows.as_array().unwrap().is_empty());
+        assert_eq!(
+            call(
+                app,
+                "GET",
+                "/api/v1/topics?category=help",
+                Value::Null,
+                None
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
     #[tokio::test]
     async fn ownership_transfer_is_atomic_and_revokes_both_sessions() {
         let (_dir, app) = fixture();

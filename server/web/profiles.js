@@ -1,8 +1,9 @@
 'use strict';
 let members = [], profileId = 0;
 async function loadPeople() {
+  if(location.pathname!=='/members'){location.assign('/members');return;}
   profileId = 0; $('profilecard').hidden = true;
-  await showView('profilesview');
+  await showView('profilesview',true);
   members = await (await api('profiles')).json(); renderPeople();
 }
 function renderPeople() {
@@ -20,9 +21,10 @@ $('peoplenav').addEventListener('click',() => action(loadPeople));
 $('myprofilenav').addEventListener('click',() => action(() => openProfile(currentUser.id)));
 $('membersearch').addEventListener('input',renderPeople);
 async function openProfile(id) {
+  if(location.pathname!==`/members/${id}`){location.assign(`/members/${id}`);return;}
   const profile = await (await api(`profiles/${id}`)).json(); profileId = id;
   if (!members.length) { members = await (await api('profiles')).json(); renderPeople(); }
-  await showView('profilesview'); $('profilecard').hidden = false;
+  await showView('profilesview',true); $('profilecard').hidden = false;
   $('profilename').textContent = profile.username;
   $('profilebadges').textContent = `${profile.role.toUpperCase()} · ${profile.rank} · ${profile.points} XP${profile.banned ? ' · Banned' : ''}`;
   $('profilestatus').textContent = profile.status; $('profilebio').textContent = profile.bio;

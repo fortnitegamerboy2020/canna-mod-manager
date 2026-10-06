@@ -2,6 +2,7 @@
 const $ = id => document.getElementById(id);
 sessionStorage.removeItem('canna-session');
 let currentUser;
+let communityPageReady=false;
 let externalLanding=new URLSearchParams(location.search).has("import");
 let devicesLanding=new URLSearchParams(location.search).has("devices");
 const message = text => { $('message').textContent = text; };
@@ -75,7 +76,8 @@ async function refresh() {
   $('allowance').textContent=currentUser.role==='owner'?'Create individual invites or an invite wave. New members get one friend invite.':currentUser.role==='admin'?'Admins cannot issue invites. The Owner manages invitation waves.':`${currentUser.invites_remaining} friend invitation remaining. Each code works once and expires after seven days.`;
   $('rolebadge').textContent=currentUser.role.toUpperCase();$('welcome').textContent=currentUser.username;$('sideusername').textContent=currentUser.username;$('siderole').textContent=`${currentUser.role.toUpperCase()} · Canna community`;
   await loadLibrary();if(!$('forumview').hidden) await loadTopics();if(!$('moderation').hidden && currentUser.admin) await loadAdmin();updateNavigation();
-  if(externalLanding){externalLanding=false;await showView("libraryview");openExternalImport();}
+  if(!communityPageReady){communityPageReady=true;await openCommunityPage();}
+  if(externalLanding){externalLanding=false;await showView("libraryview",true);openExternalImport();}
   if(devicesLanding){devicesLanding=false;await openProfile(currentUser.id);$('loggeddevices').scrollIntoView({block:'start'});}
 }
 $('logout').addEventListener('click',()=>action(async()=>{await api('logout',{method:'POST'});location.assign('/');}));

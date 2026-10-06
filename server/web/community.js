@@ -27,10 +27,12 @@ function button(label, callback) {
   const node = document.createElement('button'); node.textContent = label;
   node.addEventListener('click', () => action(callback)); return node;
 }
-function showView(name) {
+const viewPaths={forumview:'/forums',libraryview:'/mods',profilesview:'/members',moderation:'/admin',submissionsview:'/submissions',notificationsview:'/notifications'};
+function showView(name,stay=false) {
+  if(!stay){location.assign(viewPaths[name] || '/forums');return;}
   for (const id of ['libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
   updateNavigation();
-  if(name==='forumview') return (async()=>{await loadTopics();if(openThread) await loadThread(openThread,true);})();
+  if(name==='forumview') return (async()=>{await loadTopics();})();
   if(name==='libraryview') return loadLibrary();
   if(name==='submissionsview')return loadSubmissions();
   if(name==='notificationsview')return loadNotifications();
@@ -41,7 +43,7 @@ $('forumnav').addEventListener('click', () => action(() => showView('forumview')
 $('adminnav').addEventListener('click', () => action(() => showView('moderation')));
 async function loadTopics() {
   await loadSections();
-  topicItems = await (await api(`topics?offset=${topicPage}`)).json(); renderTopics();
+  topicItems = await (await api(`topics?offset=${topicPage}&category=${encodeURIComponent($('topicfilter').value)}`)).json(); renderTopics();
   renderCategories();
   $('oldertopics').disabled = topicItems.length < 50;
   $('newertopics').disabled = topicPage === 0;
@@ -56,7 +58,7 @@ function renderCategories() {
     const row = document.createElement('div'); row.className = 'categoryrow';
     const icon = document.createElement('span'); icon.className = 'categoryglyph'; icon.textContent = glyph; icon.setAttribute('aria-hidden','true');
     const info = document.createElement('div');
-    const link = button(name,async () => { $('topicfilter').value = key; renderTopics(); $('discussionlist').scrollIntoView({behavior:'smooth',block:'start'}); }); link.className = 'categoryname';
+    const link = button(name,() => location.assign(`/forums/sections/${encodeURIComponent(key)}`)); link.className = 'categoryname';
     const detail = document.createElement('p'); detail.textContent = description + (active ? (vip_only ? ' · VIP+ posting' : '') : ' · Closed to new discussions'); info.append(link,detail);
     const count = document.createElement('div'); count.className = 'countcell'; count.textContent = String(topicItems.filter(t => t.category === key).length);
     const label = document.createElement('small'); label.textContent = 'on this page'; count.append(label);
@@ -92,9 +94,9 @@ function compose(show) {
   $('thread').hidden = true; openThread = '';
   if (show) { const choice=forumCategories.find(s=>s.id===$('topicfilter').value && s.active && (!s.vip_only || currentUser.can_publish_guides)); if(choice) $('topiccategory').value=choice.id; $('topictitle').focus(); }
 }
-$('composetopic').addEventListener('click',() => compose(true));
-$('cancelcompose').addEventListener('click',() => compose(false));
-$('topicsearch').addEventListener('input',renderTopics); $('topicfilter').addEventListener('change',renderTopics);
+$('composetopic').addEventListener('click',() => location.assign(`/forums/new?section=${encodeURIComponent($('topicfilter').value)}`));
+$('cancelcompose').addEventListener('click',()=>location.assign(forumReturnPath()));
+$('topicsearch').addEventListener('input',renderTopics); $('topicfilter').addEventListener('change',()=>location.assign($('topicfilter').value ? `/forums/sections/${encodeURIComponent($('topicfilter').value)}` : '/forums/latest'));
 $('oldertopics').addEventListener('click', () => action(async () => { topicPage += 50; await loadTopics(); }));
 $('newertopics').addEventListener('click', () => action(async () => { topicPage = Math.max(0,topicPage-50); await loadTopics(); }));
 $('newtopic').addEventListener('submit', event => { event.preventDefault(); action(async () => {
@@ -102,6 +104,8 @@ $('newtopic').addEventListener('submit', event => { event.preventDefault(); acti
   $('newtopic').reset(); topicPage = 0; await loadTopics(); await loadThread(result.id);
 }); });
 async function loadThread(id,liveUpdate=false) {
+  const path=`/forums/topics/${encodeURIComponent(id)}`;
+  if(!liveUpdate && location.pathname!==path){location.assign(path);return;}
   const updated=await (await api(`topics/${id}`)).json();
   if(liveUpdate && (openThread!==id || $('forumview').hidden)) return;
   threadData=updated; openThread=id;
@@ -142,9 +146,10 @@ async function loadThread(id,liveUpdate=false) {
       await api(`topics/${id}`,{method:'DELETE'}); closeThread(); await loadTopics();
     }));
   }
-  if(!liveUpdate) $('thread').scrollIntoView({behavior:'smooth',block:'start'});
+  $('closethread').textContent=`← ${categoryName(threadData.category)}`;$('forumheading').textContent='Discussion';$('forumdescription').textContent=categoryName(threadData.category);$('composetopic').hidden=true;
 }
-function closeThread() { compose(false); }
+function forumReturnPath(){const section=threadData?.category || $('topicfilter').value || new URLSearchParams(location.search).get('section');return section ? `/forums/sections/${encodeURIComponent(section)}` : '/forums';}
+function closeThread() { location.assign(forumReturnPath()); }
 $('closethread').addEventListener('click',closeThread);
 $('replyform').addEventListener('submit',event => { event.preventDefault(); action(async () => {
   await json(`topics/${openThread}/reply`,{body:$('replybody').value}); $('replyform').reset(); await loadThread(openThread); await loadTopics();
@@ -192,9 +197,34 @@ async function loadAdmin() {
   }
 }
 function viewSource(id) { window.open(`/review/mods/${encodeURIComponent(id)}`,'_blank','noopener'); }
-$('sourcefiles').replaceChildren(...sourceItems.map((file,index) => new Option(file.name,String(index))));
-  $('sourcetext').textContent = sourceItems[0]?.text || 'No source files were included in this archive.';
-  $('sourceviewer').showModal();
+
+async function openCommunityPage() {
+  const path=location.pathname;
+  $('forumback').hidden=!(path.startsWith('/forums/') && path!=='/forums');
+  if(path.startsWith('/forums/sections/')) {
+    const section=decodeURIComponent(path.slice('/forums/sections/'.length));
+    await loadSections();
+    if(!forumCategories.some(s=>s.id===section)) throw new Error('Forum section not found. Use Back to forums.');
+    $('topicfilter').value=section;
+    await showView('forumview',true);
+    $('forumindex').hidden=true;$('discussionlist').hidden=false;
+    $('forumheading').textContent=categoryName(section);$('forumdescription').textContent=forumCategories.find(s=>s.id===section).description;
+  } else if(path.startsWith('/forums/topics/')) {
+    await showView('forumview',true);
+    await loadThread(decodeURIComponent(path.slice('/forums/topics/'.length)));
+  } else if(path==='/forums/new') {
+    await showView('forumview',true);
+    $('topicfilter').value=new URLSearchParams(location.search).get('section') || '';
+    compose(true);$('forumheading').textContent='New discussion';$('composetopic').hidden=true;
+  } else if(path==='/members') {await loadPeople();return;}
+  else if(path.startsWith('/members/')) {await openProfile(Number(path.slice('/members/'.length)));return;}
+  else {
+    const view=(new URLSearchParams(location.search).has('game') || externalLanding) ? 'libraryview' : Object.entries(viewPaths).find(([,url])=>url===path)?.[0] || (path.startsWith('/packs/')?'libraryview':'forumview');
+    await showView(view,true);
+    if(view==='forumview') {$('discussionlist').hidden=path!=='/forums/latest';$('forumindex').hidden=path==='/forums/latest';}
+  }
+  $('forumback').hidden=!(path.startsWith('/forums/') && path!=='/forums');
+  if(path==='/forums/latest')$('forumheading').textContent='Latest discussions';
 }
-$('sourcefiles').addEventListener('change',() => { $('sourcetext').textContent = sourceItems[Number($('sourcefiles').value)]?.text || ''; });
-$('closesource').addEventListener('click',() => $('sourceviewer').close());
+$('forumback').addEventListener('click',()=>location.assign('/forums'));
+$('latestdiscussions').addEventListener('click',()=>location.assign('/forums/latest'));

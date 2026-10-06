@@ -87,4 +87,4 @@ $('downloadclose').addEventListener('click',()=>$('downloadbridge').close());
 $('downloadbridge').addEventListener('close',()=>{clearInterval(bridgeTimer);bridge=null;});
 
 $('connectdesktop').addEventListener('click',()=>{location.href='/connect';});
-if(new URLSearchParams(location.search).has('game')) showView('libraryview');
+

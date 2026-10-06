@@ -855,6 +855,17 @@ async fn lounge_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResu
 fn router(app: Shared) -> Router {
     Router::new()
         .route("/", get(community_page))
+        .route("/forums", get(community_page))
+        .route("/forums/latest", get(community_page))
+        .route("/forums/new", get(community_page))
+        .route("/forums/sections/{id}", get(community_page))
+        .route("/forums/topics/{id}", get(community_page))
+        .route("/mods", get(community_page))
+        .route("/submissions", get(community_page))
+        .route("/notifications", get(community_page))
+        .route("/members", get(community_page))
+        .route("/members/{id}", get(community_page))
+        .route("/admin", get(community_page))
         .route("/favicon.png", get(|| async { ([("content-type","image/png"),("cache-control","public, max-age=86400")],include_bytes!("../web/favicon.png").as_slice()) }))
         .route("/brand-logo.png", get(|| async { ([("content-type","image/png"),("cache-control","public, max-age=86400")],include_bytes!("../web/brand-logo.png").as_slice()) }))
         .route(
@@ -909,7 +920,7 @@ fn router(app: Shared) -> Router {
         .route("/review.js", get(review_script))
         .route("/api/v1/mods/{id}/analysis", get(scans::report).post(scans::analyze))
         .route("/api/v1/mods/{id}/analysis/{finding}", post(scans::decision))
-        .route("/robots.txt", get(|| async { ([("content-type","text/plain; charset=utf-8")], "User-agent: *\nDisallow: /api/\nDisallow: /connect\nDisallow: /support\nDisallow: /packs/\nSitemap: https://cannamods.vip/sitemap.xml\n") }))
+        .route("/robots.txt", get(|| async { ([("content-type","text/plain; charset=utf-8")], "User-agent: *\nDisallow: /api/\nDisallow: /connect\nDisallow: /support\nDisallow: /packs/\nDisallow: /forums\nDisallow: /mods\nDisallow: /submissions\nDisallow: /notifications\nDisallow: /members\nDisallow: /admin\nSitemap: https://cannamods.vip/sitemap.xml\n") }))
         .route("/sitemap.xml", get(|| async { ([("content-type","application/xml; charset=utf-8")], r#"<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://cannamods.vip/</loc></url><url><loc>https://cannamods.vip/help</loc></url></urlset>"#) }))
         .route("/support", get(|| async { ([("cache-control","no-store")],Html(include_str!("../web/support.html"))) }))
         .route("/support.js", get(|| async { asset(include_str!("../web/support.js")) }))
@@ -1300,7 +1311,18 @@ mod tests {
     async fn community_markup_and_scripts_are_only_served_to_valid_members() {
         let (_dir, app) = fixture();
         let member = account(&app, "member", false);
-        for path in ["/", "/packs/example"] {
+        for path in [
+            "/",
+            "/packs/example",
+            "/forums",
+            "/forums/sections/help",
+            "/forums/topics/example",
+            "/mods",
+            "/submissions",
+            "/notifications",
+            "/members",
+            "/admin",
+        ] {
             let response = call(app.clone(), "GET", path, Value::Null, None).await;
             assert_eq!(response.headers()["cache-control"], "no-store");
             let text = page_text(response).await;
