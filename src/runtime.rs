@@ -234,6 +234,17 @@ pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
     }
     // Never overwrite another loader or partial installation.
     ensure_closed(game)?;
+    let framework = crate::model::ModInfo {
+        enabled: true,
+        name: "BepInEx".into(),
+        version: "framework".into(),
+        description: String::new(),
+        file: "Framework/BepInEx.zip".into(),
+        sha256: String::new(),
+        local_file: String::new(),
+        dependencies: Vec::new(),
+    };
+    let _ = crate::website::remember_mod(pack, &framework, &bytes, true);
     write_new(&game.path, &entries)?;
     fs::create_dir_all(game.path.join("BepInEx/plugins"))?;
     fs::create_dir_all(game.path.join("BepInEx/config"))?;
@@ -284,6 +295,9 @@ pub fn install_pack(
                 && format!("{:x}", Sha256::digest(&bytes)) != item.sha256.to_lowercase()
             {
                 bail!("Checksum mismatch for {}", item.name)
+            }
+            if let Err(error) = crate::website::remember_mod(pack, item, &bytes, false) {
+                progress(&format!("Couldn't save download history: {error}"));
             }
             let target = stage.join(index.to_string());
             if item.file.to_lowercase().ends_with(".dll") {

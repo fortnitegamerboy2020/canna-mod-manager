@@ -728,6 +728,7 @@ impl Canna {
                     }
                     ui.label(&self.runtime_status);
                     if ui.button("Open Console").clicked() {
+                        self.website.open = false;
                         self.discover_page = false;
                         self.console_page = true;
                     }
@@ -790,10 +791,14 @@ impl Canna {
                         ui,
                         0,
                         "Game library",
-                        !self.modpacks_page && !self.console_page && !self.discover_page,
+                        !self.website.open
+                            && !self.modpacks_page
+                            && !self.console_page
+                            && !self.discover_page,
                     )
                     .clicked()
                 {
+                    self.website.open = false;
                     self.discover_page = false;
                     self.modpacks_page = false;
                     self.game_details = false;
@@ -801,55 +806,54 @@ impl Canna {
                 }
                 if chrome::Chrome::packs(
                     ui,
-                    self.modpacks_page && !self.console_page && !self.discover_page,
+                    !self.website.open
+                        && self.modpacks_page
+                        && !self.console_page
+                        && !self.discover_page,
                 )
                 .clicked()
                 {
+                    self.website.open = false;
                     self.discover_page = false;
                     self.modpacks_page = true;
                     self.console_page = false;
                 }
                 if self
                     .chrome
-                    .nav(ui, 1, "Discover", self.discover_page)
+                    .nav(ui, 1, "Discover", self.discover_page && !self.website.open)
                     .clicked()
                 {
+                    self.website.open = false;
                     self.discover_page = true;
                     self.console_page = false;
                 }
                 if self
                     .chrome
-                    .nav(ui, 2, "Console", self.console_page)
+                    .nav(ui, 2, "Console", self.console_page && !self.website.open)
                     .clicked()
                 {
+                    self.website.open = false;
                     self.discover_page = false;
                     self.console_page = true;
                     self.last_console_poll =
                         std::time::Instant::now() - std::time::Duration::from_secs(2);
                 }
-                if ui
-                    .add(
-                        egui::Button::new(RichText::new("#").size(24.0).color(GREEN))
-                            .min_size(egui::vec2(48.0, 48.0)),
-                    )
-                    .on_hover_text("Community · profiles, forum and administration")
-                    .clicked()
-                {
+                if self.chrome.nav(ui, 6, "Website", false).clicked() {
                     ctx.open_url(egui::OpenUrl::new_tab("https://cannamods.vip"));
                 }
                 if self.chrome.nav(ui, 4, "Skins", self.skins.open).clicked() {
                     self.skins.open = true;
                 }
-                if ui
-                    .add(egui::Button::new("MC").min_size(egui::vec2(48.0, 48.0)))
-                    .on_hover_text("Minecraft instances and Microsoft account")
+                if self
+                    .chrome
+                    .nav(ui, 5, "Minecraft", self.minecraft.open)
                     .clicked()
                 {
                     self.minecraft.open = true;
                 }
-                if ui
-                    .add(egui::Button::new("DL").min_size(egui::vec2(48.0, 48.0)))
-                    .on_hover_text("Website downloads")
+                if self
+                    .chrome
+                    .nav(ui, 7, "Downloads", self.website.open)
                     .clicked()
                 {
                     self.website.open = true;
@@ -908,7 +912,12 @@ impl Canna {
                     ui.label(RichText::new(&self.update_status).small().color(MUTED));
                 });
             });
-        if !self.modpacks_page && !self.game_details && !self.console_page && !self.discover_page {
+        if !self.website.open
+            && !self.modpacks_page
+            && !self.game_details
+            && !self.console_page
+            && !self.discover_page
+        {
             egui::SidePanel::right("detail").exact_width(310.0).resizable(false).frame(egui::Frame::new().corner_radius(ui_helpers::SURFACE_RADIUS).fill(Color32::from_rgb(23,29,26)).inner_margin(22)).show(ctx,|ui| {
             egui::ScrollArea::vertical().show(ui,|ui| {
                 let installed=self.games.iter().find(|g|g.app_id==self.selected);
@@ -952,6 +961,7 @@ impl Canna {
                     .inner_margin(28),
             )
             .show(ctx, |ui| {
+                if self.website.open { if self.website.show(ui) { self.pack_ui = pack_ui::PackUi::new(); } return; }
                 if self.discover_page { self.discover_ui(ui); return; }
                 if self.console_page {if self.console.show(ui,&self.games){self.last_console_poll=std::time::Instant::now()-std::time::Duration::from_secs(2);}return;}
                 if self.modpacks_page {
@@ -1128,7 +1138,8 @@ impl Canna {
                                             if create.clicked() {
                                                 self.selected = id;
                                                 self.pack_ui.start_new(&pack_game, self.active_source.as_ref());
-                                                self.discover_page = false;
+                                                self.website.open = false;
+                    self.discover_page = false;
                     self.modpacks_page = true;
                                             }
                                         },
@@ -1180,9 +1191,6 @@ impl eframe::App for Canna {
         self.render(ctx);
         self.skins.ui(ctx);
         self.minecraft.ui(ctx);
-        if self.website.ui(ctx) {
-            self.pack_ui = pack_ui::PackUi::new();
-        }
     }
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         egui::Rgba::from(chrome::CANVAS).to_array()

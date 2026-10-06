@@ -134,3 +134,7 @@ The catalog includes **Canna Procedural Maps 1.1.1**. Add it to a Bopl pack on e
 ### Minecraft work in progress
 
 The debug desktop includes Minecraft instances, Microsoft device sign-in, managed Java, loader installation paths for Vanilla/Fabric/Forge/NeoForge/Quilt, process stop controls, and local skin import/export/account application. Microsoft sign-in requires Canna's registered public client ID. Login and live Minecraft launches have not been verified yet; content dependency installation, Minecraft modpack sharing, and complete launcher parity are still pending. No desktop release build has been made for these changes, and the installed app is untouched for updater testing.
+
+### Downloads (0.2.6)
+
+The sidebar uses the supplied Minecraft, website and download icons. Downloads is a full page with All, Unassigned and one tab per Steam modpack. It includes downloaded mods and BepInEx archives, plus imported local mod files. Pack tabs use stable pack IDs and matching content hashes so renamed packs and imported bundles stay grouped correctly. Files from the old website-downloads directory remain available. Select a pack tab to import a local DLL/ZIP, or add a compatible downloaded file to another pack. Frameworks are tracked separately from mods.

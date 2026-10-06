@@ -20,6 +20,12 @@ pub struct Download {
     pub description: String,
     pub path: PathBuf,
     pub sha256: String,
+    #[serde(default)]
+    pub source: String,
+    #[serde(default)]
+    pub pack_ids: Vec<String>,
+    #[serde(default)]
+    pub framework: bool,
 }
 #[derive(Deserialize)]
 struct Claim {
@@ -76,13 +82,108 @@ fn root() -> PathBuf {
     crate::modpacks::directory()
         .parent()
         .unwrap()
-        .join("website-downloads")
+        .join("downloads")
 }
 fn records() -> Vec<Download> {
     std::fs::read(root().join("library.json"))
+        .or_else(|_| {
+            std::fs::read(
+                root()
+                    .parent()
+                    .unwrap()
+                    .join("website-downloads/library.json"),
+            )
+        })
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default()
+}
+static RECORD_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+fn save_records(items: &[Download]) -> Result<()> {
+    std::fs::create_dir_all(root())?;
+    let path = root().join("library.json");
+    let temporary = path.with_extension("pending");
+    std::fs::write(&temporary, serde_json::to_vec_pretty(items)?)?;
+    std::fs::rename(temporary, path)?;
+    Ok(())
+}
+fn record(mut item: Download) -> Result<()> {
+    let _guard = RECORD_LOCK
+        .lock()
+        .map_err(|_| anyhow::anyhow!("Download history is unavailable"))?;
+    let mut items = records();
+    if let Some(existing) = items.iter_mut().find(|m| {
+        m.sha256 == item.sha256 && m.app_id == item.app_id && m.framework == item.framework
+    }) {
+        item.pack_ids.extend(existing.pack_ids.clone());
+        item.pack_ids.sort();
+        item.pack_ids.dedup();
+        *existing = item;
+    } else {
+        items.push(item);
+    }
+    save_records(&items)
+}
+pub fn remember_mod(
+    pack: &crate::modpacks::Modpack,
+    item: &crate::model::ModInfo,
+    data: &[u8],
+    framework: bool,
+) -> Result<()> {
+    let hash = format!("{:x}", Sha256::digest(data));
+    let ext = if item.file.to_lowercase().ends_with(".dll") {
+        "dll"
+    } else {
+        "zip"
+    };
+    std::fs::create_dir_all(root())?;
+    let path = root().join(format!("{hash}.{ext}"));
+    std::fs::write(&path, data)?;
+    record(Download {
+        name: item.name.clone(),
+        version: item.version.clone(),
+        app_id: pack.game.app_id,
+        description: item.description.clone(),
+        path,
+        sha256: hash,
+        source: if item.local_file.is_empty() {
+            "Canna server"
+        } else {
+            "Local file"
+        }
+        .into(),
+        pack_ids: vec![pack.id.clone()],
+        framework,
+    })
+}
+fn belongs(item: &Download, pack: &crate::modpacks::Modpack) -> bool {
+    item.app_id == pack.game.app_id
+        && (item.pack_ids.contains(&pack.id)
+            || pack
+                .mods
+                .iter()
+                .any(|m| !m.sha256.is_empty() && m.sha256.eq_ignore_ascii_case(&item.sha256)))
+}
+fn attach(item: &Download, pack: &mut crate::modpacks::Modpack) -> Result<()> {
+    anyhow::ensure!(
+        item.app_id == pack.game.app_id && !item.framework,
+        "Choose a modpack for this mod's game"
+    );
+    let bytes = std::fs::read(&item.path)?;
+    anyhow::ensure!(
+        format!("{:x}", Sha256::digest(&bytes)) == item.sha256,
+        "Downloaded file changed or is corrupted"
+    );
+    let mut m = crate::modpacks::add_local(&item.path)?;
+    m.name = item.name.clone();
+    m.version = item.version.clone();
+    m.description = item.description.clone();
+    pack.mods.retain(|old| old.name != m.name);
+    pack.mods.push(m);
+    pack.save()?;
+    let mut item = item.clone();
+    item.pack_ids.push(pack.id.clone());
+    record(item)
 }
 fn post(
     client: &reqwest::blocking::Client,
@@ -178,20 +279,17 @@ fn receive(client: &reqwest::blocking::Client, claim: &Claim) -> Result<String> 
     );
     let path = root().join(format!("{}.{ext}", claim.sha256));
     std::fs::write(&path, data)?;
-    let mut items = records();
-    items.retain(|m| m.sha256 != claim.sha256);
-    items.push(Download {
+    record(Download {
         name: claim.name.clone(),
         version: claim.version.clone(),
         app_id: claim.app_id,
         description: claim.description.clone(),
         path,
         sha256: claim.sha256.clone(),
-    });
-    std::fs::write(
-        root().join("library.json"),
-        serde_json::to_vec_pretty(&items)?,
-    )?;
+        source: "Community library".into(),
+        pack_ids: Vec::new(),
+        framework: false,
+    })?;
     Ok(format!(
         "Downloaded {} {}. Choose a matching modpack below.",
         claim.name, claim.version
@@ -271,6 +369,7 @@ pub struct Website {
     status: String,
     items: Vec<Download>,
     target: String,
+    destinations: std::collections::BTreeMap<String, String>,
 }
 impl Default for Website {
     fn default() -> Self {
@@ -278,10 +377,11 @@ impl Default for Website {
             tickets: None,
             pending: Default::default(),
             result: None,
-            open: false,
+            open: std::env::args().any(|a| a == "--downloads"),
             status: String::new(),
             items: records(),
             target: String::new(),
+            destinations: Default::default(),
         }
     }
 }
@@ -332,28 +432,214 @@ impl Website {
         }
         reload
     }
-    pub fn ui(&mut self, ctx: &egui::Context) -> bool {
+    pub fn show(&mut self, ui: &mut egui::Ui) -> bool {
         let mut reload = false;
-        egui::Window::new("Website downloads").open(&mut self.open).default_width(600.0).show(ctx,|ui| {
-            ui.label(&self.status);ui.label("Browse the private community library on cannamods.vip. Downloads arrive here after clicking Download on the website.");
-            if ui.button("Open community library").clicked() {ui.ctx().open_url(egui::OpenUrl::new_tab("https://cannamods.vip/"));}
-            if self.items.is_empty() {ui.label("No website downloads yet.");}
-            let(packs,_)=crate::modpacks::load_all();
-            egui::ScrollArea::vertical().max_height(450.0).show(ui,|ui|for item in &self.items {
-                ui.separator();ui.strong(format!("{} · {}",item.name,item.version));ui.label(format!("Steam game {}",item.app_id));
-                egui::ComboBox::from_id_salt(&item.sha256).selected_text(packs.iter().find(|p|p.id==self.target && p.game.app_id==item.app_id).map(|p|p.name.as_str()).unwrap_or("Choose a matching modpack")).show_ui(ui,|ui|for p in packs.iter().filter(|p|p.game.app_id==item.app_id) {ui.selectable_value(&mut self.target,p.id.clone(),&p.name);});
-                let target=packs.iter().find(|p|p.id==self.target && p.game.app_id==item.app_id);
-                if ui.add_enabled(target.is_some(),egui::Button::new("Add to modpack")).clicked() {
-                    let result=(||->Result<()> {let mut pack=target.unwrap().clone();let mut m=crate::modpacks::add_local(&item.path)?;m.name=item.name.clone();m.version=item.version.clone();m.description=item.description.clone();pack.mods.retain(|old|old.name!=m.name);pack.mods.push(m);pack.save()?;Ok(())})();
-                    match result {Ok(())=>{self.status="Mod added. Apply the modpack to install it in the game.".into();reload=true;},Err(e)=>self.status=e.to_string()}
+        self.items = records();
+        let (packs, warnings) = crate::modpacks::load_all();
+        // Imported local content is also a download, even when it arrived in a pack bundle.
+        for pack in &packs {
+            for m in &pack.mods {
+                if !m.local_file.is_empty()
+                    && !self
+                        .items
+                        .iter()
+                        .any(|d| d.sha256 == m.sha256 && d.app_id == pack.game.app_id)
+                {
+                    let path = crate::modpacks::local_directory().join(&m.local_file);
+                    if path.is_file() {
+                        self.items.push(Download {
+                            name: m.name.clone(),
+                            version: m.version.clone(),
+                            app_id: pack.game.app_id,
+                            description: m.description.clone(),
+                            path,
+                            sha256: m.sha256.clone(),
+                            source: "Local file".into(),
+                            pack_ids: vec![pack.id.clone()],
+                            framework: false,
+                        });
+                    }
                 }
+            }
+        }
+        ui.heading("Your downloads");
+        ui.label("Downloaded mods, framework packages and imported files, organized by modpack.");
+        if !self.status.is_empty() {
+            ui.label(&self.status);
+        }
+        if self.busy() {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label("Downloading and verifying…");
             });
+        }
+        for warning in warnings {
+            ui.label(warning);
+        }
+        ui.add_space(12.0);
+        egui::ScrollArea::horizontal()
+            .id_salt("download-pack-tabs")
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.selectable_value(
+                        &mut self.target,
+                        String::new(),
+                        format!("All ({})", self.items.len()),
+                    );
+                    let unassigned = self
+                        .items
+                        .iter()
+                        .filter(|item| !packs.iter().any(|p| belongs(item, p)))
+                        .count();
+                    ui.selectable_value(
+                        &mut self.target,
+                        "unassigned".into(),
+                        format!("Unassigned ({unassigned})"),
+                    );
+                    for pack in &packs {
+                        let count = self.items.iter().filter(|item| belongs(item, pack)).count();
+                        ui.selectable_value(
+                            &mut self.target,
+                            pack.id.clone(),
+                            format!("{} ({count})", pack.name),
+                        );
+                    }
+                });
+            });
+        if !self.target.is_empty()
+            && self.target != "unassigned"
+            && !packs.iter().any(|p| p.id == self.target)
+        {
+            self.target.clear();
+        }
+        let selected = packs.iter().find(|p| p.id == self.target);
+        ui.add_space(12.0);
+        ui.horizontal(|ui| {
+            if ui.button("Browse mods").clicked() {
+                ui.ctx()
+                    .open_url(egui::OpenUrl::new_tab("https://cannamods.vip/"));
+            }
+            if ui.button("Open downloads folder").clicked() {
+                self.status = match std::fs::create_dir_all(root()).and_then(|_| {
+                    std::process::Command::new("explorer.exe")
+                        .arg(root())
+                        .spawn()
+                        .map(|_| ())
+                }) {
+                    Ok(()) => String::new(),
+                    Err(e) => e.to_string(),
+                };
+            }
+            if selected.is_some()
+                && ui.button("Import local mod").clicked()
+                && let Some(path) = rfd::FileDialog::new()
+                    .add_filter("Unity mod", &["dll", "zip"])
+                    .pick_file()
+            {
+                let result = (|| -> Result<()> {
+                    let mut pack = selected.unwrap().clone();
+                    let m = crate::modpacks::add_local(&path)?;
+                    let bytes = std::fs::read(&path)?;
+                    remember_mod(&pack, &m, &bytes, false)?;
+                    pack.mods.push(m);
+                    pack.save()?;
+                    Ok(())
+                })();
+                self.status = match result {
+                    Ok(()) => {
+                        reload = true;
+                        "Imported into this modpack.".into()
+                    }
+                    Err(e) => e.to_string(),
+                };
+            }
+        });
+        if let Some(pack) = selected {
+            ui.label(format!("{} · {}", pack.name, pack.game.name));
+        }
+        ui.separator();
+        let mut count = 0;
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            for item in &self.items {
+                let visible = if let Some(pack) = selected { belongs(item, pack) } else if self.target == "unassigned" { !packs.iter().any(|p| belongs(item, p)) } else { true };
+                if !visible { continue; }
+                count += 1;
+                egui::Frame::group(ui.style()).inner_margin(16).show(ui, |ui| {
+                    ui.strong(format!("{} · {}", item.name, item.version));
+                    ui.label(format!("{} · {}", if item.source.is_empty() { "Community library" } else { &item.source }, if item.path.is_file() { "Downloaded" } else { "File missing" }));
+                    let assigned: Vec<_> = packs.iter().filter(|p| belongs(item, p)).map(|p| p.name.as_str()).collect();
+                    ui.label(if assigned.is_empty() { "Unassigned".into() } else { assigned.join(" · ") });
+                    if item.framework { ui.label("Framework package · installed automatically when setting up this game."); }
+                    else if !item.path.extension().is_some_and(|e| e.eq_ignore_ascii_case("jar")) {
+                        let row_key = format!("{}:{}", item.app_id, item.sha256);
+                        let mut chosen = selected.map(|p| p.id.clone()).or_else(|| self.destinations.get(&row_key).cloned()).unwrap_or_default();
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt((&item.sha256, item.app_id)).selected_text(packs.iter().find(|p| p.id == chosen).map(|p| p.name.as_str()).unwrap_or("Choose modpack")).show_ui(ui, |ui| {
+                                for p in packs.iter().filter(|p| p.game.app_id == item.app_id) { ui.selectable_value(&mut chosen, p.id.clone(), &p.name); }
+                            });
+                            // Preserve the row selection between frames separately from the active tab.
+                            if !chosen.is_empty() { self.destinations.insert(format!("{}:{}", item.app_id, item.sha256), chosen.clone()); }
+                            if chosen.is_empty() { chosen = self.destinations.get(&format!("{}:{}", item.app_id, item.sha256)).cloned().unwrap_or_default(); }
+                            let target = packs.iter().find(|p| p.id == chosen && p.game.app_id == item.app_id);
+                            if ui.add_enabled(target.is_some() && item.path.is_file(), egui::Button::new("Add to modpack")).clicked() {
+                                let result = attach(item, &mut target.unwrap().clone());
+                                self.status = match result { Ok(()) => { reload = true; "Added to modpack. Apply the pack to install it in the game.".into() }, Err(e) => e.to_string() };
+                            }
+                        });
+                    } else { ui.label("Minecraft content · use the Minecraft instance folder until its content installer is available."); }
+                    if ui.add_enabled(item.path.is_file(), egui::Button::new("Show file")).clicked() { let _ = std::process::Command::new("explorer.exe").arg(format!("/select,{}", item.path.display())).spawn(); }
+                });
+                ui.add_space(8.0);
+            }
+            if count == 0 { ui.label("No downloads for this tab yet. Browse mods or import a local mod into a pack."); }
         });
         reload
     }
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn download_tabs_match_pack_assignments_and_checksums_without_crossing_games() {
+        let game = crate::model::bopl();
+        let mut pack = crate::modpacks::Modpack::create(
+            "Family pack".into(),
+            String::new(),
+            &game,
+            crate::cache::Source::from_settings(&crate::model::Settings::load()),
+            Vec::new(),
+        );
+        let mut item = super::Download {
+            name: "Test mod".into(),
+            version: "1".into(),
+            app_id: game.app_id,
+            description: String::new(),
+            path: Default::default(),
+            sha256: "a".repeat(64),
+            source: "Canna server".into(),
+            pack_ids: vec![pack.id.clone()],
+            framework: false,
+        };
+        assert!(super::belongs(&item, &pack));
+        item.app_id = 1557740;
+        assert!(!super::belongs(&item, &pack));
+        assert!(super::attach(&item, &mut pack).is_err());
+        item.app_id = game.app_id;
+        item.pack_ids.clear();
+        assert!(!super::belongs(&item, &pack));
+        pack.mods.push(crate::model::ModInfo {
+            enabled: true,
+            name: item.name.clone(),
+            version: item.version.clone(),
+            description: String::new(),
+            file: "Mods/example.zip".into(),
+            sha256: item.sha256.to_uppercase(),
+            local_file: String::new(),
+            dependencies: Vec::new(),
+        });
+        assert!(super::belongs(&item, &pack));
+        item.framework = true;
+        assert!(super::attach(&item, &mut pack).is_err());
+    }
     #[test]
     fn links_cannot_override_server_or_include_commands() {
         assert!(super::parse_uri(&format!("canna://download/{}", "a".repeat(64))).is_ok());

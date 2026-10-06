@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.5', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.6', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -40,19 +40,19 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: server catalog, account connection, website downloads and Minecraft preview"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: supplied navigation icons and downloads grouped by modpack"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Mod downloads, game artwork and BepInEx now come from the authenticated Canna server. Connect the desktop account through Settings and the website; Windows DPAPI protects the desktop session. The mod-repository token is no longer embedded.
+The sidebar now uses the supplied Minecraft, website and download icons.
 
-Website downloads open Canna through a short-lived, single-use link and verify the downloaded file before it can be added to a matching Steam modpack. Existing Bopl modpacks keep access to migrated and historical archives. The website library includes external imports and game/provider/content filters.
+Downloads is a full page with All, Unassigned and a tab for each Steam modpack. It includes community downloads, mod archives fetched while applying a pack, BepInEx packages and imported local files. Existing website-download records remain available. Stable pack IDs and content checksums keep renamed packs and imported bundles grouped correctly.
 
-Minecraft preview includes instance setup, managed Java, loader selection, Microsoft device sign-in and local skin import/export/application. Microsoft sign-in requires a registered public client ID. Live Minecraft login/launch and complete Minecraft modpack/content support are still pending; this is not a complete Minecraft launcher release.
+Select a pack tab to import a local DLL/ZIP or add a compatible downloaded file to a pack. Framework packages cannot accidentally be added as ordinary mods. Files are checked before adding them. Minecraft remains a preview with the limitations noted in v0.2.5.
 
-Automatic updates wait for managed games, installation jobs, website transfers and skin application to finish. Application updates continue to use the separate private GitHub releases repository.
+Application updates continue to use the separate private GitHub releases repository.
 
-Validation: desktop unit/UI tests and strict Clippy; server authorization, transfer, catalog and encryption tests; migration checksum audit. Real Microsoft sign-in and family multiplayer were not tested for this release.
+Validation: 29 desktop tests passed, strict Clippy passed, and native screenshots checked. No game was launched during these checks.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(
