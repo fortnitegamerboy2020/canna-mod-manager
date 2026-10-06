@@ -77,10 +77,7 @@ fn link(raw: &str) -> ApiResult<(String, Vec<String>)> {
     if host == "thunderstore.io" && parts.len() >= 5 && parts[0] == "c" && parts[2] == "p" {
         return Ok(("thunderstore".into(), parts));
     }
-    if host == "curseforge.com"
-        && parts.len() >= 3
-        && matches!(parts[1].as_str(), "mc-mods" | "mods" | "addons")
-    {
+    if host == "curseforge.com" && parts.len() >= 3 && cf_content_type(&parts[1]).is_some() {
         return Ok(("curseforge".into(), parts));
     }
     Err(bad(
@@ -94,6 +91,76 @@ fn client() -> ApiResult<reqwest::Client> {
         .timeout(std::time::Duration::from_secs(90))
         .build()
         .map_err(|_| bad("Could not connect to the provider"))
+}
+fn cf_content_type(category: &str) -> Option<&'static str> {
+    match category {
+        "mc-mods" | "mods" | "addons" => Some("mod"),
+        "texture-packs" | "resource-packs" => Some("resourcepack"),
+        "shaders" => Some("shader"),
+        "data-packs" | "datapacks" => Some("datapack"),
+        "modpacks" => Some("modpack"),
+        _ => None,
+    }
+}
+fn cf_release(file: &Value) -> Option<Release> {
+    if file["isAvailable"] != true {
+        return None;
+    }
+    let id = file["id"].as_u64().filter(|id| *id > 0)?;
+    let versions = strings(&file["gameVersions"]);
+    let mut loaders = Vec::new();
+    let mut game_versions = Vec::new();
+    for version in versions {
+        let lower = version.to_ascii_lowercase();
+        if matches!(
+            lower.as_str(),
+            "forge" | "fabric" | "neoforge" | "quilt" | "liteloader" | "rift"
+        ) {
+            if !loaders.contains(&lower) {
+                loaders.push(lower);
+            }
+        } else if !game_versions.contains(&version) {
+            game_versions.push(version);
+        }
+    }
+    let hash = file["hashes"]
+        .as_array()
+        .and_then(|a| a.iter().find(|h| h["algo"] == 1))
+        .map(|h| text(h, "value"))
+        .unwrap_or_default();
+    Some(Release {
+        id: id.to_string(),
+        name: text(file, "displayName"),
+        filename: text(file, "fileName"),
+        loaders,
+        game_versions,
+        dependencies: file["dependencies"].clone(),
+        download: text(file, "downloadUrl"),
+        hash,
+        algorithm: "sha1".into(),
+    })
+}
+async fn cf_pages(url: &str) -> ApiResult<Vec<Value>> {
+    let mut output = Vec::new();
+    for index in (0..10000).step_by(50) {
+        let separator = if url.contains('?') { '&' } else { '?' };
+        let page = metadata(&format!("{url}{separator}index={index}&pageSize=50"), true).await?;
+        let data = page["data"]
+            .as_array()
+            .ok_or_else(|| bad("Invalid CurseForge response"))?;
+        if data.len() > 50 {
+            return Err(bad("Invalid CurseForge pagination"));
+        }
+        output.extend(data.iter().cloned());
+        if data.len() < 50
+            || page["pagination"]["totalCount"]
+                .as_u64()
+                .is_some_and(|total| output.len() as u64 >= total)
+        {
+            break;
+        }
+    }
+    Ok(output)
 }
 async fn metadata(url: &str, cf: bool) -> ApiResult<Value> {
     let mut response = if cf {
@@ -291,10 +358,10 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
                 "This external project is not for a supported Steam/Unity game",
             ));
         }
-        let games = metadata("https://api.curseforge.com/v1/games?pageSize=50", true).await?;
-        let game = games["data"]
-            .as_array()
-            .and_then(|a| a.iter().find(|g| g["slug"] == parts[0]))
+        let games = cf_pages("https://api.curseforge.com/v1/games").await?;
+        let game = games
+            .iter()
+            .find(|g| g["slug"] == parts[0])
             .ok_or_else(|| bad("This CurseForge game is not supported by its API"))?;
         let game_id = game["id"]
             .as_u64()
@@ -320,38 +387,8 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
             .as_u64()
             .ok_or_else(|| bad("Invalid provider project"))?
             .to_string();
-        let files = metadata(
-            &format!("https://api.curseforge.com/v1/mods/{id}/files?pageSize=50"),
-            true,
-        )
-        .await?;
-        let releases = files["data"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|f| f["isAvailable"] == true)
-            .map(|f| {
-                let hash = f["hashes"]
-                    .as_array()
-                    .and_then(|a| a.iter().find(|h| h["algo"] == 1))
-                    .map(|h| text(h, "value"))
-                    .unwrap_or_default();
-                Release {
-                    id: f["id"].as_u64().unwrap_or_default().to_string(),
-                    name: text(f, "displayName"),
-                    filename: text(f, "fileName"),
-                    loaders: strings(&f["gameVersions"])
-                        .into_iter()
-                        .filter(|v| matches!(v.as_str(), "Forge" | "Fabric" | "NeoForge" | "Quilt"))
-                        .collect(),
-                    game_versions: strings(&f["gameVersions"]),
-                    dependencies: f["dependencies"].clone(),
-                    download: text(f, "downloadUrl"),
-                    hash,
-                    algorithm: "sha1".into(),
-                }
-            })
-            .collect();
+        let files = cf_pages(&format!("https://api.curseforge.com/v1/mods/{id}/files")).await?;
+        let releases = files.iter().filter_map(cf_release).collect();
         Ok(Project {
             provider,
             id,
@@ -445,7 +482,23 @@ pub async fn import(
     if let Some(id) = existing(&app, &origin)? {
         return Ok(axum::Json(json!({"id":id,"existing":true})));
     }
-    let url = artifact_url(&release.download, &project.provider)?;
+    let download = if project.provider == "curseforge" && release.download.is_empty() {
+        let result = metadata(
+            &format!(
+                "https://api.curseforge.com/v1/mods/{}/files/{}/download-url",
+                project.id, release.id
+            ),
+            true,
+        )
+        .await?;
+        result["data"]
+            .as_str()
+            .ok_or_else(|| bad("The author has not enabled third-party downloads"))?
+            .to_owned()
+    } else {
+        release.download.clone()
+    };
+    let url = artifact_url(&download, &project.provider)?;
     let mut response = if project.provider == "curseforge" {
         curseforge::get(url.as_str()).await?
     } else {
@@ -502,6 +555,9 @@ pub async fn import(
     details["dependencies"] = release.dependencies.clone();
     details["content_type"] = json!(if project.provider == "modrinth" {
         parts_type(&input.url)
+    } else if project.provider == "curseforge" {
+        let (_, p) = link(&input.url)?;
+        cf_content_type(&p[1]).unwrap_or("mod").to_owned()
     } else {
         "mod".to_owned()
     });
@@ -795,6 +851,32 @@ mod tests {
             value(call(app, "GET", "/api/v1/mods", Value::Null, Some(&member)).await).await[0]["sha256"],
             hex::encode(Sha256::digest(bytes))
         );
+    }
+    #[test]
+    fn curseforge_categories_and_loader_versions_are_preserved() {
+        for (category, expected) in [
+            ("mc-mods", "mod"),
+            ("texture-packs", "resourcepack"),
+            ("shaders", "shader"),
+            ("data-packs", "datapack"),
+            ("modpacks", "modpack"),
+        ] {
+            assert!(
+                link(&format!(
+                    "https://www.curseforge.com/minecraft/{category}/example"
+                ))
+                .is_ok()
+            );
+            assert_eq!(cf_content_type(category), Some(expected));
+        }
+        assert!(link("https://www.curseforge.com/minecraft/unknown/example").is_err());
+        let file = json!({"id":123,"isAvailable":true,"fileName":"example.jar","displayName":"Example", "gameVersions":["1.21.1","NeoForge","1.21.1","Fabric"],"hashes":[{"algo":1,"value":"abc"}], "dependencies":[{"modId":100,"relationType":3}],"downloadUrl":null});
+        let release = cf_release(&file).unwrap();
+        assert_eq!(release.loaders, ["neoforge", "fabric"]);
+        assert_eq!(release.game_versions, ["1.21.1"]);
+        assert_eq!(release.dependencies[0]["relationType"], 3);
+        assert!(release.download.is_empty());
+        assert!(cf_release(&json!({"id":123,"isAvailable":false})).is_none());
     }
     #[test]
     fn provider_urls_and_downloads_are_strict() {

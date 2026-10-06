@@ -20,9 +20,9 @@ function renderLibrary() {
   const query=$('librarysearch').value.toLowerCase(),game=$('librarygame').value,type=$('librarytype').value,provider=$('libraryprovider').value;
   let count=0;
   for(const kind of ['mods','packs']) {
-    const section=$(kind).closest('section');section.hidden=!!type && type!==kind;
+    const section=$(kind).closest('section');section.hidden=!!type && (['mods','packs'].includes(type) ? type!==kind : kind!=='mods');
     const loader=$('libraryloader').value,version=$('libraryversion').value.trim();
-    const items=libraryItems[kind].filter(m=>(!loader || m.details?.loaders?.includes(loader)) && (!version || m.details?.game_versions?.includes(version)) && (!game || libraryGameId(m)===game) && (!query || `${m.name} ${m.description || ''} ${m.author}`.toLowerCase().includes(query)) && (!provider || (m.details?.provider || 'uploaded')===provider));
+    const items=libraryItems[kind].filter(m=>(!type || ['mods','packs'].includes(type) || m.details?.content_type===type) && (!loader || m.details?.loaders?.some(value=>value.toLowerCase()===loader)) && (!version || m.details?.game_versions?.includes(version)) && (!game || libraryGameId(m)===game) && (!query || `${m.name} ${m.description || ''} ${m.author}`.toLowerCase().includes(query)) && (!provider || (m.details?.provider || 'uploaded')===provider));
     $(kind).replaceChildren(...items.map(m=>entry(m,kind)));
     if(!items.length) $(kind).textContent=libraryItems[kind].length ? 'No matches for these filters.' : kind==='mods' ? 'No mods yet.' : 'No shared modpacks yet.';
     if(!section.hidden) count+=items.length;
