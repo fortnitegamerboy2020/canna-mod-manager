@@ -43,7 +43,34 @@ try {
  for($i=0;$i -lt 50 -and !(Test-Path -LiteralPath $cannaMarker);$i++){Start-Sleep -Milliseconds 100}
  if(!(Test-Path -LiteralPath $cannaMarker)){throw 'Updated EXE was not relaunched.'}
  if((Get-FileHash -LiteralPath $cannaBackup).Hash -ne $cannaBefore){throw 'Update rollback copy differs from installed application.'}
- 'Installer file/Start menu shortcut and real updater replacement, backup and relaunch passed.'
+ # Seed every data root outside the installed directory. A junction must not erase its target.
+ $cannaCleanupRoot=Join-Path $cannaFixtureRoot 'cleanup-fixture'
+ foreach($cannaBase in @('Roaming','Local','Temp')){
+  $cannaData=Join-Path $cannaCleanupRoot "$cannaBase/CannaModManager"
+  New-Item -ItemType Directory -Path (Join-Path $cannaData 'minecraft/instances/test/world') -Force | Out-Null
+  [IO.File]::WriteAllText((Join-Path $cannaData 'minecraft/instances/test/world/save.dat'),'fixture')
+  [IO.File]::WriteAllText((Join-Path $cannaData 'login.credential'),'fixture')
+  [IO.File]::WriteAllText((Join-Path $cannaCleanupRoot "$cannaBase/unrelated.txt"),'keep')
+ }
+ $cannaOutside=Join-Path $cannaFixtureRoot 'unrelated-folder'
+ New-Item -ItemType Directory -Path $cannaOutside -Force | Out-Null
+ [IO.File]::WriteAllText((Join-Path $cannaOutside 'keep.txt'),'keep')
+ New-Item -ItemType Junction -Path (Join-Path $cannaCleanupRoot 'Roaming/CannaModManager/linked') -Target $cannaOutside | Out-Null
+ [IO.File]::WriteAllText((Join-Path $cannaCleanupRoot 'Temp/canna-console-12345.log'),'fixture')
+ [IO.File]::WriteAllText((Join-Path $cannaCleanupRoot 'Temp/canna-console-unrelated.log'),'keep')
+ [IO.File]::WriteAllText((Join-Path $cannaInstallDir 'extra-cache.bin'),'fixture')
+ $cannaUninstall=Start-Process -FilePath (Join-Path $cannaInstallDir 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -WindowStyle Hidden -Wait -PassThru
+ if($cannaUninstall.ExitCode -ne 0){throw 'Full cleanup uninstall failed.'};$cannaInstalled=$false
+ foreach($cannaBase in @('Roaming','Local','Temp')){
+  if(Test-Path -LiteralPath (Join-Path $cannaCleanupRoot "$cannaBase/CannaModManager")){throw 'Canna data folder survived uninstall.'}
+  if(!(Test-Path -LiteralPath (Join-Path $cannaCleanupRoot "$cannaBase/unrelated.txt"))){throw 'Unrelated file was deleted.'}
+ }
+ if(Test-Path -LiteralPath (Join-Path $cannaCleanupRoot 'Temp/canna-console-12345.log')){throw 'Console log survived uninstall.'}
+ if(!(Test-Path -LiteralPath (Join-Path $cannaOutside 'keep.txt'))){throw 'Cleanup followed a junction.'}
+ if(!(Test-Path -LiteralPath (Join-Path $cannaCleanupRoot 'Temp/canna-console-unrelated.log'))){throw 'Cleanup matched an unrelated log.'}
+ if(Test-Path -LiteralPath $cannaInstallDir){throw 'Installation folder survived uninstall.'}
+ if(Test-Path -LiteralPath $cannaShortcut){throw 'Shortcut survived uninstall.'}
+ 'Installer, updater replacement/relaunch, full data cleanup and junction isolation passed.'
 } finally {
  if($cannaInstalled){$cannaUninstall=Start-Process -FilePath (Join-Path $cannaInstallDir 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -WindowStyle Hidden -Wait -PassThru;if($cannaUninstall.ExitCode -ne 0){throw 'Test uninstallation failed.'}}
  if(Test-Path -LiteralPath $cannaShortcut){throw 'Uninstaller left the test shortcut.'}
