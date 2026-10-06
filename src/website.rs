@@ -425,14 +425,12 @@ impl Website {
         if let Some(rx) = &self.pairing {
             while let Ok(event) = rx.try_recv() {
                 match event {
-                    PairEvent::Started(request) => {
+                    PairEvent::Started { code, url } => {
                         self.account_status = format!(
-                            "Approve connection {} on the website. Waiting for your approval…",
-                            request[..6].to_uppercase()
+                            "Enter connection code {code} on the verification page. Waiting for verification…"
                         );
-                        ctx.open_url(egui::OpenUrl::new_tab(format!(
-                            "https://cannamods.vip/connect?request={request}"
-                        )));
+                        ctx.copy_text(code);
+                        ctx.open_url(egui::OpenUrl::new_tab(url));
                     }
                     PairEvent::Finished(result) => {
                         paired = result.is_ok();
@@ -649,7 +647,7 @@ impl Website {
     }
 }
 enum PairEvent {
-    Started(String),
+    Started { code: String, url: String },
     Finished(std::result::Result<String, String>),
 }
 fn pair_account(
@@ -688,7 +686,18 @@ fn pair_account(
             "Invalid connection request"
         );
     }
-    let _ = tx.send(PairEvent::Started(request.into()));
+    let code = started["code"]
+        .as_str()
+        .context("Update Canna to use code verification")?;
+    anyhow::ensure!(
+        code.len() == 6 && code.bytes().all(|b| b.is_ascii_hexdigit()),
+        "Invalid connection code"
+    );
+    let url = format!("https://cannamods.vip/connect?request={request}");
+    let _ = tx.send(PairEvent::Started {
+        code: code.into(),
+        url,
+    });
     let deadline = std::time::Instant::now() + Duration::from_secs(300);
     while std::time::Instant::now() < deadline {
         if cancel.load(std::sync::atomic::Ordering::Relaxed) {

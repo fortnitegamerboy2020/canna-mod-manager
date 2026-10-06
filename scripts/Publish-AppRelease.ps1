@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.11', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.12', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -40,17 +40,17 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: Minecraft artwork and consistent card cropping"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: dedicated connection verification and brute-force protection"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Discover now displays a responsive grid of game artwork cards with names underneath. Minecraft uses the updated full-color sidebar icon and wide banner with centered cover cropping.
+Account connection now opens its own verification page. Canna shows and copies an independent six-character code; typing or pasting it verifies automatically.
 
-Website desktop-account approval now opens the correct library panel, showing the matching code and approval button. The page background stays continuous on short pages.
+Server verification expires after five minutes, locks a request after five incorrect codes, records suspected brute-force attempts, and limits requests by client and account. Legacy code-less approval is disabled.
 
-Minecraft API approval remains pending; this release does not claim verified Minecraft login or launching.
+Minecraft API approval remains pending.
 
-Validation: Desktop tests and strict Clippy passed. Website connection routing and approval were checked with a browser-independent fixture; backend pairing tests preserve approval, expiry and single-use checks.
+Validation: Desktop tests and strict Clippy, browser-independent typing/paste checks, and backend code, expiry, replay and lockout tests.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(
