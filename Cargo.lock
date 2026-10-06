@@ -283,7 +283,7 @@ dependencies = [
 
 [[package]]
 name = "canna-mod-manager"
-version = "0.2.10"
+version = "0.2.11"
 dependencies = [
  "anyhow",
  "base64 0.22.1",

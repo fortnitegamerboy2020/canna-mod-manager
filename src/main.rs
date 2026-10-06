@@ -649,36 +649,46 @@ impl Canna {
             }
             games.sort_by_key(|g| g.app_id != u32::MAX);
             egui::ScrollArea::vertical().show(ui, |ui| {
-                for game in games {
-                    let frame = egui::Frame::new()
-                        .fill(Color32::from_rgb(29, 39, 33))
-                        .corner_radius(ui_helpers::SURFACE_RADIUS)
-                        .inner_margin(18)
-                        .show(ui, |ui| {
-                            ui.horizontal(|ui| {
-                                self.art(ui, game.app_id, egui::vec2(96.0, 54.0));
-                                if ui
-                                    .button(egui::RichText::new(&game.name).size(22.0))
-                                    .clicked()
-                                {
-                                    self.discover.game = game.app_id;
-                                    self.discover.query.clear();
-                                    self.discover.kind.clear();
-                                }
-                                ui.label(if self.token.is_empty() {
-                                    "Connect to browse".into()
-                                } else {
-                                    format!("{} mods", game.mods.len())
+                let columns = ((ui.available_width() / 220.0) as usize).max(1);
+                egui::Grid::new("discover_game_grid")
+                    .num_columns(columns)
+                    .spacing(egui::vec2(12.0, 12.0))
+                    .show(ui, |ui| {
+                        for (index, game) in games.into_iter().enumerate() {
+                            let frame = egui::Frame::new()
+                                .fill(Color32::from_rgb(29, 39, 33))
+                                .corner_radius(ui_helpers::SURFACE_RADIUS)
+                                .inner_margin(12)
+                                .show(ui, |ui| {
+                                    ui.vertical(|ui| {
+                                        ui.set_width(184.0);
+                                        self.art(ui, game.app_id, egui::vec2(184.0, 103.5));
+                                        ui.add_space(6.0);
+                                        ui.label(
+                                            egui::RichText::new(&game.name).size(18.0).strong(),
+                                        );
+                                        ui.label(if self.token.is_empty() {
+                                            "Connect to browse".into()
+                                        } else {
+                                            format!("{} mods", game.mods.len())
+                                        });
+                                    });
                                 });
-                            });
-                        });
-                    if frame.response.interact(egui::Sense::click()).clicked() {
-                        self.discover.game = game.app_id;
-                        self.discover.query.clear();
-                        self.discover.kind.clear();
-                    }
-                    ui.add_space(12.0);
-                }
+                            if frame
+                                .response
+                                .interact(egui::Sense::click())
+                                .on_hover_cursor(egui::CursorIcon::PointingHand)
+                                .clicked()
+                            {
+                                self.discover.game = game.app_id;
+                                self.discover.query.clear();
+                                self.discover.kind.clear();
+                            }
+                            if (index + 1) % columns == 0 {
+                                ui.end_row();
+                            }
+                        }
+                    });
             });
         } else {
             if self

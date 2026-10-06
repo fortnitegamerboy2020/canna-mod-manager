@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.10', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.11', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -44,13 +44,13 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Minecraft uses the supplied 1920 x 1080 banner for its library and Discover cards, with centered cover cropping and the same rounded frame treatment as other games. Game library artwork now consistently fills its frame rather than leaving unused space.
+Discover now displays a responsive grid of game artwork cards with names underneath. Minecraft uses the updated full-color sidebar icon and wide banner with centered cover cropping.
 
-The updated grass-block sidebar icon retains its original colors, is trimmed to its visible bounds and is downsampled for efficient display.
+Website desktop-account approval now opens the correct library panel, showing the matching code and approval button. The page background stays continuous on short pages.
 
-Minecraft API application has been submitted and approval is pending. This artwork update does not claim verified Minecraft login or launching.
+Minecraft API approval remains pending; this release does not claim verified Minecraft login or launching.
 
-Validation: Desktop tests and strict Clippy passed; the native library and Discover layouts were visually inspected.
+Validation: Desktop tests and strict Clippy passed. Website connection routing and approval were checked with a browser-independent fixture; backend pairing tests preserve approval, expiry and single-use checks.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(
