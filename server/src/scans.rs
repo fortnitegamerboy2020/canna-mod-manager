@@ -3,7 +3,7 @@ use tokio::io::AsyncWriteExt;
 const REPORT_LIMIT: u64 = 16 * 1024 * 1024;
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS mod_scans(mod_id TEXT PRIMARY KEY REFERENCES mods(id) ON DELETE CASCADE,hash TEXT NOT NULL,status TEXT NOT NULL,report TEXT NOT NULL,started INTEGER NOT NULL);
- UPDATE mod_scans SET status='failed',report='{\"status\":\"failed\",\"error\":\"Analysis interrupted; run again\",\"files\":[],\"findings\":[]}' WHERE status='queued';")
+ DELETE FROM mod_scans WHERE status='queued';")
 }
 fn staff(app: &App, headers: &HeaderMap) -> ApiResult<i64> {
     let (actor, admin) = app.auth(headers)?;
@@ -311,6 +311,33 @@ pub async fn decision(
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[test]
+    fn interrupted_jobs_retry_without_erasing_completed_reviews() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE mods(id TEXT PRIMARY KEY);")
+            .unwrap();
+        initialize(&db).unwrap();
+        db.execute_batch("INSERT INTO mod_scans VALUES('pending','hash','queued','{}',0); INSERT INTO mod_scans VALUES('reviewed','hash','complete','{}',0);").unwrap();
+        initialize(&db).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM mod_scans WHERE mod_id='pending'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT status FROM mod_scans WHERE mod_id='reviewed'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "complete"
+        );
+    }
     #[tokio::test]
     async fn analysis_is_staff_only_and_unresolved_findings_block_downloads() {
         let (_dir, app) = fixture();
