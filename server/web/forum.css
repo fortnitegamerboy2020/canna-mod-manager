@@ -120,3 +120,5 @@ button,a,summary{-webkit-tap-highlight-color:transparent}button,summary{touch-ac
 @media(max-width:760px){.headeractions .appdownload{flex:1 1 140px}}
 
 .forumgroup{margin-bottom:18px}.sectionfields{flex-wrap:wrap}#groupdraft .sectionedit{margin-bottom:12px}
+
+.forumpreview{width:min(1500px,96vw);max-width:96vw;height:90vh;max-height:94vh;box-sizing:border-box;padding:24px;background:#11201c;overflow:auto}.forumpreview .row{position:sticky;bottom:0;background:#11201c;padding:14px 0}.forumpreview details{margin:16px 0}.forumpreview .categoryname:disabled{opacity:1;color:inherit;cursor:default}.sectionstatus{color:#f2cc76}.previewheading{margin-bottom:20px}@media(max-width:600px){.forumpreview{padding:12px;width:96vw}.forumpreview .row{flex-wrap:wrap}}

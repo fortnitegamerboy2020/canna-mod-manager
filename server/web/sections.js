@@ -72,8 +72,12 @@ $('addsection').addEventListener('click',()=>{
 });
 $('addgroup').addEventListener('click',()=>{groupDraft.push({id:crypto.randomUUID(),name:''});reviewToken='';renderSectionEditor();});
 $('resetsections').addEventListener('click',()=>action(loadSectionEditor));
-$('reviewsections').addEventListener('click',()=>action(async()=>{
-  if(JSON.stringify(sectionDraft)===JSON.stringify(sectionOriginal) && JSON.stringify(groupDraft)===JSON.stringify(groupOriginal)) throw new Error('Make a change before reviewing.');
+$('reviewsections').addEventListener('click',async()=>{
+  const previewButton=$('reviewsections');previewButton.disabled=true;$('sectionstatus').textContent='Checking your draft…';
+  try {
+  if(JSON.stringify(sectionDraft)===JSON.stringify(sectionOriginal) && JSON.stringify(groupDraft)===JSON.stringify(groupOriginal)) throw new Error('Make a change before previewing.');
+  if(groupDraft.some(g=>!g.name.trim()))throw new Error('Give each forum group a title before previewing.');
+  if(sectionDraft.some(s=>!s.name.trim()))throw new Error('Give each discussion section a name before previewing.');
   const result=await json('admin/sections/review',{revision:sectionDraftRevision,sections:sectionDraft,groups:groupDraft,moves:sectionMoves});
   reviewToken=result.token;
   $('sectiondiff').replaceChildren(...result.layout.sections.flatMap((s,index)=>{
@@ -95,8 +99,11 @@ $('reviewsections').addEventListener('click',()=>action(async()=>{
   for(const group of groupDraft){const row=document.createElement('p');const old=groupOriginal.find(g=>g.id===group.id);row.textContent=group.name+(old ? (old.name!==group.name?` · Previously ${old.name}`:''):' · New group');groupSummary.append(row);}
   for(const old of groupOriginal.filter(g=>!groupDraft.some(n=>n.id===g.id))){const row=document.createElement('p');row.textContent=`Delete group ${old.name} · Sections reassigned`;groupSummary.append(row);}
   $('sectiondiff').prepend(groupSummary);
-  $('sectionreview').showModal();
-}));
+  $('sectionpreview').replaceChildren(...buildForumGroups(result.layout.groups,result.layout.sections,true));
+  $('sectionstatus').textContent='';$('sectionreview').showModal();
+  }catch(error){reviewToken='';$('sectionstatus').textContent=error.message;$('sectionstatus').focus();message(error.message);}
+  finally{previewButton.disabled=false;}
+});
 $('cancelsections').addEventListener('click',()=>{reviewToken='';$('sectionreview').close();});
 $('sectionreview').addEventListener('cancel',()=>{reviewToken='';});
 $('applysections').addEventListener('click',()=>action(async()=>{

@@ -52,27 +52,30 @@ async function loadTopics() {
   $('topicmod').replaceChildren(new Option('No linked mod',''), ...mods.map(mod => new Option(mod.name,mod.id)));
   if(mods.some(m=>m.id===selectedMod)) $('topicmod').value=selectedMod;
 }
-function renderCategories() {
+function buildForumGroups(groups, sections, preview=false) {
   const makeRow = ({id:key,name,description,active,vip_only}) => {
     const glyph = key === 'help' ? '?' : key === 'showcase' ? '+' : key === 'guides' ? '≡' : '#';
     const row = document.createElement('div'); row.className = 'categoryrow';
     const icon = document.createElement('span'); icon.className = 'categoryglyph'; icon.textContent = glyph; icon.setAttribute('aria-hidden','true');
     const info = document.createElement('div');
-    const link = button(name,() => navigatePage(`/forums/sections/${encodeURIComponent(key)}`)); link.className = 'categoryname';link.dataset.page=`/forums/sections/${encodeURIComponent(key)}`;
+    const link = button(name,() => navigatePage(`/forums/sections/${encodeURIComponent(key)}`)); link.className = 'categoryname';link.disabled=preview;link.dataset.page=`/forums/sections/${encodeURIComponent(key)}`;
     const detail = document.createElement('p'); detail.textContent = description + (active ? (vip_only ? ' · VIP+ posting' : '') : ' · Closed to new discussions'); info.append(link,detail);
     const count = document.createElement('div'); count.className = 'countcell'; count.textContent = String(topicItems.filter(t => t.category === key).length);
     const label = document.createElement('small'); label.textContent = 'on this page'; count.append(label);
     row.append(icon,info,count); return row;
   };
-  $('categories').replaceChildren(...forumGroups.map(group=>{
+  return groups.map(group=>{
     const panel=document.createElement('section');panel.className='forumtable forumgroup';panel.dataset.group=group.id;
     const header=document.createElement('div');header.className='paneltitle';const title=document.createElement('h3');title.textContent=group.name;
     header.append(title);panel.append(header);
-    const sections=forumCategories.filter(s=>(s.group||'unity')===group.id);
-    if(sections.length)panel.append(...sections.map(makeRow));
+    const rows=sections.filter(s=>(s.group||'unity')===group.id);
+    if(rows.length)panel.append(...rows.map(makeRow));
     else {const empty=document.createElement('p');empty.className='sidebody';empty.textContent='No discussion sections yet.';panel.append(empty);}
     return panel;
-  }));
+  });
+}
+function renderCategories() {
+  $('categories').replaceChildren(...buildForumGroups(forumGroups,forumCategories));
   $('sidecount').textContent = String(topicItems.length);
   $('sideposts').textContent = String(topicItems.reduce((total,t)=>total + t.posts,0));
   $('recenttopics').replaceChildren(...[...topicItems].sort((a,b)=>(b.updated || 0)-(a.updated || 0)).slice(0,4).map(t => {
