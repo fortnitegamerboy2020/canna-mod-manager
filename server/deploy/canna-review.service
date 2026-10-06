@@ -1,0 +1,34 @@
+[Unit]
+Description=Canna isolated static mod review worker
+After=network.target
+[Service]
+User=canna-review
+Group=canna-review
+ExecStart=/usr/bin/python3 /opt/canna-review/review-worker.py
+Environment=CANNA_REVIEW_JOBS=/var/lib/canna-review/jobs
+Environment=DOTNET_GCHeapHardLimit=18000000
+Environment=DOTNET_CLI_HOME=/var/lib/canna-review
+Environment=DOTNET_NOLOGO=1
+Environment=DOTNET_SKIP_FIRST_TIME_EXPERIENCE=1
+UMask=0007
+Restart=on-failure
+NoNewPrivileges=true
+PrivateNetwork=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+InaccessiblePaths=/var/lib/canna /etc/canna /mnt/canna /home
+ReadWritePaths=/var/lib/canna-review/jobs
+NoExecPaths=/var/lib/canna-review/jobs
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+MemoryMax=1350M
+TasksMax=64
+LimitNOFILE=1024
+[Install]
+WantedBy=multi-user.target
+

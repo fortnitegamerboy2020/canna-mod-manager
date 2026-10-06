@@ -9,3 +9,6 @@
 /mods/*/build/
 
 /server/staging/
+
+__pycache__/
+*.pyc

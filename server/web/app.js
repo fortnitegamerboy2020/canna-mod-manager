@@ -43,7 +43,7 @@ function entry(item, kind) {
     source.addEventListener('click', () => action(() => viewSource(item.id))); actions.append(source);
   }
   const pending = kind === 'mods' && item.review_status === 'pending';
-  if(pending) {const note=document.createElement('p');note.textContent='Awaiting administrator review';info.append(note);if(currentUser.admin){const approve=document.createElement('button');approve.textContent='Approve mod';approve.addEventListener('click',()=>action(async()=>{if(!confirm(`Approve ${item.name} for community downloads? Review the archive and its author first. Approval does not certify it free of malware.`))return;await api(`mods/${item.id}/approve`,{method:'POST'});await refresh();}));actions.append(approve);}}
+  if(pending) {const note=document.createElement('p');note.textContent='Awaiting administrator review';info.append(note);if(currentUser.admin){const approve=document.createElement('button');approve.textContent='Approve mod';approve.addEventListener('click',()=>action(async()=>{if(!await cannaConfirm(`Approve ${item.name} for community downloads? Review the archive and its author first. Approval does not certify it free of malware.`))return;await api(`mods/${item.id}/approve`,{method:'POST'});await refresh();}));actions.append(approve);}}
   const button = document.createElement('button'); button.textContent = 'Download';button.disabled=pending;
   button.addEventListener('click', () => action(() => downloadToApp(item,kind))); actions.append(button);
   if (kind === 'packs') {
@@ -53,7 +53,7 @@ function entry(item, kind) {
   if (currentUser.admin || currentUser.username === item.author) {
     const remove = document.createElement('button'); remove.textContent = 'Delete';
     remove.addEventListener('click', () => action(async () => {
-      if (!confirm(`Delete ${item.name}?`)) return;
+      if (!await cannaConfirm(`Delete ${item.name}?`)) return;
       await api(`${kind}/${item.id}`, {method:'DELETE'}); await refresh();
     })); actions.append(remove);
   }
@@ -79,7 +79,7 @@ async function refresh() {
   if(devicesLanding){devicesLanding=false;await openProfile(currentUser.id);$('loggeddevices').scrollIntoView({block:'start'});}
 }
 $('logout').addEventListener('click',()=>action(async()=>{await api('logout',{method:'POST'});location.assign('/');}));
-$('forgetdevices').addEventListener('click',()=>action(async()=>{if(!confirm('Forget all trusted devices and sign out everywhere?'))return;await api('trusted-devices',{method:'DELETE'});location.assign('/');}));
+$('forgetdevices').addEventListener('click',()=>action(async()=>{if(!await cannaConfirm('Forget all trusted devices and sign out everywhere?'))return;await api('trusted-devices',{method:'DELETE'});location.assign('/');}));
 async function inviteAction(id,callback) {
   const btn=$(id);btn.disabled=true;$('invitestatus').textContent='Generating invitations…';
   try {await callback();$('inviteout').focus();}catch(error){$('invitestatus').textContent=error.message;message(error.message);}finally {btn.disabled=id==='newinvite' && !currentUser.can_invite;}

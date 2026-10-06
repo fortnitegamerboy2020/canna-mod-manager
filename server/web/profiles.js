@@ -43,7 +43,7 @@ async function openProfile(id) {
     const body = document.createElement('p'); body.className = 'postbody'; body.textContent = comment.body;
     row.append(name,date,body);
     if (own || currentUser.admin || comment.author_id === currentUser.id) row.append(button('Remove',async () => {
-      if (!confirm('Remove this profile comment?')) return;
+      if (!await cannaConfirm('Remove this profile comment?')) return;
       await api(`profile-comments/${comment.id}`,{method:'DELETE'}); await openProfile(id);
     }));
     return row;
@@ -74,9 +74,9 @@ async function loadDevices() {
   const info=document.createElement('div');const name=document.createElement('strong');name.textContent=device.name+(device.current?' · This device':'');
   const state=document.createElement('p');state.textContent=`${device.kind} · ${device.state} · Last activity ${new Date(device.last_seen*1000).toLocaleString()} · Signed in ${new Date(device.created*1000).toLocaleString()}`;info.append(name,state);row.append(info);
   row.append(button('Rename',async()=>{const name=prompt('Device name',device.name);if(name===null)return;await api(`devices/${device.id}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name})});await loadDevices();}));
-  row.append(button('Log out',async()=>{if(!confirm(`Log out ${device.name}${device.current?' (this device)':''}?`))return;await api(`devices/${device.id}`,{method:'DELETE'});if(device.current){location.replace('/');return;}await loadDevices();message('Device logged out.');}));return row;
+  row.append(button('Log out',async()=>{if(!await cannaConfirm(`Log out ${device.name}${device.current?' (this device)':''}?`))return;await api(`devices/${device.id}`,{method:'DELETE'});if(device.current){location.replace('/');return;}await loadDevices();message('Device logged out.');}));return row;
  }));
 }
 $('refreshdevices').addEventListener('click',()=>action(loadDevices));
-$('logoutothers').addEventListener('click',()=>action(async()=>{if(!confirm('Log out every other device? This device stays signed in.'))return;await api('devices/logout-others',{method:'POST'});await loadDevices();message('All other devices logged out.');}));
+$('logoutothers').addEventListener('click',()=>action(async()=>{if(!await cannaConfirm('Log out every other device? This device stays signed in.'))return;await api('devices/logout-others',{method:'POST'});await loadDevices();message('All other devices logged out.');}));
 setInterval(()=>{if(!$('loggeddevices').hidden && profileId===currentUser?.id)action(loadDevices);},30000);

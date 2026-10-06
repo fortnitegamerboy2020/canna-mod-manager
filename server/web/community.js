@@ -17,7 +17,7 @@ function activity(seconds) {
   return new Date(seconds*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
 }
 function updateNavigation() {
-  const views = {librarynav:'libraryview',forumnav:'forumview',peoplenav:'profilesview',myprofilenav:'profilesview',adminnav:'moderation'};
+  const views = {librarynav:'libraryview',forumnav:'forumview',peoplenav:'profilesview',myprofilenav:'profilesview',adminnav:'moderation',submissionsnav:'submissionsview',notificationsnav:'notificationsview'};
   for (const [nav,view] of Object.entries(views)) {
     const active = !$(view).hidden && (nav !== 'myprofilenav' || profileId === currentUser.id) && (nav !== 'peoplenav' || profileId !== currentUser.id);
     $(nav).classList.toggle('active',active); $(nav).setAttribute('aria-current',active ? 'page' : 'false');
@@ -28,10 +28,12 @@ function button(label, callback) {
   node.addEventListener('click', () => action(callback)); return node;
 }
 function showView(name) {
-  for (const id of ['libraryview','forumview','moderation','profilesview']) $(id).hidden = id !== name;
+  for (const id of ['libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
   updateNavigation();
   if(name==='forumview') return (async()=>{await loadTopics();if(openThread) await loadThread(openThread,true);})();
   if(name==='libraryview') return loadLibrary();
+  if(name==='submissionsview')return loadSubmissions();
+  if(name==='notificationsview')return loadNotifications();
   if (name === 'moderation') return loadAdmin();
 }
 $('librarynav').addEventListener('click', () => action(() => showView('libraryview')));
@@ -125,7 +127,7 @@ async function loadThread(id,liveUpdate=false) {
     const body = document.createElement('p'); body.className = 'postbody'; body.textContent = post.body;
     const actions = document.createElement('div'); actions.className = 'postactions';
     if (currentUser.admin || currentUser.id === post.user_id) actions.append(button('Remove post',async () => {
-      if (!confirm('Remove this post?')) return;
+      if (!await cannaConfirm('Remove this post?')) return;
       await api(`posts/${post.id}`,{method:'DELETE'}); await loadThread(id);
     }));
     content.append(meta,body,actions); row.append(author,content);
@@ -136,7 +138,7 @@ async function loadThread(id,liveUpdate=false) {
   if (currentUser.admin) {
     const change = async (locked,pinned) => { await json(`topics/${id}/moderate`,{locked,pinned}); await loadThread(id); await loadTopics(); };
     $('threadtools').append(button(threadData.locked ? 'Unlock' : 'Lock',() => change(!threadData.locked,threadData.pinned)),button(threadData.pinned ? 'Unpin' : 'Pin',() => change(threadData.locked,!threadData.pinned)),button('Delete discussion',async () => {
-      if (!confirm('Delete the discussion and all its posts?')) return;
+      if (!await cannaConfirm('Delete the discussion and all its posts?')) return;
       await api(`topics/${id}`,{method:'DELETE'}); closeThread(); await loadTopics();
     }));
   }
@@ -167,18 +169,18 @@ async function loadAdmin() {
     info.append(title,meta); const tools = document.createElement('div'); tools.className = 'row';
     if (member.verified) tools.append(button('Profile',() => openProfile(member.id)));
     if (member.id !== currentUser.id && member.role !== 'owner' && (currentUser.role === 'owner' || member.role !== 'admin')) tools.append(button(member.banned ? 'Unban' : 'Ban',async () => {
-      if (!confirm(`${member.banned ? 'Unban' : 'Ban'} ${member.username}?`)) return;
+      if (!await cannaConfirm(`${member.banned ? 'Unban' : 'Ban'} ${member.username}?`)) return;
       await json(`admin/users/${member.id}/ban`,{banned:!member.banned}); await loadAdmin();
     }));
     if (currentUser.role === 'owner' && member.role !== 'owner' && member.verified && !member.banned) {
       const roles = document.createElement('select'); roles.setAttribute('aria-label',`Role for ${member.username}`);
       for (const role of ['member','vip','admin']) roles.add(new Option(role.toUpperCase(),role,role === member.role,role === member.role));
       tools.append(roles,button('Save role',async () => { await json(`admin/users/${member.id}/role`,{role:roles.value}); await loadAdmin(); message('Role updated. The member must sign in again.'); }),button('Transfer ownership',async () => {
-        if (!confirm(`Make ${member.username} the Owner? You will become an Admin and both accounts will be signed out.`)) return;
+        if (!await cannaConfirm(`Make ${member.username} the Owner? You will become an Admin and both accounts will be signed out.`)) return;
         await json('admin/transfer-owner',{user_id:member.id}); location.assign('/');
       }));
     }
-    if(member.id!==currentUser.id && member.role!=='owner' && (currentUser.role==='owner' || member.role!=='admin')) tools.append(button('Log out devices',async()=>{if(!confirm(`Log out all devices for ${member.username}?`))return;await api(`admin/users/${member.id}/sessions`,{method:'POST'});message('Devices logged out.');}));
+    if(member.id!==currentUser.id && member.role!=='owner' && (currentUser.role==='owner' || member.role!=='admin')) tools.append(button('Log out devices',async()=>{if(!await cannaConfirm(`Log out all devices for ${member.username}?`))return;await api(`admin/users/${member.id}/sessions`,{method:'POST'});message('Devices logged out.');}));
     row.dataset.search=member.username.toLowerCase();row.append(info,tools); return row;
   }));
   filterAdminMembers();
@@ -189,10 +191,8 @@ async function loadAdmin() {
     if (!events.length) $('auditlog').textContent = 'No moderation actions yet.';
   }
 }
-async function viewSource(id) {
-  const result = await (await api(`mods/${id}/source`)).json(); sourceItems = result.files;
-  $('sourcenote').textContent = result.note;
-  $('sourcefiles').replaceChildren(...sourceItems.map((file,index) => new Option(file.name,String(index))));
+function viewSource(id) { window.open(`/review/mods/${encodeURIComponent(id)}`,'_blank','noopener'); }
+$('sourcefiles').replaceChildren(...sourceItems.map((file,index) => new Option(file.name,String(index))));
   $('sourcetext').textContent = sourceItems[0]?.text || 'No source files were included in this archive.';
   $('sourceviewer').showModal();
 }

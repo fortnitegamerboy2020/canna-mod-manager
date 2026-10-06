@@ -984,8 +984,11 @@ impl Canna {
                 ui.spacing_mut().item_spacing.y = 8.0;
                 ui.add_space(6.0);
                 ui.vertical_centered(|ui| {
-                    ui.label(RichText::new("c").size(34.0).color(GREEN).strong())
-                        .on_hover_text("canna · Made for the family.");
+                    ui.add(
+                        egui::Image::new(self.chrome.logo())
+                            .fit_to_exact_size(egui::vec2(44.0, 44.0)),
+                    )
+                    .on_hover_text("canna · Made for the family.");
                 });
                 ui.add_space(24.0);
                 if self
@@ -1508,6 +1511,10 @@ fn main() -> eframe::Result {
     };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
+            .with_icon(
+                eframe::icon_data::from_png_bytes(include_bytes!("assets/canna-logo.png"))
+                    .expect("Bundled Canna app icon"),
+            )
             .with_decorations(false)
             .with_resizable(true)
             .with_inner_size([1240.0, 820.0])

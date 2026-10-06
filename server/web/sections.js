@@ -1,9 +1,10 @@
 'use strict';
+let sectionMoves={};
 let sectionDraft=[], sectionOriginal=[], reviewToken='', sectionDraftRevision=0;
 async function loadSectionEditor() {
   await loadSections(); sectionDraftRevision=sectionRevision;
   sectionOriginal=structuredClone(forumCategories); sectionDraft=structuredClone(forumCategories);
-  reviewToken=''; renderSectionEditor();
+  reviewToken='';sectionMoves={}; renderSectionEditor();
 }
 function renderSectionEditor() {
   $('sectiondraft').replaceChildren(...sectionDraft.map((section,index)=>{
@@ -27,9 +28,18 @@ function renderSectionEditor() {
     }
     const move=(delta)=>{const other=index+delta;[sectionDraft[index],sectionDraft[other]]=[sectionDraft[other],sectionDraft[index]];reviewToken='';renderSectionEditor();};
     const up=button('Move up',()=>move(-1)),down=button('Move down',()=>move(1));up.disabled=index===0;down.disabled=index===sectionDraft.length-1;options.append(up,down);
-    if(!sectionOriginal.some(s=>s.id===section.id)) options.append(button('Remove draft section',()=>{sectionDraft.splice(index,1);renderSectionEditor();}));
+    options.append(button('Delete category from draft',()=>{sectionDraft.splice(index,1);reviewToken='';renderSectionEditor();}));
     card.append(fields,options);return card;
   }));
+  for(const removed of sectionOriginal.filter(s=>!sectionDraft.some(v=>v.id===s.id))) {
+    const row=document.createElement('div');row.className='reviewentry';const label=document.createElement('label');label.textContent=`Delete ${removed.name} · Move its discussions into:`;
+    const select=document.createElement('select');select.setAttribute('aria-label',`Destination for ${removed.name}`);
+    select.append(new Option('Choose destination (required if it contains discussions)',''));
+    for(const target of sectionDraft)select.append(new Option(target.name||'Unnamed category',target.id));
+    if(!sectionDraft.some(s=>s.id===sectionMoves[removed.id]))delete sectionMoves[removed.id];select.value=sectionMoves[removed.id]||'';
+    select.addEventListener('change',()=>{if(select.value)sectionMoves[removed.id]=select.value;else delete sectionMoves[removed.id];reviewToken='';});
+    row.append(label,select,button('Undo deletion',()=>{sectionDraft.push(structuredClone(removed));delete sectionMoves[removed.id];reviewToken='';renderSectionEditor();}));$('sectiondraft').append(row);
+  }
   $('addsection').disabled=sectionDraft.length>=32;
 }
 $('addsection').addEventListener('click',()=>{
@@ -38,7 +48,7 @@ $('addsection').addEventListener('click',()=>{
 $('resetsections').addEventListener('click',()=>action(loadSectionEditor));
 $('reviewsections').addEventListener('click',()=>action(async()=>{
   if(JSON.stringify(sectionDraft)===JSON.stringify(sectionOriginal)) throw new Error('Make a change before reviewing.');
-  const result=await json('admin/sections/review',{revision:sectionDraftRevision,sections:sectionDraft});
+  const result=await json('admin/sections/review',{revision:sectionDraftRevision,sections:sectionDraft,moves:sectionMoves});
   reviewToken=result.token;
   $('sectiondiff').replaceChildren(...result.layout.sections.flatMap((s,index)=>{
     const previous=sectionOriginal[index];
@@ -51,6 +61,9 @@ $('reviewsections').addEventListener('click',()=>action(async()=>{
     if(old) { const before=document.createElement('p');before.className='sidehint';before.textContent=`Previously: ${sectionOriginal.indexOf(old)+1}. ${old.name} · ${old.description || 'No description'} · ${old.active ? 'Open' : 'Closed'} · ${old.vip_only ? 'VIP+ posting' : 'All members'}`;row.append(before); }
     return [row];
   }));
+  for(const removed of sectionOriginal.filter(s=>!sectionDraft.some(v=>v.id===s.id))) {
+    const row=document.createElement('p');const target=sectionDraft.find(s=>s.id===sectionMoves[removed.id]);row.textContent=`Delete ${removed.name}${target?` · Move discussions to ${target.name}`:' · Empty category'}`;$('sectiondiff').append(row);
+  }
   $('sectionreview').showModal();
 }));
 $('cancelsections').addEventListener('click',()=>{reviewToken='';$('sectionreview').close();});

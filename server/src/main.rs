@@ -22,6 +22,7 @@ use std::{
 use tokio::sync::Semaphore;
 use zeroize::Zeroizing;
 mod admin_tools;
+mod cannabot;
 mod catalog;
 mod community;
 mod crypto;
@@ -31,7 +32,10 @@ mod email;
 mod external;
 mod handoff;
 mod live;
+mod lounge;
+mod notifications;
 mod profiles;
+mod scans;
 mod sections;
 mod security;
 mod support;
@@ -144,10 +148,14 @@ impl App {
             CREATE TABLE IF NOT EXISTS topics(id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), app_id INTEGER NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0, locked INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL, updated INTEGER NOT NULL, mod_id TEXT REFERENCES mods(id) ON DELETE SET NULL);
             CREATE TABLE IF NOT EXISTS posts(id TEXT PRIMARY KEY, topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, created INTEGER NOT NULL);")?;
         sections::initialize(&db)?;
+        lounge::initialize(&db)?;
+        cannabot::initialize(&db)?;
         external::initialize(&db)?;
         support::initialize(&db)?;
         catalog::initialize(&db)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS mod_reviews(mod_id TEXT PRIMARY KEY REFERENCES mods(id) ON DELETE CASCADE, approved INTEGER NOT NULL DEFAULT 0);")?;
+        scans::initialize(&db)?;
+        notifications::initialize(&db)?;
         handoff::initialize(&db)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS profiles(user_id INTEGER PRIMARY KEY REFERENCES users(id), status TEXT NOT NULL DEFAULT '', bio TEXT NOT NULL DEFAULT '', avatar TEXT);
             CREATE TABLE IF NOT EXISTS profile_comments(id TEXT PRIMARY KEY,target INTEGER NOT NULL REFERENCES users(id),author INTEGER NOT NULL REFERENCES users(id),body TEXT NOT NULL,created INTEGER NOT NULL);
@@ -637,6 +645,7 @@ async fn delete_mod(
             "Mod not found or not owned by you",
         ));
     }
+    app.db.lock().unwrap().execute("UPDATE mod_submissions SET status='withdrawn',reason='Removed from the library',resolved=?1 WHERE id=?2 AND status='pending'",params![now(),id])?;
     tokio::fs::remove_file(app.files.join(format!("{id}.zip"))).await?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -794,6 +803,15 @@ async fn app_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/app.js")))
 }
+async fn review_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
+    if !app.auth(&headers)?.1 {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            "Administrator permission required",
+        ));
+    }
+    Ok(asset(include_str!("../web/review.js")))
+}
 async fn admin_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
     if !app.auth(&headers)?.1 {
         return Err(ApiError(
@@ -823,9 +841,22 @@ async fn library_script(State(app): State<Shared>, headers: HeaderMap) -> ApiRes
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/library.js")))
 }
+async fn notifications_script(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+) -> ApiResult<Response> {
+    app.auth(&headers)?;
+    Ok(asset(include_str!("../web/notifications.js")))
+}
+async fn lounge_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
+    app.auth(&headers)?;
+    Ok(asset(include_str!("../web/lounge.js")))
+}
 fn router(app: Shared) -> Router {
     Router::new()
         .route("/", get(community_page))
+        .route("/favicon.png", get(|| async { ([("content-type","image/png"),("cache-control","public, max-age=86400")],include_bytes!("../web/favicon.png").as_slice()) }))
+        .route("/brand-logo.png", get(|| async { ([("content-type","image/png"),("cache-control","public, max-age=86400")],include_bytes!("../web/brand-logo.png").as_slice()) }))
         .route(
             "/help",
             get(|| async {
@@ -856,12 +887,28 @@ fn router(app: Shared) -> Router {
         )
         .route("/app.js", get(app_script))
         .route("/live.js", get(live_script))
+        .route("/lounge.js", get(lounge_script))
+        .route("/notifications.js", get(notifications_script))
+        .route("/confirm.js", get(|| async { asset(include_str!("../web/confirm.js")) }))
+        .route("/api/v1/notifications", get(notifications::list))
+        .route("/api/v1/notifications/read", post(notifications::read))
+        .route("/api/v1/submissions", get(notifications::submissions))
+        .route("/api/v1/mods/{id}/deny", post(notifications::deny))
+        .route("/api/v1/chat", get(lounge::messages).post(lounge::send))
+        .route("/api/v1/chat/{id}", axum::routing::delete(lounge::remove))
+        .route("/api/v1/admin/chat/clear", post(lounge::clear))
+        .route("/api/v1/announcement", get(lounge::announcement))
+        .route("/api/v1/admin/announcement", post(lounge::announce))
         .route("/library.js", get(library_script))
         .route("/api/v1/events", get(live::events))
         .route("/api/v1/admin/overview", get(admin_tools::overview))
         .route("/api/v1/admin/mod-reviews", get(admin_tools::reviews))
         .route("/api/v1/admin/users/{id}/sessions", post(admin_tools::revoke_sessions))
         .route("/admin.js", get(admin_script))
+        .route("/review/mods/{id}", get(scans::page))
+        .route("/review.js", get(review_script))
+        .route("/api/v1/mods/{id}/analysis", get(scans::report).post(scans::analyze))
+        .route("/api/v1/mods/{id}/analysis/{finding}", post(scans::decision))
         .route("/robots.txt", get(|| async { ([("content-type","text/plain; charset=utf-8")], "User-agent: *\nDisallow: /api/\nDisallow: /connect\nDisallow: /support\nDisallow: /packs/\nSitemap: https://cannamods.vip/sitemap.xml\n") }))
         .route("/sitemap.xml", get(|| async { ([("content-type","application/xml; charset=utf-8")], r#"<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://cannamods.vip/</loc></url><url><loc>https://cannamods.vip/help</loc></url></urlset>"#) }))
         .route("/support", get(|| async { ([("cache-control","no-store")],Html(include_str!("../web/support.html"))) }))
@@ -998,6 +1045,7 @@ fn router(app: Shared) -> Router {
             app.clone(),
             security::protect,
         ))
+        .layer(middleware::from_fn_with_state(app.clone(), notifications::replies))
         .layer(middleware::from_fn(origin_check))
         .layer(middleware::from_fn_with_state(app.clone(), live::publish))
         .with_state(app)
@@ -1092,6 +1140,9 @@ async fn main() -> anyhow::Result<()> {
     let address = std::env::var("CANNA_LISTEN").unwrap_or_else(|_| "127.0.0.1:8787".into());
     let listener = tokio::net::TcpListener::bind(&address).await?;
     println!("Canna server listening on {address}");
+    lounge::start_cleanup(app.clone());
+    scans::start(app.clone());
+    notifications::start(app.clone());
     axum::serve(
         listener,
         router(app).into_make_service_with_connect_info::<std::net::SocketAddr>(),

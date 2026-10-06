@@ -12,6 +12,8 @@ pub struct Section {
 pub struct Layout {
     revision: i64,
     sections: Vec<Section>,
+    #[serde(default)]
+    moves: std::collections::HashMap<String, String>,
 }
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS forum_sections(id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL,active INTEGER NOT NULL,vip_only INTEGER NOT NULL,position INTEGER NOT NULL);
@@ -69,7 +71,11 @@ fn layout(db: &Connection) -> ApiResult<Layout> {
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    Ok(Layout { revision, sections })
+    Ok(Layout {
+        revision,
+        sections,
+        moves: Default::default(),
+    })
 }
 pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
     app.auth(&headers)?;
@@ -104,10 +110,15 @@ fn validate(input: &Layout, existing: &Layout) -> ApiResult<()> {
             ));
         }
     }
-    if existing.sections.iter().any(|s| !ids.contains(&s.id)) {
-        return Err(bad(
-            "Existing sections must be preserved; close a section instead of deleting its discussions",
-        ));
+    for (source, target) in &input.moves {
+        if !existing.sections.iter().any(|s| &s.id == source)
+            || ids.contains(source)
+            || !ids.contains(target)
+        {
+            return Err(bad(
+                "Choose a remaining category for each deleted category's discussions",
+            ));
+        }
     }
     Ok(())
 }
@@ -131,6 +142,22 @@ pub async fn review(
         ));
     }
     validate(&input, &existing)?;
+    for removed in existing
+        .sections
+        .iter()
+        .filter(|s| !input.sections.iter().any(|v| v.id == s.id))
+    {
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM topics WHERE category=?1",
+            [&removed.id],
+            |r| r.get(0),
+        )?;
+        if count > 0 && !input.moves.contains_key(&removed.id) {
+            return Err(bad(
+                "This category has discussions; select a category to move them into",
+            ));
+        }
+    }
     let token = Uuid::new_v4().to_string();
     tx.execute(
         "DELETE FROM section_reviews WHERE actor=?1 OR expires<=?2",
@@ -175,8 +202,37 @@ pub async fn apply(
     let input: Layout =
         serde_json::from_str(&payload).map_err(|_| bad("Invalid section review"))?;
     validate(&input, &existing)?;
+    for removed in existing
+        .sections
+        .iter()
+        .filter(|s| !input.sections.iter().any(|v| v.id == s.id))
+    {
+        let count: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM topics WHERE category=?1",
+            [&removed.id],
+            |r| r.get(0),
+        )?;
+        if count > 0 && !input.moves.contains_key(&removed.id) {
+            return Err(bad(
+                "This category has discussions; select a category to move them into",
+            ));
+        }
+    }
     for (position, s) in input.sections.iter().enumerate() {
         tx.execute("INSERT INTO forum_sections VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,active=excluded.active,vip_only=excluded.vip_only,position=excluded.position",params![s.id,s.name,s.description,s.active,s.vip_only,position as i64])?;
+    }
+    for removed in existing
+        .sections
+        .iter()
+        .filter(|s| !input.sections.iter().any(|v| v.id == s.id))
+    {
+        if let Some(target) = input.moves.get(&removed.id) {
+            tx.execute(
+                "UPDATE topics SET category=?1 WHERE category=?2",
+                params![target, removed.id],
+            )?;
+        }
+        tx.execute("DELETE FROM forum_sections WHERE id=?1", [&removed.id])?;
     }
     tx.execute("UPDATE forum_layout SET revision=revision+1 WHERE id=1", [])?;
     tx.execute("DELETE FROM section_reviews", [])?;
@@ -193,6 +249,81 @@ mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
 
+    #[tokio::test]
+    async fn deletion_moves_discussions_and_requires_valid_destination() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "owner", true);
+        let topic=value(call(app.clone(),"POST","/api/v1/topics",json!({"title":"Keep this discussion","body":"Keep this post","category":"help","app_id":1686940}),Some(&owner)).await).await;
+        let mut draft = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/sections",
+                Value::Null,
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        draft["sections"].as_array_mut().unwrap().remove(0);
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/admin/sections/review",
+                draft.clone(),
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        draft["moves"] = json!({"help":"discussion"});
+        let review = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/admin/sections/review",
+                draft,
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/admin/sections/apply",
+                json!({"token":review["token"]}),
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        let db = app.db.lock().unwrap();
+        let category: String = db
+            .query_row(
+                "SELECT category FROM topics WHERE id=?1",
+                [topic["id"].as_str().unwrap()],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(category, "discussion");
+        let count: i64 = db
+            .query_row("SELECT COUNT(*) FROM posts", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(count, 1);
+        let count: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM forum_sections WHERE id='help'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 0);
+    }
     #[tokio::test]
     async fn sections_require_owner_review_then_single_use_confirmation() {
         let (_dir, app) = fixture();
@@ -336,6 +467,7 @@ mod tests {
         );
         let mut invalid = saved.clone();
         invalid["sections"].as_array_mut().unwrap().remove(0);
+        invalid["moves"] = json!({"help":"help"});
         assert_eq!(
             call(
                 app.clone(),

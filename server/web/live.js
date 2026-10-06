@@ -8,6 +8,9 @@ async function refreshLiveViews() {
   const kinds=new Set(livePending);livePending.clear();
   try {
     if(!currentUser) currentUser=await (await api('me')).json();
+    await loadNotifications();if(!$('submissionsview').hidden)await loadSubmissions();
+    if(kinds.has('refresh') || kinds.has('chat'))await loadChat();
+    if(kinds.has('refresh') || kinds.has('announcement'))await loadAnnouncement();
     if(kinds.has('refresh') || kinds.has('members')) {
       const fresh=await (await api('profiles')).json();
       const joined=fresh.filter(m=>!knownMembers.has(m.id));

@@ -29,7 +29,7 @@ try {
     # Explicit source allowlist. Credential files, game assemblies, caches and build output are excluded.
     $cannaFiles = @('Cargo.toml', 'Cargo.lock', 'build.rs', 'build.ps1', '.gitignore', 'README.md', 'AGENTS.md', 'LICENSE', 'SECURITY.md')
     foreach ($cannaFolder in @('src', 'scripts', 'examples', 'repository-template', 'server/src', 'server/web', 'server/deploy')) {
-        $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
+        $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -Recurse -File | Where-Object { $_.Extension -ne ".pyc" -and $_.FullName -notmatch "[\\/]__pycache__[\\/]" } | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
     }
     foreach ($cannaFolder in @('mods/DrillThroughBall', 'mods/ProceduralMaps', 'mods/Anvil', 'mods/FamilyVisuals', 'mods/FamilyCatalog', 'mods/TimeStopTimer')) {
         $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -File | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
@@ -57,9 +57,9 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Application updates now come directly from cannamods.vip. Shared GitHub credentials are no longer embedded in desktop builds. Device sessions and Minecraft account credentials remain encrypted with Windows DPAPI.
+Canna 0.2.16 adds the new transparent Canna logo to the sidebar, window/taskbar icon and executable. Updates continue to come from cannamods.vip, with provider keys kept on the server.
 
-CurseForge provider credentials remain server-only. Limited keys respect cooldown windows; imports still require author download permission and administrator approval. Minecraft API approval remains pending.
+Community 0.3.18 adds live chat and CannaBot, private notifications and mod submissions, announcements, category deletion with discussion migration, and an isolated source review workspace with decompilation, ClamAV and Detect It Easy packer checks. Minecraft API approval remains pending.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

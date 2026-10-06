@@ -6,8 +6,10 @@ Requires=mnt-canna.mount
 [Service]
 User=canna
 Group=canna
+SupplementaryGroups=canna-review
 ExecStart=/opt/canna/canna-server
 WorkingDirectory=/var/lib/canna
+Environment=CANNA_REVIEW_JOBS=/var/lib/canna-review/jobs
 Environment=CANNA_STATE=/var/lib/canna
 Environment=CANNA_UPLOADS=/mnt/canna/uploads
 LoadCredential=database.key:/etc/canna/keys/database.key
@@ -26,7 +28,7 @@ ProtectKernelModules=true
 ProtectControlGroups=true
 CapabilityBoundingSet=
 RestrictSUIDSGID=true
-ReadWritePaths=/var/lib/canna /mnt/canna/uploads /mnt/canna/modpacks
+ReadWritePaths=/var/lib/canna-review/jobs /var/lib/canna /mnt/canna/uploads /mnt/canna/modpacks
 LimitNOFILE=4096
 MemoryMax=512M
 TasksMax=128

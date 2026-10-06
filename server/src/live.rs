@@ -9,6 +9,9 @@ pub struct Live {
     gate: Arc<Semaphore>,
 }
 impl Live {
+    pub fn hint(&self, kind: &str) {
+        let _ = self.sender.send(json!({"kind":kind}));
+    }
     pub fn new() -> Self {
         Self {
             sender: broadcast::channel(128).0,
@@ -107,6 +110,10 @@ pub async fn publish(State(app): State<Shared>, request: Request, next: Next) ->
                 "updated"
             },
         ))
+    } else if path.starts_with("/api/v1/chat") || path == "/api/v1/admin/chat/clear" {
+        Some(("chat", "updated"))
+    } else if path == "/api/v1/admin/announcement" {
+        Some(("announcement", "updated"))
     } else if path == "/api/v1/admin/sections/apply" {
         Some(("sections", "updated"))
     } else if path.starts_with("/api/v1/profiles/")

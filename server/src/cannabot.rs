@@ -1,0 +1,292 @@
+use super::*;
+use rand::Rng;
+pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
+    db.execute_batch("CREATE TABLE IF NOT EXISTS bot_wallets(user_id INTEGER PRIMARY KEY REFERENCES users(id),balance INTEGER NOT NULL DEFAULT 0 CHECK(balance BETWEEN 0 AND 10000),earned INTEGER NOT NULL DEFAULT 0,daily INTEGER NOT NULL DEFAULT -1,last_fish INTEGER NOT NULL DEFAULT 0,last_flip INTEGER NOT NULL DEFAULT 0,fish_day INTEGER NOT NULL DEFAULT -1,fish_count INTEGER NOT NULL DEFAULT 0,badge TEXT NOT NULL DEFAULT 'none');
+ CREATE TABLE IF NOT EXISTS bot_catches(user_id INTEGER NOT NULL REFERENCES users(id),species TEXT NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(user_id,species));")
+}
+// Commands execute inside the same transaction as the chat message.
+pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>> {
+    if !body.starts_with('/') {
+        return Ok(None);
+    }
+    let args: Vec<&str> = body.split_whitespace().collect();
+    let command = args.first().copied().unwrap_or("");
+    if body.len() > 100 {
+        return Err(bad("CannaBot commands must be under 100 bytes"));
+    }
+    if command == "/help" {
+        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free coins each UTC day; /balance; /collection; /flip heads|tails 1–25; /badges; /equip none|angler|emerald|legend. Coins are pretend, cannot be bought or transferred, and unlock chat badges only. /flip is a 50/50 game paying 2× your stake when you win, up to 20 flips/day.".into()));
+    }
+    db.execute(
+        "INSERT OR IGNORE INTO bot_wallets(user_id) VALUES(?1)",
+        [actor],
+    )?;
+    let (balance,earned,daily,last_fish,last_flip,fish_day,fish_count):(i64,i64,i64,i64,i64,i64,i64)=db.query_row("SELECT balance,earned,daily,last_fish,last_flip,fish_day,fish_count FROM bot_wallets WHERE user_id=?1",[actor],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?)))?;
+    let day = now() / 86400;
+    let answer = match command {
+        "/balance" if args.len() == 1 => format!(
+            "You have {balance} pretend coins · {earned} total earned. /daily and /fish earn coins; /badges shows cosmetic unlocks."
+        ),
+        "/daily" if args.len() == 1 => {
+            if daily == day {
+                return Ok(Some(
+                    "Daily coins already claimed. Come back after 00:00 UTC.".into(),
+                ));
+            }
+            let reward = 100.min(10000 - balance);
+            db.execute("UPDATE bot_wallets SET balance=balance+?1,earned=MIN(1000000,earned+?1),daily=?2 WHERE user_id=?3",params![reward,day,actor])?;
+            db.execute(
+                "UPDATE notifications SET read=1 WHERE user_id=?1 AND dedup=?2",
+                params![actor, format!("daily:{day}")],
+            )?;
+            format!(
+                "Daily reward: {reward} pretend coins. Balance: {}.",
+                balance + reward
+            )
+        }
+        "/fish" if args.len() == 1 => {
+            if now() - last_fish < 60 {
+                return Ok(Some(format!(
+                    "Your fishing rod is resting. Try again in {} seconds.",
+                    60 - (now() - last_fish)
+                )));
+            }
+            if fish_day == day && fish_count >= 50 {
+                return Ok(Some(
+                    "Today's fishing limit is 50 catches. Come back tomorrow.".into(),
+                ));
+            }
+            let roll = OsRng.gen_range(0..100);
+            let (species, reward) = match roll {
+                0..=49 => ("pond perch", 5),
+                50..=79 => ("river trout", 10),
+                80..=94 => ("emerald bass", 20),
+                95..=98 => ("moon koi", 40),
+                _ => ("legendary Canna carp", 75),
+            };
+            let reward = reward.min(10000 - balance);
+            db.execute("UPDATE bot_wallets SET balance=balance+?1,earned=MIN(1000000,earned+?1),last_fish=?2,fish_day=?3,fish_count=CASE WHEN fish_day=?3 THEN fish_count+1 ELSE 1 END WHERE user_id=?4",params![reward,now(),day,actor])?;
+            db.execute("INSERT INTO bot_catches VALUES(?1,?2,1) ON CONFLICT(user_id,species) DO UPDATE SET count=MIN(1000000,count+1)",params![actor,species])?;
+            format!(
+                "You caught a {species}! +{reward} pretend coins · Balance {}. Your collection keeps the catch.",
+                balance + reward
+            )
+        }
+        "/collection" if args.len() == 1 => {
+            let mut stmt = db.prepare(
+                "SELECT species,count FROM bot_catches WHERE user_id=?1 ORDER BY species",
+            )?;
+            let rows = stmt
+                .query_map([actor], |r| {
+                    Ok(format!(
+                        "{} ×{}",
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            if rows.is_empty() {
+                "No catches yet. Try /fish.".into()
+            } else {
+                format!("Your catches: {}", rows.join(" · "))
+            }
+        }
+        "/badges" if args.len() == 1 => format!(
+            "Chat badges (total earned coins, no purchase needed): Angler 200{} · Emerald 500{} · Legend 1500{}. /equip angler|emerald|legend|none. These do not grant roles or permissions.",
+            if earned >= 200 { " — unlocked" } else { "" },
+            if earned >= 500 { " — unlocked" } else { "" },
+            if earned >= 1500 { " — unlocked" } else { "" }
+        ),
+        "/equip" if args.len() == 2 => {
+            let needed = match args[1] {
+                "none" => 0,
+                "angler" => 200,
+                "emerald" => 500,
+                "legend" => 1500,
+                _ => return Err(bad("Choose none, angler, emerald or legend")),
+            };
+            if earned < needed {
+                return Err(bad(
+                    "That badge is still locked; earn more coins with /daily or /fish",
+                ));
+            }
+            db.execute(
+                "UPDATE bot_wallets SET badge=?1 WHERE user_id=?2",
+                params![args[1], actor],
+            )?;
+            format!("Equipped {} chat badge.", args[1])
+        }
+        "/flip" if args.len() == 3 => {
+            if !matches!(args[1], "heads" | "tails") {
+                return Err(bad("Use /flip heads 10 or /flip tails 10"));
+            }
+            let stake: i64 = args[2]
+                .parse()
+                .map_err(|_| bad("Use a whole-number stake from 1 to 25"))?;
+            if !(1..=25).contains(&stake) || stake > balance {
+                return Err(bad("Stake 1–25 coins, within your balance"));
+            }
+            if balance > 9975 {
+                return Err(bad(
+                    "Your wallet is at its cap; fishing and daily rewards are capped at 10,000",
+                ));
+            }
+            if now() - last_flip < 5 {
+                return Err(ApiError(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Wait five seconds between flips",
+                ));
+            }
+            // Persisted daily allowance survives restarts and is separate from other commands.
+            db.execute("INSERT INTO bot_flip_limits VALUES(?1,?2,0) ON CONFLICT(user_id) DO UPDATE SET count=CASE WHEN day=excluded.day THEN count ELSE 0 END,day=excluded.day",params![actor,day])?;
+            let count: i64 = db.query_row(
+                "SELECT count FROM bot_flip_limits WHERE user_id=?1",
+                [actor],
+                |r| r.get(0),
+            )?;
+            if count >= 20 {
+                return Err(ApiError(
+                    StatusCode::TOO_MANY_REQUESTS,
+                    "Today's limit is 20 flips",
+                ));
+            }
+            let side = if OsRng.gen_bool(0.5) {
+                "heads"
+            } else {
+                "tails"
+            };
+            let change = if side == args[1] { stake } else { -stake };
+            db.execute(
+                "UPDATE bot_wallets SET balance=balance+?1,earned=MIN(1000000,earned+MAX(0,?1)),last_flip=?2 WHERE user_id=?3",
+                params![change, now(), actor],
+            )?;
+            db.execute(
+                "UPDATE bot_flip_limits SET count=count+1 WHERE user_id=?1",
+                [actor],
+            )?;
+            format!(
+                "The coin landed {side}. You {} {stake} pretend coins. Balance: {}. (50/50 odds)",
+                if change > 0 { "won" } else { "lost" },
+                balance + change
+            )
+        }
+        _ => "Unknown command or extra arguments. Type /help for CannaBot commands.".into(),
+    };
+    Ok(Some(answer))
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tests::{account, call, fixture, value};
+    #[tokio::test]
+    async fn rewards_cooldowns_and_badges_are_server_enforced() {
+        let (_dir, app) = fixture();
+        let member = account(&app, "angler", false);
+        let send = |body: &str| json!({"body":body});
+        assert!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                send("/daily"),
+                Some(&member)
+            )
+            .await
+            .status()
+            .is_success()
+        );
+        assert!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                send("/daily"),
+                Some(&member)
+            )
+            .await
+            .status()
+            .is_success()
+        );
+        assert!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                send("/fish"),
+                Some(&member)
+            )
+            .await
+            .status()
+            .is_success()
+        );
+        assert!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                send("/fish"),
+                Some(&member)
+            )
+            .await
+            .status()
+            .is_success()
+        );
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                send("/equip legend"),
+                Some(&member)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        let balance: i64 = app
+            .db
+            .lock()
+            .unwrap()
+            .query_row("SELECT balance FROM bot_wallets", [], |r| r.get(0))
+            .unwrap();
+        assert!((105..=175).contains(&balance));
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                send("/flip heads -100"),
+                Some(&member)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                send("/flip heads 25"),
+                Some(&member)
+            )
+            .await
+            .status()
+            .is_success()
+        );
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                send("/flip heads 25"),
+                Some(&member)
+            )
+            .await
+            .status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+        let rows = value(call(app, "GET", "/api/v1/chat", Value::Null, Some(&member)).await).await;
+        assert!(rows.as_array().unwrap().iter().any(|r| r["bot"] == true));
+    }
+}

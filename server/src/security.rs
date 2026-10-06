@@ -162,6 +162,7 @@ pub fn approved(db: &Connection, id: &str) -> ApiResult<()> {
                 "This mod or an imported dependency is awaiting review or unavailable",
             ));
         }
+        scans::require_review(db, &id)?;
         let data = external::details(db, &id)?;
         for dep in data["dependency_ids"]
             .as_array()
@@ -206,6 +207,7 @@ pub async fn approve(
         if !exists {
             return Err(bad("Imported dependency is missing from the library"));
         }
+        scans::require_review(&tx, &mod_id)?;
         let data = external::details(&tx, &mod_id)?;
         for dep in data["dependency_ids"]
             .as_array()
@@ -219,6 +221,7 @@ pub async fn approve(
             "UPDATE mod_reviews SET approved=1 WHERE mod_id=?1 AND approved=0",
             [&mod_id],
         )?;
+        notifications::accepted(&tx, &mod_id)?;
         tx.execute(
             "INSERT INTO audit(actor,action,target,created) VALUES(?1,'approve-mod',?2,?3)",
             params![actor, mod_id, now()],

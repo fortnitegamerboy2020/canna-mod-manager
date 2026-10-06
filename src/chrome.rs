@@ -4,6 +4,7 @@ pub const CANVAS: Color32 = Color32::from_rgb(18, 24, 22);
 pub struct Chrome {
     icons: [egui::TextureHandle; 11],
     minecraft_banner: egui::TextureHandle,
+    logo: egui::TextureHandle,
 }
 impl Chrome {
     pub fn new(ctx: &egui::Context) -> Self {
@@ -77,10 +78,25 @@ impl Chrome {
             ),
             egui::TextureOptions::LINEAR,
         );
+        let image = image::load_from_memory(include_bytes!("assets/canna-logo.png"))
+            .expect("Bundled Canna logo")
+            .to_rgba8();
+        let logo = ctx.load_texture(
+            "canna-logo",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [image.width() as usize, image.height() as usize],
+                image.as_raw(),
+            ),
+            egui::TextureOptions::LINEAR,
+        );
         Self {
+            logo,
             icons,
             minecraft_banner,
         }
+    }
+    pub fn logo(&self) -> &egui::TextureHandle {
+        &self.logo
     }
     pub fn minecraft_banner(&self) -> &egui::TextureHandle {
         &self.minecraft_banner
