@@ -4,6 +4,14 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS bot_wallets(user_id INTEGER PRIMARY KEY REFERENCES users(id),balance INTEGER NOT NULL DEFAULT 0 CHECK(balance BETWEEN 0 AND 10000),earned INTEGER NOT NULL DEFAULT 0,daily INTEGER NOT NULL DEFAULT -1,last_fish INTEGER NOT NULL DEFAULT 0,last_flip INTEGER NOT NULL DEFAULT 0,fish_day INTEGER NOT NULL DEFAULT -1,fish_count INTEGER NOT NULL DEFAULT 0,badge TEXT NOT NULL DEFAULT 'none');
  CREATE TABLE IF NOT EXISTS bot_catches(user_id INTEGER NOT NULL REFERENCES users(id),species TEXT NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(user_id,species));")
 }
+// Each flip draws independently from the OS CSPRNG; no history, account or stake weighting.
+fn coin_side() -> &'static str {
+    if OsRng.gen_bool(0.5) {
+        "heads"
+    } else {
+        "tails"
+    }
+}
 // Commands execute inside the same transaction as the chat message.
 pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>> {
     if !body.starts_with('/') {
@@ -15,7 +23,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
         return Err(bad("CannaBot commands must be under 100 bytes"));
     }
     if command == "/help" {
-        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free coins each UTC day; /balance; /collection; /flip heads|tails 1–25; /badges; /equip none|angler|emerald|legend. Coins are pretend, cannot be bought or transferred, and unlock chat badges only. /flip is a 50/50 game paying 2× your stake when you win, up to 20 flips/day.".into()));
+        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free coins each UTC day; /balance; /collection; /coinflip — random heads or tails; /coinflip heads|tails 1–25 (also /flip); /badges; /equip none|angler|emerald|legend. Coins are pretend, cannot be bought or transferred, and unlock chat badges only. Each coin flip is independently random with 50/50 odds. The wager game paying 2× your stake when you win, up to 20 flips/day.".into()));
     }
     db.execute(
         "INSERT OR IGNORE INTO bot_wallets(user_id) VALUES(?1)",
@@ -116,9 +124,13 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
             )?;
             format!("Equipped {} chat badge.", args[1])
         }
-        "/flip" if args.len() == 3 => {
+        "/coinflip" if args.len() == 1 => format!(
+            "The coin landed {}. (Independent 50/50 odds; no wager)",
+            coin_side()
+        ),
+        "/flip" | "/coinflip" if args.len() == 3 => {
             if !matches!(args[1], "heads" | "tails") {
-                return Err(bad("Use /flip heads 10 or /flip tails 10"));
+                return Err(bad("Use /coinflip heads 10 or /coinflip tails 10"));
             }
             let stake: i64 = args[2]
                 .parse()
@@ -150,11 +162,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
                     "Today's limit is 20 flips",
                 ));
             }
-            let side = if OsRng.gen_bool(0.5) {
-                "heads"
-            } else {
-                "tails"
-            };
+            let side = coin_side();
             let change = if side == args[1] { stake } else { -stake };
             db.execute(
                 "UPDATE bot_wallets SET balance=balance+?1,earned=MIN(1000000,earned+MAX(0,?1)),last_flip=?2 WHERE user_id=?3",
@@ -178,6 +186,40 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[test]
+    fn coinflip_alias_and_plain_flip_share_fair_result_and_wager_limits() {
+        let (_dir, app) = fixture();
+        account(&app, "coin-player", false);
+        let db = app.db.lock().unwrap();
+        run(&db, 1, "/daily").unwrap();
+        for _ in 0..20 {
+            let answer = run(&db, 1, "/coinflip").unwrap().unwrap();
+            assert!(answer.contains("landed heads.") || answer.contains("landed tails."));
+        }
+        let balance: i64 = db
+            .query_row("SELECT balance FROM bot_wallets WHERE user_id=1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(balance, 100);
+        let answer = run(&db, 1, "/coinflip heads 10").unwrap().unwrap();
+        let balance: i64 = db
+            .query_row("SELECT balance FROM bot_wallets WHERE user_id=1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(
+            balance,
+            if answer.contains("landed heads.") {
+                110
+            } else {
+                90
+            }
+        );
+        assert!(run(&db, 1, "/flip heads 10").is_err());
+        assert!(run(&db, 1, "/coinflip heads 10").is_err());
+        assert!(run(&db, 1, "/coinflip heads -1").is_err());
+    }
     #[tokio::test]
     async fn rewards_cooldowns_and_badges_are_server_enforced() {
         let (_dir, app) = fixture();
