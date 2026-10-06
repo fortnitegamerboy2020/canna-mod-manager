@@ -29,7 +29,7 @@ const GREEN: Color32 = Color32::from_rgb(163, 220, 144);
 const MUTED: Color32 = Color32::from_rgb(143, 157, 149);
 #[cfg(test)]
 const EMBEDDED_GITHUB_TOKEN: &str = "";
-include!(concat!(env!("OUT_DIR"), "/canna_update_token.rs"));
+
 enum Event {
     Update(Result<Option<updater::Ready>, String>),
     ConsoleData(Vec<(u32, console::Snapshot)>),
@@ -224,11 +224,8 @@ impl Canna {
             app.update_status = "Checking for Canna updates…".into();
             let tx = app.tx.clone();
             let repaint = ctx.clone();
-            let token = std::env::var("CANNA_UPDATE_TOKEN")
-                .unwrap_or_else(|_| EMBEDDED_UPDATE_TOKEN.to_owned());
             std::thread::spawn(move || {
-                let result =
-                    updater::check(&token, env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string());
+                let result = updater::check(env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string());
                 let _ = tx.send(Event::Update(result));
                 repaint.request_repaint();
             });
@@ -1462,7 +1459,7 @@ impl eframe::App for Canna {
 fn main() -> eframe::Result {
     #[cfg(debug_assertions)]
     if std::env::args().any(|a| a == "--updater-smoke-test") {
-        let ready = updater::check(EMBEDDED_UPDATE_TOKEN, "0.1.0")
+        let ready = updater::check("0.1.0")
             .expect("Live updater download failed")
             .expect("No newer release for smoke test");
         updater::apply(&ready).expect("Update handoff failed");

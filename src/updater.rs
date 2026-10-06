@@ -9,7 +9,7 @@ use std::{
     time::Duration,
 };
 
-const API: &str = "https://api.github.com/repos/fortnitegamerboy2020/canna-mod-manager";
+const API: &str = "https://cannamods.vip/updates";
 const LIMIT: u64 = 150 * 1024 * 1024;
 #[derive(Deserialize)]
 struct Release {
@@ -20,7 +20,6 @@ struct Release {
 }
 #[derive(Deserialize)]
 struct Asset {
-    id: u64,
     name: String,
     size: u64,
     digest: Option<String>,
@@ -42,23 +41,18 @@ fn version(value: &str) -> Option<[u32; 3]> {
         parts[2].parse().ok()?,
     ])
 }
-pub fn check(token: &str, current: &str) -> Result<Option<Ready>> {
-    if token.trim().is_empty() {
-        bail!("Updater has no read credential for the private release repository");
-    }
+pub fn check(current: &str) -> Result<Option<Ready>> {
     let client = Client::builder()
         .timeout(Duration::from_secs(120))
         .redirect(reqwest::redirect::Policy::none())
         .user_agent("Canna-Mod-Manager")
         .build()?;
     let response = client
-        .get(format!("{API}/releases/latest"))
-        .bearer_auth(token)
-        .header("Accept", "application/vnd.github+json")
+        .get(format!("{API}/latest"))
         .send()
         .context("Could not reach release repository")?;
     if response.status() == 404 {
-        bail!("No accessible release yet; check the desktop token's repository selection");
+        bail!("Application update is not available yet");
     }
     if !response.status().is_success() {
         bail!("Release check returned HTTP {}", response.status());
@@ -91,33 +85,10 @@ pub fn check(token: &str, current: &str) -> Result<Option<Ready>> {
     if asset.size == 0 || asset.size > LIMIT {
         bail!("Update size is invalid");
     }
-    let mut response = client
-        .get(format!("{API}/releases/assets/{}", asset.id))
-        .bearer_auth(token)
-        .header("Accept", "application/octet-stream")
+    let response = client
+        .get(format!("{API}/{}", release.tag_name))
         .send()
         .context("Could not download update")?;
-    for _ in 0..4 {
-        if !response.status().is_redirection() {
-            break;
-        }
-        let location = response
-            .headers()
-            .get(reqwest::header::LOCATION)
-            .context("Update redirect missing")?
-            .to_str()?;
-        let url = reqwest::Url::parse(location).context("Invalid update redirect")?;
-        let host = url.host_str().unwrap_or("");
-        if url.scheme() != "https"
-            || !(host == "release-assets.githubusercontent.com"
-                || host == "objects.githubusercontent.com"
-                || host == "github.com")
-        {
-            bail!("Untrusted update download host");
-        }
-        // Never forward the private repository token to an asset host.
-        response = client.get(url).send().context("Asset download failed")?;
-    }
     if !response.status().is_success() {
         bail!("Asset download returned HTTP {}", response.status());
     }

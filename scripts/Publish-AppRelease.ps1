@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.14', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.15', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -40,15 +40,13 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: visible external mod import"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: server-hosted updates without shared credentials"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Discover now has an Add mod from external site button that opens the website importer directly. The website library also has a prominent importer button.
+Application updates now come directly from cannamods.vip. Shared GitHub credentials are no longer embedded in desktop builds. Device sessions and Minecraft account credentials remain encrypted with Windows DPAPI.
 
-Paste a Thunderstore or Modrinth project link to choose a version, download it into encrypted server storage, and create the database entry. Imports require administrator approval; dependencies are listed separately. CurseForge requires a configured server API key.
-
-Minecraft API approval remains pending. Desktop tests and strict Clippy pass; live provider imports are checked in isolated storage.
+CurseForge provider credentials remain server-only. Limited keys respect cooldown windows; imports still require author download permission and administrator approval. Minecraft API approval remains pending.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(
@@ -60,6 +58,18 @@ Minecraft API approval remains pending. Desktop tests and strict Clippy pass; li
         $cannaLocalHash = (Get-FileHash -LiteralPath (Join-Path $cannaRoot $cannaUpload.file) -Algorithm SHA256).Hash.ToLowerInvariant()
         if ($cannaAsset.digest -ne "sha256:$cannaLocalHash") { throw 'GitHub asset digest mismatch' }
     }
+    # Only public release metadata and executable are mirrored; no publisher credentials leave this script.
+    $cannaExe = Join-Path $cannaRoot 'dist/Canna Mod Manager.exe'
+    $cannaManifest = Join-Path $cannaRoot 'dist/latest.json'
+    $cannaDigest = (Get-FileHash -LiteralPath $cannaExe -Algorithm SHA256).Hash.ToLowerInvariant()
+    @{ tag_name="v$Version"; draft=$false; prerelease=$false; assets=@(@{name='Canna-Mod-Manager.exe';size=(Get-Item -LiteralPath $cannaExe).Length;digest="sha256:$cannaDigest"}) } | ConvertTo-Json -Depth 5 | ForEach-Object { [IO.File]::WriteAllText($cannaManifest, $_, [Text.UTF8Encoding]::new($false)) }
+    $cannaSshKey = Join-Path $env:USERPROFILE '.ssh/canna_server_ed25519'
+    & scp -q -i $cannaSshKey $cannaExe "canna-admin@165.227.83.76:/home/canna-admin/canna-v$Version.exe"
+    if ($LASTEXITCODE -ne 0) { throw 'Server release upload failed' }
+    & scp -q -i $cannaSshKey $cannaManifest 'canna-admin@165.227.83.76:/home/canna-admin/canna-latest.json'
+    if ($LASTEXITCODE -ne 0) { throw 'Server manifest upload failed' }
+    & ssh -i $cannaSshKey -o BatchMode=yes canna-admin@165.227.83.76 "sudo mkdir -p /opt/canna/releases && sudo install -m 644 /home/canna-admin/canna-v$Version.exe /opt/canna/releases/v$Version.exe && sudo install -m 644 /home/canna-admin/canna-latest.json /opt/canna/releases/latest.json.tmp && sudo mv /opt/canna/releases/latest.json.tmp /opt/canna/releases/latest.json && rm /home/canna-admin/canna-v$Version.exe /home/canna-admin/canna-latest.json"
+    if ($LASTEXITCODE -ne 0) { throw 'Server release installation failed' }
     $null = Invoke-CannaApi "releases/$($cannaRelease.id)" 'PATCH' @{ draft = $false }
     "Published private Windows release v$Version and source commit $($cannaNewCommit.sha)."
 } catch {
