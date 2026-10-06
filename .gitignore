@@ -12,3 +12,6 @@
 
 __pycache__/
 *.pyc
+
+# Local agent instructions are never published.
+AGENTS.md

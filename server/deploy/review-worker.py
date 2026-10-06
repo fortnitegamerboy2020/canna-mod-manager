@@ -151,6 +151,8 @@ def analyze(job):
      if ' FOUND' in line:finding('signature','ClamAV malware signature match',None,None,line.split(': ',1)[-1],'critical')
    if code not in (0,1):finding('coverage','Antivirus scan failed',severity='high')
   except (Limit,OSError,subprocess.SubprocessError):report['engines']['clamav']={'status':'error'};finding('coverage','Antivirus scanner unavailable or timed out',severity='high')
+ except PermissionError:
+  raise
  except Exception as error:
   finding('coverage','Archive analysis incomplete',evidence=str(error)[:200],severity='high')
  report['engines']['heuristics']={'status':'complete','version':VERSION}

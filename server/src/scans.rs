@@ -66,12 +66,24 @@ fn mode(path: &std::path::Path, value: u32) -> std::io::Result<()> {
 fn mode(_path: &std::path::Path, _value: u32) -> std::io::Result<()> {
     Ok(())
 }
+fn worker_file(path: &std::path::Path, job: &std::path::Path) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        std::os::unix::fs::chown(path, None, Some(std::fs::metadata(job)?.gid()))?;
+    }
+    #[cfg(not(unix))]
+    let _ = job;
+    mode(path, 0o660)
+}
 async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<()> {
     tokio::fs::create_dir(&job).await?;
+    // The spool supplies the job's worker group. Explicit file group assignment
+    // avoids setgid chmod, which systemd RestrictSUIDSGID deliberately rejects.
     mode(&job, 0o770)?;
     let file = tokio::fs::File::open(app.files.join(format!("{id}.zip"))).await?;
     let mut output = tokio::fs::File::create(job.join("input.zip")).await?;
-    mode(&job.join("input.zip"), 0o660)?;
+    worker_file(&job.join("input.zip"), &job)?;
     let stream = crypto::read(file, Zeroizing::new(*app.upload_key), id.clone());
     tokio::pin!(stream);
     let mut total = 0;
@@ -86,7 +98,7 @@ async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<(
     output.flush().await?;
     drop(output);
     tokio::fs::write(job.join("ready"), b"ready").await?;
-    mode(&job.join("ready"), 0o660)?;
+    worker_file(&job.join("ready"), &job)?;
     let result = job.join("result.json");
     let started = tokio::time::Instant::now();
     loop {
@@ -336,6 +348,31 @@ mod tests {
             )
             .unwrap(),
             "complete"
+        );
+    }
+    #[cfg(unix)]
+    #[test]
+    fn job_permissions_preserve_worker_group_inheritance() {
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
+        let root = tempfile::tempdir().unwrap();
+        mode(root.path(), 0o2770).unwrap();
+        let job = root.path().join("job");
+        std::fs::create_dir(&job).unwrap();
+        mode(&job, 0o770).unwrap();
+        assert_eq!(
+            std::fs::metadata(&job).unwrap().permissions().mode() & 0o7777,
+            0o770
+        );
+        let archive = job.join("input.zip");
+        std::fs::write(&archive, b"fixture").unwrap();
+        worker_file(&archive, &job).unwrap();
+        assert_eq!(
+            std::fs::metadata(&archive).unwrap().gid(),
+            std::fs::metadata(root.path()).unwrap().gid()
+        );
+        assert_eq!(
+            std::fs::metadata(&archive).unwrap().permissions().mode() & 0o777,
+            0o660
         );
     }
     #[tokio::test]
