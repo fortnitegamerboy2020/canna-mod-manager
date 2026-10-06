@@ -30,12 +30,21 @@ fn record(db: &Connection, actor: i64, action: &str, target: &str) -> ApiResult<
     )?;
     Ok(())
 }
-pub async fn users(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
+pub async fn users(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+    Query(page): Query<lists::Page>,
+) -> ApiResult<axum::Json<Value>> {
     moderator(&app, &headers)?;
     let db = app.db.lock().unwrap();
-    let mut statement = db.prepare("SELECT id,username,role,banned,verified,invites_remaining FROM users ORDER BY id LIMIT 500")?;
-    let users = statement.query_map([], |r| Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"role":r.get::<_,String>(2)?,"banned":r.get::<_,bool>(3)?,"verified":r.get::<_,bool>(4)?,"invites_remaining":r.get::<_,i64>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
-    Ok(axum::Json(json!(users)))
+    let total: i64 = db.query_row(
+        "SELECT COUNT(*) FROM users WHERE instr(lower(username),lower(?1))>0",
+        [page.term()],
+        |r| r.get(0),
+    )?;
+    let mut statement = db.prepare("SELECT id,username,role,banned,verified,invites_remaining FROM users WHERE instr(lower(username),lower(?1))>0 ORDER BY username,id LIMIT ?2 OFFSET ?3")?;
+    let users = statement.query_map(params![page.term(),page.limit(500),page.offset()], |r| Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"role":r.get::<_,String>(2)?,"banned":r.get::<_,bool>(3)?,"verified":r.get::<_,bool>(4)?,"invites_remaining":r.get::<_,i64>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
+    Ok(axum::Json(page.response(users, total)))
 }
 #[derive(Deserialize)]
 pub struct Ban {
@@ -155,12 +164,17 @@ pub async fn transfer_owner(
     tx.commit()?;
     Ok(axum::Json(json!({"ok":true})))
 }
-pub async fn audit(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
+pub async fn audit(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+    Query(page): Query<lists::Page>,
+) -> ApiResult<axum::Json<Value>> {
     moderator(&app, &headers)?;
     let db = app.db.lock().unwrap();
-    let mut stmt=db.prepare("SELECT a.id,u.username,a.action,a.target,a.created FROM audit a JOIN users u ON u.id=a.actor ORDER BY a.id DESC LIMIT 200")?;
-    let items=stmt.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"actor":r.get::<_,String>(1)?,"action":r.get::<_,String>(2)?,"target":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
-    Ok(axum::Json(json!(items)))
+    let total:i64=db.query_row("SELECT COUNT(*) FROM audit a JOIN users u ON u.id=a.actor WHERE instr(lower(a.action || a.target || u.username),lower(?1))>0",[page.term()],|r|r.get(0))?;
+    let mut stmt=db.prepare("SELECT a.id,u.username,a.action,a.target,a.created FROM audit a JOIN users u ON u.id=a.actor WHERE instr(lower(a.action || a.target || u.username),lower(?1))>0 ORDER BY a.id DESC LIMIT ?2 OFFSET ?3")?;
+    let items=stmt.query_map(params![page.term(),page.limit(200),page.offset()],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"actor":r.get::<_,String>(1)?,"action":r.get::<_,String>(2)?,"target":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
+    Ok(axum::Json(page.response(items, total)))
 }
 pub async fn source(
     State(app): State<Shared>,
@@ -353,8 +367,8 @@ pub async fn topic(
     let db = app.db.lock().unwrap();
     let header:Option<Value>=db.query_row("SELECT title,locked,pinned,mod_id FROM topics WHERE id=?1",[&id],|r|Ok(json!({"title":r.get::<_,String>(0)?,"locked":r.get::<_,bool>(1)?,"pinned":r.get::<_,bool>(2)?,"mod_id":r.get::<_,Option<String>>(3)?}))).optional()?;
     let mut header = header.ok_or(ApiError(StatusCode::NOT_FOUND, "Discussion not found"))?;
-    let mut stmt=db.prepare("SELECT p.id,p.user_id,u.username,u.role,p.body,p.created FROM posts p JOIN users u ON u.id=p.user_id WHERE p.topic_id=?1 ORDER BY p.created,p.rowid LIMIT 200")?;
-    let posts=stmt.query_map([&id],|r|Ok(json!({"id":r.get::<_,String>(0)?,"user_id":r.get::<_,i64>(1)?,"author":r.get::<_,String>(2)?,"role":r.get::<_,String>(3)?,"body":r.get::<_,String>(4)?,"created":r.get::<_,i64>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
+    let mut stmt=db.prepare("SELECT p.id,p.user_id,u.username,u.role,p.body,p.created,pr.avatar FROM posts p JOIN users u ON u.id=p.user_id LEFT JOIN profiles pr ON pr.user_id=u.id WHERE p.topic_id=?1 ORDER BY p.created,p.rowid LIMIT 200")?;
+    let posts=stmt.query_map([&id],|r|Ok(json!({"id":r.get::<_,String>(0)?,"user_id":r.get::<_,i64>(1)?,"author":r.get::<_,String>(2)?,"role":r.get::<_,String>(3)?,"body":r.get::<_,String>(4)?,"created":r.get::<_,i64>(5)?,"avatar":r.get::<_,Option<String>>(6)?.is_some()})))?.collect::<Result<Vec<_>,_>>()?;
     header["posts"] = json!(posts);
     Ok(axum::Json(header))
 }

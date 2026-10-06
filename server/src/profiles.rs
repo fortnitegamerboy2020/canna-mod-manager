@@ -14,12 +14,14 @@ pub fn rank(points: i64) -> &'static str {
 pub async fn directory(
     State(app): State<Shared>,
     headers: HeaderMap,
+    Query(page): Query<lists::Page>,
 ) -> ApiResult<axum::Json<Value>> {
     app.auth(&headers)?;
     let db = app.db.lock().unwrap();
-    let mut stmt=db.prepare("SELECT u.id,u.username,u.role,p.status,p.avatar FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.verified=1 AND u.banned=0 ORDER BY u.username LIMIT 500")?;
-    let users=stmt.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"role":r.get::<_,String>(2)?,"status":r.get::<_,Option<String>>(3)?.unwrap_or_default(),"avatar":r.get::<_,Option<String>>(4)?.is_some()})))?.collect::<Result<Vec<_>,_>>()?;
-    Ok(axum::Json(json!(users)))
+    let total:i64=db.query_row("SELECT COUNT(*) FROM users WHERE verified=1 AND banned=0 AND instr(lower(username),lower(?1))>0",[page.term()],|r|r.get(0))?;
+    let mut stmt=db.prepare("SELECT u.id,u.username,u.role,p.status,p.avatar FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.verified=1 AND u.banned=0 AND instr(lower(u.username),lower(?1))>0 ORDER BY u.username,u.id LIMIT ?2 OFFSET ?3")?;
+    let users=stmt.query_map(params![page.term(),page.limit(500),page.offset()],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"role":r.get::<_,String>(2)?,"status":r.get::<_,Option<String>>(3)?.unwrap_or_default(),"avatar":r.get::<_,Option<String>>(4)?.is_some()})))?.collect::<Result<Vec<_>,_>>()?;
+    Ok(axum::Json(page.response(users, total)))
 }
 pub async fn profile(
     State(app): State<Shared>,

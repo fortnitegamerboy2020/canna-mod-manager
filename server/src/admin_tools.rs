@@ -77,15 +77,21 @@ mod wallet_tests {
 pub async fn wallets(
     State(app): State<Shared>,
     headers: HeaderMap,
+    Query(page): Query<lists::Page>,
 ) -> ApiResult<axum::Json<Value>> {
     let actor = allowed(&app, &headers)?;
     if community::role(&app, actor)? != "owner" {
         return Err(ApiError(StatusCode::FORBIDDEN, "Owner permission required"));
     }
     let db = app.db.lock().unwrap();
-    let mut stmt=db.prepare("SELECT u.id,u.username,COALESCE(w.balance,0),COALESCE(w.earned,0) FROM users u LEFT JOIN bot_wallets w ON w.user_id=u.id ORDER BY u.username LIMIT 500")?;
-    let rows=stmt.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"balance":r.get::<_,i64>(2)?,"earned":r.get::<_,i64>(3)?})))?.collect::<Result<Vec<_>,_>>()?;
-    Ok(axum::Json(json!(rows)))
+    let total: i64 = db.query_row(
+        "SELECT COUNT(*) FROM users WHERE instr(lower(username),lower(?1))>0",
+        [page.term()],
+        |r| r.get(0),
+    )?;
+    let mut stmt=db.prepare("SELECT u.id,u.username,COALESCE(w.balance,0),COALESCE(w.earned,0) FROM users u LEFT JOIN bot_wallets w ON w.user_id=u.id WHERE instr(lower(u.username),lower(?1))>0 ORDER BY u.username,u.id LIMIT ?2 OFFSET ?3")?;
+    let rows=stmt.query_map(params![page.term(),page.limit(500),page.offset()],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"balance":r.get::<_,i64>(2)?,"earned":r.get::<_,i64>(3)?})))?.collect::<Result<Vec<_>,_>>()?;
+    Ok(axum::Json(page.response(rows, total)))
 }
 #[derive(Deserialize)]
 pub struct WalletEdit {
@@ -162,12 +168,14 @@ pub async fn overview(
 pub async fn reviews(
     State(app): State<Shared>,
     headers: HeaderMap,
+    Query(page): Query<lists::Page>,
 ) -> ApiResult<axum::Json<Value>> {
     allowed(&app, &headers)?;
     let db = app.db.lock().unwrap();
-    let mut statement=db.prepare("SELECT m.id,m.name,m.version,m.app_id,m.size,u.username FROM mods m JOIN mod_reviews r ON r.mod_id=m.id JOIN users u ON u.id=m.user_id WHERE r.approved=0 AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') ORDER BY m.rowid DESC LIMIT 200")?;
-    let values=statement.query_map([],|r|Ok(json!({"id":r.get::<_,String>(0)?,"name":r.get::<_,String>(1)?,"version":r.get::<_,String>(2)?,"app_id":r.get::<_,i64>(3)?,"size":r.get::<_,i64>(4)?,"author":r.get::<_,String>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
-    Ok(axum::Json(json!(values)))
+    let total:i64=db.query_row("SELECT COUNT(*) FROM mods m JOIN mod_reviews r ON r.mod_id=m.id JOIN users u ON u.id=m.user_id WHERE r.approved=0 AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') AND instr(lower(m.name || u.username),lower(?1))>0",[page.term()],|r|r.get(0))?;
+    let mut statement=db.prepare("SELECT m.id,m.name,m.version,m.app_id,m.size,u.username FROM mods m JOIN mod_reviews r ON r.mod_id=m.id JOIN users u ON u.id=m.user_id WHERE r.approved=0 AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') AND instr(lower(m.name || u.username),lower(?1))>0 ORDER BY m.rowid DESC LIMIT ?2 OFFSET ?3")?;
+    let values=statement.query_map(params![page.term(),page.limit(200),page.offset()],|r|Ok(json!({"id":r.get::<_,String>(0)?,"name":r.get::<_,String>(1)?,"version":r.get::<_,String>(2)?,"app_id":r.get::<_,i64>(3)?,"size":r.get::<_,i64>(4)?,"author":r.get::<_,String>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
+    Ok(axum::Json(page.response(values, total)))
 }
 pub async fn revoke_sessions(
     State(app): State<Shared>,

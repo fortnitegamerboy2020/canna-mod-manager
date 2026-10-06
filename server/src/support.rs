@@ -184,7 +184,11 @@ pub async fn mine(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
         Some(user)
     )?)))
 }
-pub async fn queue(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
+pub async fn queue(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+    Query(page): Query<lists::Page>,
+) -> ApiResult<axum::Json<Value>> {
     let (_, admin) = app.auth(&headers)?;
     if !admin {
         return Err(ApiError(
@@ -192,11 +196,11 @@ pub async fn queue(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<a
             "Administrator permission required",
         ));
     }
-    Ok(axum::Json(json!(items(
-        &app.db.lock().unwrap(),
-        "SELECT id,subject,category,status,updated FROM support_tickets ORDER BY status='open' DESC,updated DESC LIMIT 200",
-        None
-    )?)))
+    let db = app.db.lock().unwrap();
+    let total:i64=db.query_row("SELECT COUNT(*) FROM support_tickets WHERE instr(lower(subject||category||status),lower(?1))>0",[page.term()],|r|r.get(0))?;
+    let mut stmt=db.prepare("SELECT id,subject,category,status,updated FROM support_tickets WHERE instr(lower(subject||category||status),lower(?1))>0 ORDER BY status='open' DESC,updated DESC,id LIMIT ?2 OFFSET ?3")?;
+    let rows=stmt.query_map(params![page.term(),page.limit(200),page.offset()],|r|Ok(json!({"id":r.get::<_,String>(0)?,"subject":r.get::<_,String>(1)?,"category":r.get::<_,String>(2)?,"status":r.get::<_,String>(3)?,"updated":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
+    Ok(axum::Json(page.response(rows, total)))
 }
 pub async fn read(
     State(app): State<Shared>,

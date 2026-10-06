@@ -23,13 +23,13 @@ function updateNavigation() {
     $(nav).classList.toggle('active',active); $(nav).setAttribute('aria-current',active ? 'page' : 'false');
   }
 }
-function button(label, callback) {
-  const node = document.createElement('button'); node.textContent = label;
+function button(label, callback, page) {
+  const node = document.createElement('button'); node.textContent = label;if(page)node.dataset.page=page;
   node.addEventListener('click', () => action(callback)); return node;
 }
 const viewPaths={forumview:'/forums',libraryview:'/mods',profilesview:'/members',moderation:'/admin',submissionsview:'/submissions',notificationsview:'/notifications'};
 function showView(name,stay=false) {
-  if(!stay){location.assign(viewPaths[name] || '/forums');return;}
+  if(!stay){return navigatePage(viewPaths[name] || '/forums');}
   for (const id of ['libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
   updateNavigation();
   if(name==='forumview') return (async()=>{await loadTopics();})();
@@ -58,7 +58,7 @@ function renderCategories() {
     const row = document.createElement('div'); row.className = 'categoryrow';
     const icon = document.createElement('span'); icon.className = 'categoryglyph'; icon.textContent = glyph; icon.setAttribute('aria-hidden','true');
     const info = document.createElement('div');
-    const link = button(name,() => location.assign(`/forums/sections/${encodeURIComponent(key)}`)); link.className = 'categoryname';
+    const link = button(name,() => navigatePage(`/forums/sections/${encodeURIComponent(key)}`)); link.className = 'categoryname';link.dataset.page=`/forums/sections/${encodeURIComponent(key)}`;
     const detail = document.createElement('p'); detail.textContent = description + (active ? (vip_only ? ' · VIP+ posting' : '') : ' · Closed to new discussions'); info.append(link,detail);
     const count = document.createElement('div'); count.className = 'countcell'; count.textContent = String(topicItems.filter(t => t.category === key).length);
     const label = document.createElement('small'); label.textContent = 'on this page'; count.append(label);
@@ -67,7 +67,7 @@ function renderCategories() {
   $('sidecount').textContent = String(topicItems.length);
   $('sideposts').textContent = String(topicItems.reduce((total,t)=>total + t.posts,0));
   $('recenttopics').replaceChildren(...[...topicItems].sort((a,b)=>(b.updated || 0)-(a.updated || 0)).slice(0,4).map(t => {
-    const link = button(t.title,() => loadThread(t.id)); link.className = 'sidetopic'; return link;
+    const link = button(t.title,() => loadThread(t.id)); link.className = 'sidetopic';link.dataset.page=`/forums/topics/${encodeURIComponent(t.id)}`; return link;
   }));
   if (!topicItems.length) $('recenttopics').textContent = 'Your next discussion could start here.';
 }
@@ -75,7 +75,7 @@ function renderTopics() {
   const filtered = topicItems.filter(item => (!($('topicfilter').value) || item.category === $('topicfilter').value) && item.title.toLowerCase().includes($('topicsearch').value.toLowerCase()));
   $('topics').replaceChildren(...filtered.map(item => {
     const row = document.createElement('div'); row.className = 'topicrow';
-    const info = document.createElement('div'); const title = button(item.title,() => loadThread(item.id)); title.className = 'topiclink';
+    const info = document.createElement('div'); const title = button(item.title,() => loadThread(item.id)); title.className = 'topiclink';title.dataset.page=`/forums/topics/${encodeURIComponent(item.id)}`;
     if (item.pinned) { const tag = document.createElement('span'); tag.className = 'topiclabel'; tag.textContent = 'PINNED'; info.append(tag); }
     info.append(title);
     const meta = document.createElement('p'); meta.textContent = `${categoryName(item.category)} · ${item.app_id === 1686940 ? 'Bopl Battle' : `Game ${item.app_id}`}${item.locked ? ' · Locked' : ''}`;
@@ -94,9 +94,9 @@ function compose(show) {
   $('thread').hidden = true; openThread = '';
   if (show) { const choice=forumCategories.find(s=>s.id===$('topicfilter').value && s.active && (!s.vip_only || currentUser.can_publish_guides)); if(choice) $('topiccategory').value=choice.id; $('topictitle').focus(); }
 }
-$('composetopic').addEventListener('click',() => location.assign(`/forums/new?section=${encodeURIComponent($('topicfilter').value)}`));
-$('cancelcompose').addEventListener('click',()=>location.assign(forumReturnPath()));
-$('topicsearch').addEventListener('input',renderTopics); $('topicfilter').addEventListener('change',()=>location.assign($('topicfilter').value ? `/forums/sections/${encodeURIComponent($('topicfilter').value)}` : '/forums/latest'));
+$('composetopic').addEventListener('click',() => navigatePage(`/forums/new?section=${encodeURIComponent($('topicfilter').value)}`));
+$('cancelcompose').addEventListener('click',()=>navigatePage(forumReturnPath()));
+$('topicsearch').addEventListener('input',renderTopics); $('topicfilter').addEventListener('change',()=>navigatePage($('topicfilter').value ? `/forums/sections/${encodeURIComponent($('topicfilter').value)}` : '/forums/latest'));
 $('oldertopics').addEventListener('click', () => action(async () => { topicPage += 50; await loadTopics(); }));
 $('newertopics').addEventListener('click', () => action(async () => { topicPage = Math.max(0,topicPage-50); await loadTopics(); }));
 $('newtopic').addEventListener('submit', event => { event.preventDefault(); action(async () => {
@@ -105,7 +105,7 @@ $('newtopic').addEventListener('submit', event => { event.preventDefault(); acti
 }); });
 async function loadThread(id,liveUpdate=false) {
   const path=`/forums/topics/${encodeURIComponent(id)}`;
-  if(!liveUpdate && location.pathname!==path){location.assign(path);return;}
+  if(!liveUpdate && location.pathname!==path){return navigatePage(path);}
   const updated=await (await api(`topics/${id}`)).json();
   if(liveUpdate && (openThread!==id || $('forumview').hidden)) return;
   threadData=updated; openThread=id;
@@ -113,15 +113,14 @@ async function loadThread(id,liveUpdate=false) {
   $('forumindex').hidden = $('discussionlist').hidden = true;
   $('threadtitle').textContent = threadData.title;
   $('replyform').hidden = threadData.locked && !currentUser.admin;
-  const memberInfo = await (await api('profiles')).json();
   $('threadposts').replaceChildren(...threadData.posts.map((post,index) => {
     const row = document.createElement('article'); row.className = 'threadpost';
     const author = document.createElement('aside'); author.className = 'postauthor';
-    const member = memberInfo.find(m => m.id === post.user_id);
+    const member = post;
     const avatar = document.createElement(member?.avatar ? 'img' : 'span'); avatar.className = 'authorinitial';
     if (member?.avatar) { avatar.src = `/api/v1/profiles/${post.user_id}/avatar`; avatar.alt = `${post.author}'s profile picture`; }
     else avatar.textContent = post.author.slice(0,1).toUpperCase();
-    const title = button(post.author,() => openProfile(post.user_id));
+    const title = button(post.author,() => openProfile(post.user_id),'/members/'+post.user_id);
     const role = document.createElement('small'); role.textContent = post.role;
     author.append(avatar,title,role);
     const content = document.createElement('div'); content.className = 'postcontent';
@@ -149,7 +148,7 @@ async function loadThread(id,liveUpdate=false) {
   $('closethread').textContent=`← ${categoryName(threadData.category)}`;$('forumheading').textContent='Discussion';$('forumdescription').textContent=categoryName(threadData.category);$('composetopic').hidden=true;
 }
 function forumReturnPath(){const section=threadData?.category || $('topicfilter').value || new URLSearchParams(location.search).get('section');return section ? `/forums/sections/${encodeURIComponent(section)}` : '/forums';}
-function closeThread() { location.assign(forumReturnPath()); }
+function closeThread() { return navigatePage(forumReturnPath()); }
 $('closethread').addEventListener('click',closeThread);
 $('replyform').addEventListener('submit',event => { event.preventDefault(); action(async () => {
   await json(`topics/${openThread}/reply`,{body:$('replybody').value}); $('replyform').reset(); await loadThread(openThread); await loadTopics();
@@ -159,20 +158,22 @@ async function loadAdmin() {
   if(!currentUser?.admin) return;
   if(!adminScript) adminScript=new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='/admin.js';s.onload=resolve;s.onerror=()=>{adminScript=null;reject(new Error('Admin tools could not load. Try again.'));};document.head.append(s);});
   await adminScript;setupAdmin();
-  await loadAdminOverview();await loadModReviews();
+  await loadAdminOverview();
 
   $('sectionmanager').hidden=currentUser.role !== 'owner';
   if(currentUser.role === 'owner') await loadSectionEditor();
   $('ownercontrols').hidden=currentUser.role !== 'owner';
   if (currentUser.role === 'owner') $('ownercontrols').append($('invitationcontrols'));
-  const members = await (await api('admin/users')).json();
-  $('adminsummary').textContent = `${members.length} accounts · ${members.filter(u => u.verified).length} verified · ${members.filter(u => u.banned).length} banned`;
+  await selectAdminTab(adminTab);
+}
+async function loadAdminMembers(){
+  const members = await pagedList('admin/users','memberlist',loadAdminMembers,'adminmembersearch');
   $('memberlist').replaceChildren(...members.map(member => {
     const row = document.createElement('div'); row.className = 'entry';
     const info = document.createElement('div'); const title = document.createElement('strong'); title.textContent = member.username;
     const meta = document.createElement('p'); meta.textContent = `${member.role.toUpperCase()} · ${member.banned ? 'Banned' : member.verified ? 'Active' : 'Awaiting email verification'}`;
     info.append(title,meta); const tools = document.createElement('div'); tools.className = 'row';
-    if (member.verified) tools.append(button('Profile',() => openProfile(member.id)));
+    if (member.verified) tools.append(button('Profile',() => openProfile(member.id),'/members/'+member.id));
     if (member.id !== currentUser.id && member.role !== 'owner' && (currentUser.role === 'owner' || member.role !== 'admin')) tools.append(button(member.banned ? 'Unban' : 'Ban',async () => {
       if (!await cannaConfirm(`${member.banned ? 'Unban' : 'Ban'} ${member.username}?`)) return;
       await json(`admin/users/${member.id}/ban`,{banned:!member.banned}); await loadAdmin();
@@ -188,8 +189,6 @@ async function loadAdmin() {
     if(member.id!==currentUser.id && member.role!=='owner' && (currentUser.role==='owner' || member.role!=='admin')) tools.append(button('Log out devices',async()=>{if(!await cannaConfirm(`Log out all devices for ${member.username}?`))return;await api(`admin/users/${member.id}/sessions`,{method:'POST'});message('Devices logged out.');}));
     row.dataset.search=member.username.toLowerCase();row.append(info,tools); return row;
   }));
-  filterAdminMembers();
-  await loadAdminLogs();
 }
 function viewSource(id) { window.open(`/review/mods/${encodeURIComponent(id)}`,'_blank','noopener'); }
 
@@ -221,5 +220,6 @@ async function openCommunityPage() {
   $('forumback').hidden=!(path.startsWith('/forums/') && path!=='/forums');
   if(path==='/forums/latest')$('forumheading').textContent='Latest discussions';
 }
-$('forumback').addEventListener('click',()=>location.assign('/forums'));
-$('latestdiscussions').addEventListener('click',()=>location.assign('/forums/latest'));
+$('forumback').addEventListener('click',()=>navigatePage('/forums'));
+$('latestdiscussions').addEventListener('click',()=>navigatePage('/forums/latest'));
+

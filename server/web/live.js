@@ -12,11 +12,9 @@ async function refreshLiveViews() {
     if(kinds.has('refresh') || kinds.has('chat'))await loadChat();
     if(kinds.has('refresh') || kinds.has('announcement'))await loadAnnouncement();
     if(kinds.has('refresh') || kinds.has('members')) {
-      const fresh=await (await api('profiles')).json();
-      const joined=fresh.filter(m=>!knownMembers.has(m.id));
-      if(knownMembers.size && joined.length && kinds.has('members')) $('livenotice').textContent=joined.map(m=>m.username).join(', ')+' joined the community.';
-      knownMembers=new Set(fresh.map(m=>m.id));members=fresh;
-      if(!$('profilesview').hidden) renderPeople();
+      if(kinds.has('members'))$('livenotice').textContent='The member directory was updated.';
+      if(location.pathname==='/members')await loadPeople();
+      if(currentUser.admin && !$('moderation').hidden && typeof adminTab!=='undefined' && adminTab==='members')await loadAdminMembers();
     }
     if(kinds.has('refresh') || kinds.has('topics') || kinds.has('sections')) {
       if(!$('forumview').hidden) {
@@ -36,6 +34,7 @@ async function refreshLiveViews() {
   finally {liveRunning=false;if(livePending.size) liveTimer=setTimeout(refreshLiveViews,100);}
 }
 function queueLive(kind) {
+  pageWarm.clear();
   livePending.add(kind);clearTimeout(liveTimer);liveTimer=setTimeout(refreshLiveViews,100);
 }
 function stopLive() {liveStopped=true;clearTimeout(liveTimer);liveSource?.close();}

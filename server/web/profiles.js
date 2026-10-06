@@ -1,29 +1,29 @@
 'use strict';
 let members = [], profileId = 0;
 async function loadPeople() {
-  if(location.pathname!=='/members'){location.assign('/members');return;}
+  if(location.pathname!=='/members'){return navigatePage('/members');}
   profileId = 0; $('profilecard').hidden = true;
   await showView('profilesview',true);
-  members = await (await api('profiles')).json(); renderPeople();
+  members = await pagedList('profiles','people',loadPeople,'membersearch'); renderPeople();
 }
 function renderPeople() {
   const filtered = members.filter(member => member.username.toLowerCase().includes($('membersearch').value.toLowerCase()));
   $('people').replaceChildren(...filtered.map(member => {
     const row = document.createElement('div'); row.className = 'membercard';
-    if (member.avatar) { const image = document.createElement('img'); image.className = 'avatar'; image.src = `/api/v1/profiles/${member.id}/avatar`; image.width = image.height = 48; image.alt = ''; row.append(image); }
+    if (member.avatar) { const image = document.createElement('img'); image.className = 'avatar'; image.src = `/api/v1/profiles/${member.id}/avatar`; image.width = image.height = 48; image.alt = ''; image.loading='lazy'; row.append(image); }
     const info = document.createElement('div'); const title = document.createElement('strong'); title.textContent = member.username;
     const status = document.createElement('p'); status.textContent = `${member.role.toUpperCase()}${member.status ? ` · ${member.status}` : ''}`;
-    info.append(title,status); row.append(info,button('View profile',() => openProfile(member.id))); return row;
+    info.append(title,status);const link=button('View profile',() => openProfile(member.id));link.dataset.page='/members/'+member.id;row.append(info,link); return row;
   }));
   if (!filtered.length) $('people').textContent = 'No members found.';
 }
 $('peoplenav').addEventListener('click',() => action(loadPeople));
 $('myprofilenav').addEventListener('click',() => action(() => openProfile(currentUser.id)));
-$('membersearch').addEventListener('input',renderPeople);
+
 async function openProfile(id) {
-  if(location.pathname!==`/members/${id}`){location.assign(`/members/${id}`);return;}
+  if(location.pathname!==`/members/${id}`){return navigatePage(`/members/${id}`);}
   const profile = await (await api(`profiles/${id}`)).json(); profileId = id;
-  if (!members.length) { members = await (await api('profiles')).json(); renderPeople(); }
+  $('people').replaceChildren();
   await showView('profilesview',true); $('profilecard').hidden = false;
   $('profilename').textContent = profile.username;
   $('profilebadges').textContent = `${profile.role.toUpperCase()} · ${profile.rank} · ${profile.points} XP${profile.banned ? ' · Banned' : ''}`;
@@ -40,7 +40,7 @@ async function openProfile(id) {
   $('ratingstars').value = String(profile.my_rating || 5);
   $('profilecomments').replaceChildren(...profile.comments.map(comment => {
     const row = document.createElement('article'); row.className = 'card';
-    const name = button(comment.author,() => openProfile(comment.author_id));
+    const name = button(comment.author,() => openProfile(comment.author_id),'/members/'+comment.author_id);
     const date = document.createElement('small'); date.textContent = ` ${new Date(comment.created*1000).toLocaleString()}`;
     const body = document.createElement('p'); body.className = 'postbody'; body.textContent = comment.body;
     row.append(name,date,body);

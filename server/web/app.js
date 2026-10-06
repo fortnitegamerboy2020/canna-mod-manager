@@ -8,7 +8,10 @@ let devicesLanding=new URLSearchParams(location.search).has("devices");
 const message = text => { $('message').textContent = text; };
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
-  const response = await fetch(`/api/v1/${path}`, {...options, headers});
+  const method=options.method||'GET';
+  if(method!=='GET')pageWarm.clear();
+  const warm=method==='GET' && path!=='me' ? pageWarm.get(path) : null;
+  const response=warm && warm.until>Date.now() ? await warm.promise.then(r=>r.clone()).catch(()=>fetch(`/api/v1/${path}`, {...options, headers})) : await fetch(`/api/v1/${path}`, {...options, headers});
   if (!response.ok) {
     if(response.status===401) location.replace(location.pathname);
     const error = await response.json().catch(() => ({}));
@@ -75,8 +78,12 @@ async function refresh() {
   $('newinvite').disabled=!currentUser.can_invite;
   $('allowance').textContent=currentUser.role==='owner'?'Create individual invites or an invite wave. New members get one friend invite.':currentUser.role==='admin'?'Admins cannot issue invites. The Owner manages invitation waves.':`${currentUser.invites_remaining} friend invitation remaining. Each code works once and expires after seven days.`;
   $('rolebadge').textContent=currentUser.role.toUpperCase();$('welcome').textContent=currentUser.username;$('kashbalance').textContent=(currentUser.kash||0).toLocaleString()+' Kash';$('sideusername').textContent=currentUser.username;$('siderole').textContent=`${currentUser.role.toUpperCase()} · Canna community`;
-  await loadLibrary();if(!$('forumview').hidden) await loadTopics();if(!$('moderation').hidden && currentUser.admin) await loadAdmin();updateNavigation();
-  if(!communityPageReady){communityPageReady=true;await openCommunityPage();}
+  if(!communityPageReady){await openCommunityPage();communityPageReady=true;}
+  else if(!$('libraryview').hidden)await loadLibrary();
+  else if(!$('moderation').hidden && currentUser.admin)await loadAdmin();
+  updateNavigation();
+  $('space').removeAttribute('data-booting');$('bootstatus').hidden=true;
+  setupPagePrefetch();
   if(externalLanding){externalLanding=false;await showView("libraryview",true);openExternalImport();}
   if(devicesLanding){devicesLanding=false;await openProfile(currentUser.id);$('loggeddevices').scrollIntoView({block:'start'});}
 }
@@ -101,8 +108,88 @@ $('upload').addEventListener('submit',event=>{event.preventDefault();action(asyn
 $('share').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
   const file=$('packfile').files[0];if(!file||file.size>2*1024*1024)throw new Error('Choose a Canna modpack export no larger than 2 MiB.');const result=await json('packs',JSON.parse(await file.text()));await refresh();message(`Share link: ${result.url}`);
 });});
-document.addEventListener('DOMContentLoaded',()=>{refresh().catch(error=>message(error.message));});
+document.addEventListener('DOMContentLoaded',()=>{refresh().catch(error=>{$('bootstatus').textContent='Unable to load this page. Reload to try again.';message(error.message);});});
 if(location.pathname.startsWith('/packs/')) {
   const id=location.pathname.split('/')[2];const button=document.createElement('button');button.className='primary';button.textContent='Download shared pack';button.addEventListener('click',()=>action(()=>downloadToApp({id,name:'Shared modpack'},'packs')));$('forumview').hidden=true;$('libraryview').hidden=false;$('libraryview').prepend(button);
 }
 window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
+
+// Only the displayed page is rendered; searches run across the server's full list.
+const listPages=new Map();
+async function pagedList(path,id,reload,searchId) {
+ let state=listPages.get(id);
+ if(!state){
+  state={page:1,serial:0};listPages.set(id,state);
+  const controls=document.createElement('div');controls.className='pagination';
+  const search=searchId ? $(searchId) : document.createElement('input');
+  if(!searchId){search.placeholder='Search this list…';search.setAttribute('aria-label','Search this list');controls.append(search);}
+  search.maxLength=100;state.search=search;
+  search.addEventListener('input',()=>{clearTimeout(state.timer);state.page=1;state.timer=setTimeout(()=>action(reload),250);});
+  state.previous=button('← Previous',()=>{state.page=Math.max(1,state.page-1);return reload();});
+  state.next=button('Next →',()=>{state.page++;return reload();});
+  state.label=document.createElement('span');state.label.setAttribute('role','status');
+  controls.append(state.previous,state.label,state.next);$(id).after(controls);
+ }
+ const serial=++state.serial;
+ const result=await(await api(path+'?'+new URLSearchParams({page:state.page,search:state.search.value||''}))).json();
+ if(serial!==state.serial)throw new Error('List changed. Loading the latest search…');
+ const rows=Array.isArray(result)?result:result.items;
+ const total=Array.isArray(result)?rows.length:result.total;
+ state.previous.disabled=state.page<=1;state.next.disabled=state.page*50>=total;
+ state.label.textContent=total ? `${(state.page-1)*50+1}–${Math.min(state.page*50,total)} of ${total.toLocaleString()}` : 'No results';
+ return rows;
+}
+
+
+let prefetchReady=false;
+const pageWarm=new Map();
+function pageReads(path){
+ const url=new URL(path,location.origin),p=url.pathname;
+ if(p==='/members')return ['profiles?page=1&search='];
+ if(/^\/members\/\d+$/.test(p))return ['profiles/'+p.split('/')[2]];
+ if(p==='/mods')return ['mods','packs'];
+ if(p==='/admin' && currentUser.admin)return ['admin/overview'];
+ if(p==='/notifications')return ['notifications'];
+ if(p==='/submissions')return ['submissions'];
+ if(p.startsWith('/forums')){const section=p.startsWith('/forums/sections/')?decodeURIComponent(p.slice(17)):'';return ['sections',`topics?offset=0&category=${encodeURIComponent(section)}`,...(p.startsWith('/forums/topics/')?['topics/'+p.slice(15)]:[])];}
+ return [];
+}
+function warmPage(path){
+ for(const key of pageReads(path)){
+  if(pageWarm.get(key)?.until>Date.now())continue;
+  if(pageWarm.size>=16)pageWarm.delete(pageWarm.keys().next().value);
+  const item={until:Date.now()+5000,promise:fetch('/api/v1/'+key).then(r=>{if(!r.ok)pageWarm.delete(key);return r;})};
+  pageWarm.set(key,item);item.promise.catch(()=>{pageWarm.delete(key);});
+ }
+}
+let navigating=false;
+async function navigatePage(path,back=false){
+ if(navigating)return;navigating=true;
+ try{
+  // Revalidate the session even when route data was warmed on hover.
+  currentUser=await(await api('me')).json();
+  if(!back)history.pushState(null,'',path);
+  openThread='';threadData=undefined;topicPage=0;profileId=0;
+  $('topicfilter').value='';$('thread').hidden=true;$('newtopic').hidden=true;$('profilecard').hidden=true;
+  $('composetopic').hidden=false;$('forumheading').textContent='Forums';$('forumdescription').textContent='Ask questions. Share your work. Help each other build.';
+  await openCommunityPage();window.scrollTo({top:0});
+ }finally{navigating=false;}
+}
+function setupPagePrefetch(){
+ const paths={forumnav:'/forums',librarynav:'/mods',peoplenav:'/members',adminnav:'/admin',submissionsnav:'/submissions',notificationsnav:'/notifications',myprofilenav:'/members/'+currentUser.id,welcome:'/members/'+currentUser.id,forumback:'/forums',latestdiscussions:'/forums/latest'};
+ for(const [id,path] of Object.entries(paths))$(id).dataset.page=path;
+ if(prefetchReady)return;prefetchReady=true;
+ const intent=event=>{
+  const node=event.target.closest('a[href],button[data-page]');if(!node || navigator.connection?.saveData)return;
+  const path=node.dataset.page || node.getAttribute('href');
+  if(!path || !/^\/(forums(?:\/|$)|members(?:\/|$)|mods$|admin$|submissions$|notifications$|help$|support$|review\/mods\/)/.test(path) || path.includes('?'))return;
+  clearTimeout(node._prefetchTimer);
+  node._prefetchTimer=setTimeout(()=>{
+   if(pageReads(path).length){warmPage(path);return;}
+   const link=document.createElement('link');link.rel='prefetch';link.as='document';link.href=path;document.head.append(link);setTimeout(()=>link.remove(),10000);
+  },120);
+ };
+ document.addEventListener('pointerover',intent);document.addEventListener('focusin',intent);
+ document.addEventListener('pointerout',event=>{const node=event.target.closest('a[href],button[data-page]');if(node)clearTimeout(node._prefetchTimer);});
+ window.addEventListener('popstate',()=>action(()=>navigatePage(location.pathname+location.search,true)));
+}

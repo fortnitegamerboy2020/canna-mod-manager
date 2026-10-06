@@ -31,6 +31,7 @@ mod devices;
 mod email;
 mod external;
 mod handoff;
+mod lists;
 mod live;
 mod lounge;
 mod notifications;
