@@ -37,6 +37,18 @@ fn release_version(version: &str) -> ApiResult<String> {
 }
 async fn serve_release(version: &str, installer: bool) -> ApiResult<Response> {
     let suffix = if installer { "-setup" } else { "" };
+    serve_artifact(
+        version,
+        suffix,
+        if installer {
+            "Canna-Setup.exe"
+        } else {
+            "Canna-Mod-Manager.exe"
+        },
+    )
+    .await
+}
+async fn serve_artifact(version: &str, suffix: &str, name: &str) -> ApiResult<Response> {
     let file = tokio::fs::File::open(format!("{DIRECTORY}/v{version}{suffix}.exe"))
         .await
         .map_err(|_| ApiError(StatusCode::NOT_FOUND, "Application release unavailable"))?;
@@ -54,14 +66,7 @@ async fn serve_release(version: &str, installer: bool) -> ApiResult<Response> {
             ("content-length", length.to_string()),
             (
                 "content-disposition",
-                format!(
-                    "attachment; filename=\"{}\"",
-                    if installer {
-                        "Canna-Setup.exe"
-                    } else {
-                        "Canna-Mod-Manager.exe"
-                    }
-                ),
+                format!("attachment; filename=\"{name}\""),
             ),
             (
                 "cache-control",
@@ -94,6 +99,30 @@ pub async fn installer() -> ApiResult<Response> {
         .as_str()
         .ok_or(bad("Invalid installer release"))?;
     serve_release(&release_version(version)?, true).await
+}
+pub async fn maintenance_latest() -> ApiResult<axum::Json<Value>> {
+    let bytes = tokio::fs::read(format!("{DIRECTORY}/maintenance-latest.json"))
+        .await
+        .map_err(|_| {
+            ApiError(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "Maintenance update unavailable",
+            )
+        })?;
+    if bytes.len() > 1024 * 1024 {
+        return Err(bad("Invalid maintenance release"));
+    }
+    Ok(axum::Json(
+        serde_json::from_slice(&bytes).map_err(|_| bad("Invalid maintenance release"))?,
+    ))
+}
+pub async fn maintenance_binary(Path(version): Path<String>) -> ApiResult<Response> {
+    serve_artifact(
+        &release_version(&version)?,
+        "-maintenance",
+        "Canna-Updater.exe",
+    )
+    .await
 }
 #[cfg(test)]
 mod tests {

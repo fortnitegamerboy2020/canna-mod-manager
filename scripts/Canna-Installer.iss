@@ -42,8 +42,12 @@ Name: desktopicon; Description: "Create a desktop shortcut"; GroupDescription: "
 [Files]
 Source: "..\dist\Canna Mod Manager.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "Canna-UninstallCleanup.ps1"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\Canna Updater.exe"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\dist\Canna Updater.exe"; DestDir: "{app}"; DestName: "Canna Recovery.exe"; Flags: ignoreversion
 [Icons]
 Name: "{userprograms}\{#AppLabel}"; Filename: "{app}\Canna Mod Manager.exe"; WorkingDir: "{app}"
+Name: "{userprograms}\{#AppLabel} Maintenance"; Filename: "{app}\Canna Updater.exe"; WorkingDir: "{app}"
+Name: "{userprograms}\{#AppLabel} Recovery"; Filename: "{app}\Canna Recovery.exe"; WorkingDir: "{app}"
 Name: "{userdesktop}\{#AppLabel}"; Filename: "{app}\Canna Mod Manager.exe"; WorkingDir: "{app}"; Tasks: desktopicon
 [Registry]
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\App Paths\{#AppLabel}.exe"; ValueType: string; ValueData: "{app}\Canna Mod Manager.exe"; Flags: uninsdeletekey

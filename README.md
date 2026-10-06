@@ -182,3 +182,9 @@ The website library has a prominent **Add mod from external site** button; the s
 Original Canna code is available under the MIT license; see LICENSE and SECURITY.md. Public source does not make the community public: the server checks every private request, device session and role. Each device has its own session. Logging out one device leaves other devices signed in; logging out other devices keeps the current one signed in. Password reset revokes existing sessions. A revoked device must sign in again.
 
 The desktop and server source can be reviewed without production keys. To run your own server, generate your own protected credentials and use your own domain. Do not copy production databases, backups, private content or user sessions into a fork. Game artwork, logos, third-party packages and dependencies retain their own rights and licenses.
+
+## Windows maintenance and recovery
+
+The installer includes **Canna Maintenance** and **Canna Recovery** in Windows Start. Maintenance updates or repairs the launcher and itself, restores verified previous copies, opens update logs, and runs the full uninstaller. Recovery is an independent installed copy that stays intact during maintenance updates. If the updater cannot start, open Recovery and choose **Repair updater**. Launcher and maintenance releases use separate versioned channels on cannamods.vip.
+
+Run `pwsh -File scripts/Build-Maintenance.ps1` to build only the maintenance executable. Run `pwsh -File scripts/Test-Maintenance.ps1` and `pwsh -File scripts/Test-Installer.ps1` for isolated Windows replacement, rollback and uninstall checks. Publish maintenance with `scripts/Publish-Maintenance.ps1`, then rebuild/publish the installer with `scripts/Build-Installer.ps1` and `scripts/Publish-Installer.ps1`. Building maintenance does not rebuild the launcher EXE.

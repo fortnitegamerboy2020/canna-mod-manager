@@ -948,6 +948,8 @@ fn router(app: Shared) -> Router {
         .route("/download/installer", get(updates::installer))
         .route("/download/portable", get(updates::portable))
         .route("/updates/latest", get(updates::latest))
+        .route("/updates/maintenance/latest", get(updates::maintenance_latest))
+        .route("/updates/maintenance/{version}", get(updates::maintenance_binary))
         .route("/updates/{version}", get(updates::binary))
         .route(
             "/forum.css",

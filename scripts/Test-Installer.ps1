@@ -21,6 +21,12 @@ try {
  if($cannaLink.TargetPath -ne $cannaTarget){throw 'Shortcut targets the wrong EXE.'}
  $cannaBefore=(Get-FileHash -LiteralPath $cannaTarget -Algorithm SHA256).Hash
  if($cannaBefore -ne (Get-FileHash -LiteralPath (Join-Path $cannaRoot 'dist/Canna Mod Manager.exe')).Hash){throw 'Installed EXE differs from package.'}
+ foreach($cannaName in @('Canna Updater.exe','Canna Recovery.exe')){
+  if((Get-FileHash -LiteralPath (Join-Path $cannaInstallDir $cannaName)).Hash -ne (Get-FileHash -LiteralPath (Join-Path $cannaRoot 'dist/Canna Updater.exe')).Hash){throw 'Maintenance/recovery copy missing or incorrect.'}
+ }
+ foreach($cannaSuffix in @(' Maintenance',' Recovery')){
+  if(!(Test-Path -LiteralPath (Join-Path ([Environment]::GetFolderPath('Programs')) ('Canna Installer Test'+$cannaSuffix+'.lnk')))){throw 'Maintenance/recovery shortcut missing.'}
+ }
  # A windowless fixture confirms the real update helper replaces and launches the installed path.
  $cannaMarker=Join-Path $cannaFixtureRoot 'updated.marker'
  $cannaSource=Join-Path $cannaFixtureRoot 'Fixture.cs'
@@ -70,6 +76,9 @@ try {
  if(!(Test-Path -LiteralPath (Join-Path $cannaCleanupRoot 'Temp/canna-console-unrelated.log'))){throw 'Cleanup matched an unrelated log.'}
  if(Test-Path -LiteralPath $cannaInstallDir){throw 'Installation folder survived uninstall.'}
  if(Test-Path -LiteralPath $cannaShortcut){throw 'Shortcut survived uninstall.'}
+ foreach($cannaSuffix in @(' Maintenance',' Recovery')){
+  if(Test-Path -LiteralPath (Join-Path ([Environment]::GetFolderPath('Programs')) ('Canna Installer Test'+$cannaSuffix+'.lnk'))){throw 'Maintenance/recovery shortcut survived uninstall.'}
+ }
  'Installer, updater replacement/relaunch, full data cleanup and junction isolation passed.'
 } finally {
  if($cannaInstalled){$cannaUninstall=Start-Process -FilePath (Join-Path $cannaInstallDir 'unins000.exe') -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART' -WindowStyle Hidden -Wait -PassThru;if($cannaUninstall.ExitCode -ne 0){throw 'Test uninstallation failed.'}}

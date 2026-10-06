@@ -42,13 +42,25 @@ fn version(value: &str) -> Option<[u32; 3]> {
     ])
 }
 pub fn check(current: &str) -> Result<Option<Ready>> {
+    check_at(current, API, "Canna-Mod-Manager.exe", "Canna")
+}
+#[allow(dead_code)] // Used by the separate maintenance binary.
+pub fn check_maintenance(current: &str) -> Result<Option<Ready>> {
+    check_at(
+        current,
+        "https://cannamods.vip/updates/maintenance",
+        "Canna-Updater.exe",
+        "Canna-Updater",
+    )
+}
+fn check_at(current: &str, api: &str, asset_name: &str, stage_name: &str) -> Result<Option<Ready>> {
     let client = Client::builder()
         .timeout(Duration::from_secs(120))
         .redirect(reqwest::redirect::Policy::none())
         .user_agent("Canna-Mod-Manager")
         .build()?;
     let response = client
-        .get(format!("{API}/latest"))
+        .get(format!("{api}/latest"))
         .send()
         .context("Could not reach release repository")?;
     if response.status() == 404 {
@@ -73,7 +85,7 @@ pub fn check(current: &str) -> Result<Option<Ready>> {
     let asset = release
         .assets
         .into_iter()
-        .find(|a| a.name == "Canna-Mod-Manager.exe")
+        .find(|a| a.name == asset_name)
         .context("Release has no Windows application")?;
     let hash = asset
         .digest
@@ -86,7 +98,7 @@ pub fn check(current: &str) -> Result<Option<Ready>> {
         bail!("Update size is invalid");
     }
     let response = client
-        .get(format!("{API}/{}", release.tag_name))
+        .get(format!("{api}/{}", release.tag_name))
         .send()
         .context("Could not download update")?;
     if !response.status().is_success() {
@@ -108,7 +120,11 @@ pub fn check(current: &str) -> Result<Option<Ready>> {
         .unwrap_or_else(std::env::temp_dir)
         .join("CannaModManager/updates");
     fs::create_dir_all(&folder)?;
-    let file = folder.join(format!("Canna-{}.exe", release.tag_name));
+    let file = folder.join(format!(
+        "{stage_name}-{}-{}.exe",
+        release.tag_name,
+        std::process::id()
+    ));
     fs::write(&file, binary)?;
     Ok(Some(Ready {
         version: release.tag_name,
@@ -120,10 +136,16 @@ fn literal(path: &Path) -> String {
     format!("'{}'", path.to_string_lossy().replace('\'', "''"))
 }
 pub fn apply(ready: &Ready) -> Result<()> {
+    apply_to(ready, &std::env::current_exe()?)
+}
+pub fn apply_to(ready: &Ready, target: &Path) -> Result<()> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
-        let target = std::env::current_exe()?;
+        anyhow::ensure!(
+            target.is_absolute(),
+            "Update target must be an absolute path"
+        );
         let script = ready.file.with_extension("ps1");
         let backup = target.with_extension("previous.exe");
         let log = ready.file.with_extension("log");
@@ -139,11 +161,20 @@ try {{
     $hasher = [Security.Cryptography.SHA256]::Create()
     try {{ $actual = [BitConverter]::ToString($hasher.ComputeHash($stream)).Replace('-', '').ToLowerInvariant() }} finally {{ $stream.Dispose(); $hasher.Dispose() }}
     if ($actual -ne '{hash}') {{ throw 'Staged checksum mismatch' }}
+    $updateLock = [IO.File]::Open($target + '.update.lock', 'OpenOrCreate', 'ReadWrite', 'None')
     $installed = $false
-    if ([IO.File]::Exists($backup)) {{ [IO.File]::Delete($backup) }}
+    if ([IO.File]::Exists($target)) {{
+      $oldStream = [IO.File]::OpenRead($target)
+      $oldHasher = [Security.Cryptography.SHA256]::Create()
+      try {{ $oldHash = [BitConverter]::ToString($oldHasher.ComputeHash($oldStream)).Replace('-', '').ToLowerInvariant() }} finally {{ $oldStream.Dispose(); $oldHasher.Dispose() }}
+      if ([IO.File]::Exists($backup)) {{ [IO.File]::Delete($backup) }}
+    }}
     for ($attempt = 0; $attempt -lt 30; $attempt++) {{
         try {{
-            [IO.File]::Move($target, $backup)
+            if ([IO.File]::Exists($target)) {{
+              [IO.File]::Move($target, $backup)
+              [IO.File]::WriteAllText($backup + '.sha256', $oldHash)
+            }}
             $installed = $true
             break
         }} catch {{ [Threading.Thread]::Sleep(500) }}
@@ -155,17 +186,22 @@ try {{
         $launch.FileName = $target
         $launch.WorkingDirectory = [IO.Path]::GetDirectoryName($target)
         $launch.UseShellExecute = $true
-        $null = [Diagnostics.Process]::Start($launch)
+        $started = [Diagnostics.Process]::Start($launch)
+        if ($started.WaitForExit(2000) -and $started.ExitCode -ne 0) {{ throw 'Updated application exited with an error' }}
     }} catch {{
         if ([IO.File]::Exists($target)) {{ [IO.File]::Delete($target) }}
-        [IO.File]::Move($backup, $target)
-        $null = [Diagnostics.Process]::Start($target)
+        if ([IO.File]::Exists($backup)) {{
+          [IO.File]::Move($backup, $target)
+          $null = [Diagnostics.Process]::Start($target)
+        }}
         throw 'Replacement or launch failed; restored previous application'
     }}
     [IO.File]::WriteAllText($log, 'Update installed successfully')
-}} catch {{ [IO.File]::WriteAllText($log, $_.Exception.Message) }}
+}} catch {{ [IO.File]::WriteAllText($log, $_.Exception.Message) }} finally {{
+    if ($null -ne $updateLock) {{ $updateLock.Dispose(); [IO.File]::Delete($target + '.update.lock') }}
+}}
 "#,
-            target = literal(&target),
+            target = literal(target),
             staged = literal(&ready.file),
             backup = literal(&backup),
             log = literal(&log),
@@ -189,7 +225,7 @@ try {{
     }
     #[cfg(not(windows))]
     {
-        let _ = ready;
+        let _ = (ready, target);
         bail!("Automatic replacement currently supports Windows only")
     }
 }

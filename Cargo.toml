@@ -2,6 +2,7 @@
 name = "canna-mod-manager"
 version = "0.2.16"
 edition = "2024"
+default-run = "canna-mod-manager"
 
 [dependencies]
 eframe = { version = "0.33.3", default-features = false, features = ["default_fonts", "glow", "x11", "wayland"] }

@@ -5,6 +5,7 @@ $cannaVersion=[regex]::Match([IO.File]::ReadAllText((Join-Path $cannaRoot 'Cargo
 if(!$cannaVersion){throw 'Could not read application version.'}
 $cannaExe=Join-Path $cannaRoot 'dist/Canna Mod Manager.exe'
 if(!(Test-Path -LiteralPath $cannaExe)){throw 'Build the desktop application first, or place the existing release EXE in dist.'}
+if(!(Test-Path -LiteralPath (Join-Path $cannaRoot 'dist/Canna Updater.exe'))){throw 'Run scripts/Build-Maintenance.ps1 before packaging the installer.'}
 if(!$Compiler){
  $cannaCandidates=@("${env:ProgramFiles}\Inno Setup 7\ISCC.exe","${env:ProgramFiles(x86)}\Inno Setup 7\ISCC.exe","${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe","$env:LOCALAPPDATA\Programs\Inno Setup 7\ISCC.exe","$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe")
  $Compiler=$cannaCandidates | Where-Object {Test-Path -LiteralPath $_} | Select-Object -First 1
