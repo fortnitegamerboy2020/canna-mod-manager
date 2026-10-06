@@ -115,3 +115,6 @@ button,a,summary{-webkit-tap-highlight-color:transparent}button,summary{touch-ac
 .entry button,.membercard button,.finding button{white-space:normal;overflow-wrap:anywhere}
 .entry p,.entry a,.membercard p{overflow-wrap:anywhere}
 
+/* Keep header downloads reachable without squeezing the brand on smaller desktops. */
+@media(min-width:761px){.siteheader{height:auto;min-height:88px;flex-wrap:wrap}.headeractions{flex-wrap:wrap;justify-content:flex-end}.siteheader .brand{flex-shrink:0}.headeractions .appdownload{white-space:normal}}
+@media(max-width:760px){.headeractions .appdownload{flex:1 1 140px}}

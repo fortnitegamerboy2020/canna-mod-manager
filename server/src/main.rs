@@ -945,6 +945,8 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/admin/tickets", get(support::queue))
         .route("/api/v1/admin/tickets/{id}", axum::routing::delete(support::delete))
         .route("/api/v1/admin/tickets/{id}/status", post(support::status))
+        .route("/download/installer", get(updates::installer))
+        .route("/download/portable", get(updates::portable))
         .route("/updates/latest", get(updates::latest))
         .route("/updates/{version}", get(updates::binary))
         .route(

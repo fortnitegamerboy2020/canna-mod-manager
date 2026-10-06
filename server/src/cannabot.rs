@@ -189,6 +189,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
                 "UPDATE bot_flip_limits SET count=count+1 WHERE user_id=?1",
                 [actor],
             )?;
+            db.execute("INSERT INTO audit(actor,action,target,created) VALUES(?1,'coinflip',?2,?3)",params![actor,json!({"choice":args[1],"outcome":side,"wager":stake,"balance_before":balance,"balance_after":balance+change,"random_source":"OS CSPRNG"}).to_string(),now()])?;
             format!(
                 "The coin landed {side}. You {} {stake} Kash. Balance: {}. (50/50 odds)",
                 if change > 0 { "won" } else { "lost" },
@@ -287,6 +288,48 @@ mod tests {
         assert!(run(&db, 1, "/flip heads 10").is_err());
         assert!(run(&db, 1, "/coinflip heads 10").is_err());
         assert!(run(&db, 1, "/coinflip heads -1").is_err());
+    }
+    #[test]
+    fn coin_draws_can_repeat_and_audit_matches_payout() {
+        // A guard against a deterministic alternating implementation, not a proof of randomness.
+        let draws: Vec<_> = (0..4096).map(|_| coin_side()).collect();
+        for pair in [
+            ["heads", "heads"],
+            ["tails", "tails"],
+            ["heads", "tails"],
+            ["tails", "heads"],
+        ] {
+            assert!(draws.windows(2).any(|w| w == pair));
+        }
+        let heads = draws.iter().filter(|s| **s == "heads").count();
+        println!(
+            "Independent draws: heads={heads}, tails={}, repeated_neighbors={}",
+            draws.len() - heads,
+            draws.windows(2).filter(|w| w[0] == w[1]).count()
+        );
+        let (_dir, app) = fixture();
+        account(&app, "auditplayer", false);
+        let db = app.db.lock().unwrap();
+        db.execute("INSERT INTO bot_wallets(user_id,balance) VALUES(1,100)", [])
+            .unwrap();
+        let answer = run(&db, 1, "/coinflip heads 10").unwrap().unwrap();
+        let target: String = db
+            .query_row(
+                "SELECT target FROM audit WHERE action='coinflip'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let event: Value = serde_json::from_str(&target).unwrap();
+        assert_eq!(event["choice"], "heads");
+        assert_eq!(event["wager"], 10);
+        assert!(answer.contains(&format!("landed {}.", event["outcome"].as_str().unwrap())));
+        let balance: i64 = db
+            .query_row("SELECT balance FROM bot_wallets WHERE user_id=1", [], |r| {
+                r.get(0)
+            })
+            .unwrap();
+        assert_eq!(event["balance_after"], balance);
     }
     #[tokio::test]
     async fn rewards_cooldowns_and_badges_are_server_enforced() {

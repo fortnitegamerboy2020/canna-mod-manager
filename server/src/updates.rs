@@ -17,9 +17,13 @@ pub async fn latest() -> ApiResult<axum::Json<Value>> {
     ))
 }
 pub async fn binary(Path(version): Path<String>) -> ApiResult<Response> {
+    let normalized = release_version(&version)?;
+    serve_release(&normalized, false).await
+}
+fn release_version(version: &str) -> ApiResult<String> {
     let parts: Vec<_> = version
         .strip_prefix('v')
-        .unwrap_or(&version)
+        .unwrap_or(version)
         .split('.')
         .collect();
     if parts.len() != 3
@@ -29,7 +33,11 @@ pub async fn binary(Path(version): Path<String>) -> ApiResult<Response> {
     {
         return Err(bad("Invalid application version"));
     }
-    let file = tokio::fs::File::open(format!("{DIRECTORY}/v{}.exe", parts.join(".")))
+    Ok(parts.join("."))
+}
+async fn serve_release(version: &str, installer: bool) -> ApiResult<Response> {
+    let suffix = if installer { "-setup" } else { "" };
+    let file = tokio::fs::File::open(format!("{DIRECTORY}/v{version}{suffix}.exe"))
         .await
         .map_err(|_| ApiError(StatusCode::NOT_FOUND, "Application release unavailable"))?;
     let length = file
@@ -44,9 +52,64 @@ pub async fn binary(Path(version): Path<String>) -> ApiResult<Response> {
         [
             ("content-type", "application/octet-stream".to_owned()),
             ("content-length", length.to_string()),
-            ("cache-control", "public, max-age=86400".to_owned()),
+            (
+                "content-disposition",
+                format!(
+                    "attachment; filename=\"{}\"",
+                    if installer {
+                        "Canna-Setup.exe"
+                    } else {
+                        "Canna-Mod-Manager.exe"
+                    }
+                ),
+            ),
+            (
+                "cache-control",
+                "public, max-age=0, must-revalidate".to_owned(),
+            ),
         ],
         axum::body::Body::from_stream(tokio_util::io::ReaderStream::new(file)),
     )
         .into_response())
+}
+
+// Stable links always resolve to the current public release, without member cookies.
+pub async fn portable() -> ApiResult<Response> {
+    let value = latest().await?.0;
+    let version = value["tag_name"]
+        .as_str()
+        .ok_or(bad("Invalid application release"))?;
+    serve_release(&release_version(version)?, false).await
+}
+pub async fn installer() -> ApiResult<Response> {
+    let bytes = tokio::fs::read(format!("{DIRECTORY}/installer-latest.json"))
+        .await
+        .map_err(|_| ApiError(StatusCode::SERVICE_UNAVAILABLE, "Installer unavailable"))?;
+    if bytes.len() > 8192 {
+        return Err(bad("Invalid installer release"));
+    }
+    let value: Value =
+        serde_json::from_slice(&bytes).map_err(|_| bad("Invalid installer release"))?;
+    let version = value["version"]
+        .as_str()
+        .ok_or(bad("Invalid installer release"))?;
+    serve_release(&release_version(version)?, true).await
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn public_download_paths_cannot_escape_release_directory() {
+        for value in [
+            "../0.2.16",
+            "v../../etc/passwd",
+            "1.2.3.exe",
+            "1.2/3.4",
+            "1.2.-3",
+            "",
+        ] {
+            assert!(release_version(value).is_err());
+        }
+        assert_eq!(release_version("v0.2.16").unwrap(), "0.2.16");
+    }
 }
