@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 mod cache;
+mod chrome;
 mod console;
 mod model;
 mod modpacks;
@@ -36,6 +37,7 @@ enum Event {
     Synced(cache::Source, Result<repository::RepositoryData, String>),
 }
 struct Canna {
+    chrome: chrome::Chrome,
     update_status: String,
     pending_update: Option<updater::Ready>,
     owned_games: BTreeMap<u32, owned_game::OwnedGame>,
@@ -106,6 +108,7 @@ impl Canna {
         let settings = Settings::load();
         let configured = !settings.owner.is_empty();
         let mut app = Self {
+            chrome: chrome::Chrome::new(ctx),
             owned_games: BTreeMap::new(),
             discover_page: std::env::args().any(|arg| arg == "--discover"),
             discover: Default::default(),
@@ -599,6 +602,11 @@ impl Canna {
         });
     }
     fn render(&mut self, ctx: &egui::Context) {
+        ctx.layer_painter(egui::LayerId::background()).rect_filled(
+            ctx.viewport_rect(),
+            0,
+            chrome::CANVAS,
+        );
         self.events(ctx);
         self.owned_games.retain(|_, game| game.running());
         self.pack_ui.owned_games = self.owned_games.keys().copied().collect();
@@ -725,28 +733,31 @@ impl Canna {
             }
             ctx.request_repaint();
         }
+        chrome::title_bar(ctx);
         egui::SidePanel::left("navigation")
-            .exact_width(218.0)
+            .exact_width(80.0)
             .resizable(false)
             .frame(
                 egui::Frame::new()
                     .corner_radius(ui_helpers::SURFACE_RADIUS)
                     .fill(Color32::from_rgb(23, 32, 27))
-                    .inner_margin(22),
+                    .inner_margin(16),
             )
             .show(ctx, |ui| {
-                ui.add_space(14.0);
-                ui.label(RichText::new("canna").size(36.0).color(GREEN).strong());
-                ui.label(RichText::new("MOD MANAGER").size(11.0).color(MUTED));
-                ui.add_space(40.0);
-                ui.label(RichText::new("YOUR SPACE").small().color(MUTED));
-                if ui
-                    .add(
-                        egui::Button::new("Game library")
-                            .selected(
-                                !self.modpacks_page && !self.console_page && !self.discover_page,
-                            )
-                            .min_size(egui::vec2(170.0, 44.0)),
+                ui.spacing_mut().button_padding = egui::vec2(12.0, 12.0);
+                ui.add_space(6.0);
+                ui.vertical_centered(|ui| {
+                    ui.label(RichText::new("c").size(34.0).color(GREEN).strong())
+                        .on_hover_text("canna · Made for the family.");
+                });
+                ui.add_space(24.0);
+                if self
+                    .chrome
+                    .nav(
+                        ui,
+                        0,
+                        "Game library",
+                        !self.modpacks_page && !self.console_page && !self.discover_page,
                     )
                     .clicked()
                 {
@@ -755,37 +766,27 @@ impl Canna {
                     self.game_details = false;
                     self.console_page = false;
                 }
-                if ui
-                    .add(
-                        egui::Button::new("Modpacks")
-                            .selected(
-                                self.modpacks_page && !self.console_page && !self.discover_page,
-                            )
-                            .min_size(egui::vec2(170.0, 44.0)),
-                    )
-                    .clicked()
+                if chrome::Chrome::packs(
+                    ui,
+                    self.modpacks_page && !self.console_page && !self.discover_page,
+                )
+                .clicked()
                 {
                     self.discover_page = false;
                     self.modpacks_page = true;
                     self.console_page = false;
                 }
-                if ui
-                    .add(
-                        egui::Button::new("Discover")
-                            .selected(self.discover_page)
-                            .min_size(egui::vec2(170.0, 44.0)),
-                    )
+                if self
+                    .chrome
+                    .nav(ui, 1, "Discover", self.discover_page)
                     .clicked()
                 {
                     self.discover_page = true;
                     self.console_page = false;
                 }
-                if ui
-                    .add(
-                        egui::Button::new("Console")
-                            .selected(self.console_page)
-                            .min_size(egui::vec2(170.0, 44.0)),
-                    )
+                if self
+                    .chrome
+                    .nav(ui, 2, "Console", self.console_page)
                     .clicked()
                 {
                     self.discover_page = false;
@@ -793,7 +794,6 @@ impl Canna {
                     self.last_console_poll =
                         std::time::Instant::now() - std::time::Duration::from_secs(2);
                 }
-
                 for id in self.owned_games.keys().copied().collect::<Vec<_>>() {
                     let name = self
                         .games
@@ -801,26 +801,32 @@ impl Canna {
                         .find(|g| g.app_id == id)
                         .map(|g| g.name.as_str())
                         .unwrap_or("game");
-                    if ui.button(format!("Stop {name}")).clicked() {
+                    if ui
+                        .add(
+                            egui::Button::new(
+                                RichText::new("■").color(Color32::from_rgb(232, 104, 107)),
+                            )
+                            .min_size(egui::vec2(48.0, 48.0)),
+                        )
+                        .on_hover_text(format!("Stop {name}"))
+                        .clicked()
+                    {
                         self.stop_game(id);
                     }
                 }
-                if ui.button("Repository settings").clicked() {
-                    self.settings_open = true;
-                }
-                ui.add_space(28.0);
-                ui.label(RichText::new("Made for the family.").color(GREEN));
-                ui.label(
-                    RichText::new("A little greener.\nA little more chaotic.")
-                        .small()
-                        .color(MUTED),
-                );
-                ui.with_layout(egui::Layout::bottom_up(egui::Align::LEFT), |ui| {
+                ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                     ui.label(
-                        RichText::new(format!("CANNA  /  v{}", env!("CARGO_PKG_VERSION")))
-                            .small()
+                        RichText::new(env!("CARGO_PKG_VERSION"))
+                            .size(10.0)
                             .color(MUTED),
                     );
+                    if self
+                        .chrome
+                        .nav(ui, 3, "Repository settings", self.settings_open)
+                        .clicked()
+                    {
+                        self.settings_open = true;
+                    }
                 });
             });
         egui::TopBottomPanel::bottom("status")
@@ -1108,6 +1114,9 @@ impl eframe::App for Canna {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.render(ctx);
     }
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        egui::Rgba::from(chrome::CANVAS).to_array()
+    }
 }
 fn main() -> eframe::Result {
     #[cfg(debug_assertions)]
@@ -1146,6 +1155,8 @@ fn main() -> eframe::Result {
     }
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
+            .with_decorations(false)
+            .with_resizable(true)
             .with_inner_size([1240.0, 820.0])
             .with_min_inner_size([1080.0, 680.0]),
         ..Default::default()

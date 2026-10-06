@@ -2,6 +2,12 @@
 
 A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and a private GitHub repository as the read-only catalog. There is no upload interface.
 
+Version 0.2.4 uses a compact icon sidebar and a borderless window. The yellow
+button in the top right minimizes; the red button beside it closes Canna. Drag
+the header to move the window, or double-click it to maximize/restore. Hover
+sidebar icons for their names. Rounded panels share the green canvas behind
+their corners, avoiding black gaps.
+
 ## Run
 
 Double-click `dist/Canna Mod Manager.exe` after building, or run:

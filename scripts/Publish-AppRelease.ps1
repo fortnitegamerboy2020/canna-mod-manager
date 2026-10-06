@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.3', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.4', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -32,10 +32,10 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: automatic mod dependencies and family online visual extensions"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: borderless window controls, compact icon navigation and blended panel corners"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
-    $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = "Discover adds required catalog dependencies automatically. Enabling a mod enables its required libraries; disabling a library still used by a mod is rejected. The family catalog now includes all 20 requested Thunderstore mods, FourthAbility and AntiMatchmaking dependency support. Canna extensions add F8 shared lobby colors and F9 configurable own/team/opponent arrow paths. Family Workshop example keeps gameplay-changing mods opt-in and AcidTrip disabled. Local native fixtures and Steam color metadata transport passed; a real multi-PC family match and all gameplay effects remain unverified. Application and mod repository credentials remain separate." }
+    $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = "Canna 0.2.4 adds a compact icon sidebar using the supplied library, discover, console and settings icons. A borderless window uses adjacent yellow minimize and red close controls in the upper right, with a draggable header and double-click maximize/restore. Rounded panel corners now blend into the shared green canvas. UI regression checks and strict clippy passed. Existing private catalog and modpack behavior are retained." }
     foreach ($cannaUpload in @(
         @{ file = 'dist/Canna Mod Manager.exe'; name = 'Canna-Mod-Manager.exe'; mime = 'application/octet-stream' },
         @{ file = 'dist/Canna-Mod-Manager-Windows.zip'; name = 'Canna-Mod-Manager-Windows.zip'; mime = 'application/zip' }
