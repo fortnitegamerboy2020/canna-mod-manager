@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn interrupted_jobs_retry_without_erasing_completed_reviews() {
         let db = Connection::open_in_memory().unwrap();
-        db.execute_batch("CREATE TABLE mods(id TEXT PRIMARY KEY);")
+        db.execute_batch("CREATE TABLE mods(id TEXT PRIMARY KEY); INSERT INTO mods VALUES('pending'),('reviewed');")
             .unwrap();
         initialize(&db).unwrap();
         db.execute_batch("INSERT INTO mod_scans VALUES('pending','hash','queued','{}',0); INSERT INTO mod_scans VALUES('reviewed','hash','complete','{}',0);").unwrap();
