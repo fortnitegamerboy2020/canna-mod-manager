@@ -156,7 +156,7 @@ impl PackUi {
                     ui.add_space(12.0);
                 }
             }
-            if matches == 0 { empty_panel(ui,"Nothing here yet.","Try another search, or add mods to your game's Mods folder and game.json on GitHub."); }
+            if matches == 0 { empty_panel(ui,"Nothing here yet.","Try another search, or add mods through the community library on cannamods.vip."); }
         });
         if let Some((id, game, item)) = addition {
             match self.add_catalog_mod(&id, &game, source, item) {

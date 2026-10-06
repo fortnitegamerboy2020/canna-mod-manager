@@ -2,7 +2,7 @@ use eframe::egui::{self, Color32};
 
 pub const CANVAS: Color32 = Color32::from_rgb(18, 24, 22);
 pub struct Chrome {
-    icons: [egui::TextureHandle; 4],
+    icons: [egui::TextureHandle; 5],
 }
 impl Chrome {
     pub fn new(ctx: &egui::Context) -> Self {
@@ -14,6 +14,7 @@ impl Chrome {
             ),
             ("console", include_bytes!("assets/command.png").as_slice()),
             ("settings", include_bytes!("assets/settings.png").as_slice()),
+            ("skins", include_bytes!("assets/skins.png").as_slice()),
         ]
         .map(|(name, bytes)| {
             let mut image = image::load_from_memory(bytes)

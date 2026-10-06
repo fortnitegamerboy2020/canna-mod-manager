@@ -410,7 +410,14 @@ fn read(path: &Path) -> Result<Modpack> {
     Ok(pack)
 }
 pub fn load_all() -> (Vec<Modpack>, Vec<String>) {
-    load_from(&directory())
+    let (mut packs, warnings) = load_from(&directory());
+    for p in &mut packs {
+        p.repository.owner = "canna".into();
+        p.repository.repository = "server".into();
+        p.repository.branch = "main".into();
+        p.repository.catalog_folder.clear();
+    }
+    (packs, warnings)
 }
 pub fn load_groups() -> Vec<String> {
     let path = directory().parent().unwrap().join("modpack-groups.json");

@@ -1,7 +1,11 @@
 /target/
 /dist/
+/server/target/
+/server/*.sqlite*
+/server/security/reports/
 *.log
 /canna-token.txt
 /canna-update-token.txt
 /mods/*/build/
 
+/server/staging/

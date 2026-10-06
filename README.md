@@ -1,6 +1,6 @@
 # Canna Mod Manager
 
-A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and a private GitHub repository as the read-only catalog. There is no upload interface.
+A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and the private Canna server as the mod catalog. Uploads and external imports are managed on the website.
 
 Version 0.2.4 uses a compact icon sidebar and a borderless window. The yellow
 button in the top right minimizes; the red button beside it closes Canna. Drag
@@ -25,11 +25,11 @@ Build a portable executable with `./build.ps1`. Rust and Windows C++ build tools
 - Uses cached Steam artwork, with repository artwork taking priority after sync. Bopl Battle remains visible as a starting point if it is not installed.
 - Detects BepInEx core assemblies, proxy DLL and Doorstop configuration; distinguishes detected, incomplete, and absent files. This is a file check, not proof the loader works when launched.
 - Counts local plugin DLLs, opens the game folder, and launches installed games through Steam.
-- Reads game metadata, icons and mod listings from GitHub on a background thread. Reports authentication, missing repository, rate limit, malformed metadata and network errors.
+- Reads game metadata, icons, framework packages and mod listings from the authenticated Canna server on a background thread. Reports expired sessions, malformed metadata and network errors.
 
 Creating a modpack automatically sets up BepInEx. **Add Mods** opens **Discover**, where you can search the family catalog, choose a compatible modpack, and add or update a pinned mod; **Import local mod** adds a DLL or plugin ZIP. **Apply modpack** activates the selection in `BepInEx/plugins/Canna`. **Launch modded** installs the selected pack and launches through Steam. **Launch vanilla** disables Doorstop before launching. **Stop instance** terminates the game process Canna launched, using a retained Windows handle. It appears in the pack, its right-click menu, game details, and navigation while that process runs. Independently launched games are never adopted. The last mode remains selected until changed. Existing plugins outside Canna are preserved and also load in modded mode.
 
-Bopl Battle uses the official Windows x64 BepInEx 5.4.23.5 archive from `bopl-battle/Framework/BepInEx.zip`, with the official GitHub release as a fallback. Harmony is included upstream; this is not a custom BepInEx fork. Other Unity games need their own compatible Windows BepInEx 5 package at `<game>/Framework/BepInEx.zip`. Existing complete loaders are preserved, and conflicting files are reported rather than overwritten. Close the game before setup, installation or mode changes. Gameplay compatibility still requires testing.
+Bopl Battle uses the official Windows x64 BepInEx 5.4.23.5 archive from `bopl-battle/Framework/BepInEx.zip`. Harmony is included upstream; this is not a custom BepInEx fork. Other Unity games need their own compatible Windows BepInEx 5 package at `<game>/Framework/BepInEx.zip`. Existing complete loaders are preserved, and conflicting files are reported rather than overwritten. Close the game before setup, installation or mode changes. Gameplay compatibility still requires testing.
 
 ## Connect your private repository
 
@@ -45,15 +45,13 @@ bopl-battle/
     your-mod.zip
 ```
 
-Open **Repository settings** in Canna. Enter the owner, repository and branch. For a private repository, use a GitHub fine-grained personal access token restricted to that repository with **Contents: Read-only**. Family builds embed the repository-only read token from the Git-ignored canna-token.txt file at build time; family members do not need GitHub accounts. Embedded tokens are extractable from the executable. The token field is masked and never saved to settings or logs. It lasts for the app session. Alternatively, provide `CANNA_GITHUB_TOKEN` in the launch environment. Never put tokens in the mod repository.
+Open **Repository settings**, select **Connect through website**, and sign in at `https://cannamods.vip/connect`. Choose **Connect Canna app** on the website. The short-lived, single-use link gives the desktop its own session, stored encrypted with Windows DPAPI. The app must have been started once to register its `canna://` links.
 
-Suggested values: repository **manager-uploaded-mods**, branch **main**, catalog folder **empty (repository root)**, and game/mod folder **bopl-battle/Mods/**. Alternatively, put the template contents under `games/` and set the catalog folder to `games`; Canna then reads `games/catalog.json`, `games/bopl-battle/game.json` and `games/bopl-battle/icon.jpg`. The folder is always relative to the repository. Existing settings files default to the repository root.
+The desktop reads `/api/v1/catalog` and `/api/v1/catalog/file` from Canna. Legacy modpack file paths remain available as server aliases; Bopl artwork, BepInEx and catalog archives have been migrated. The mod GitHub token is no longer embedded in desktop builds. Keep `canna-mod-manager` for application releases and updates.
 
-Click **Save, scan & connect**. The app requests `catalog.json`, then each listed folder's `game.json` and icon using GitHub's authenticated Contents API. It only sends GET requests. If you have not made the repository yet, Steam scanning still works.
+The website library supports search, game, content type, provider, Minecraft version and loader filters. **Add Mod From External Site** previews a Thunderstore or Modrinth project before importing a selected version. CurseForge needs its server-only API key. Website downloads offer opening Canna, show connection/transfer status, and offer a manual download when no client connects.
 
-If `catalog.json` is absent, Canna discovers repository folders that contain `game.json`. A missing `Mods/` folder is allowed and shown in the game's status. To add an otherwise empty directory through GitHub's web uploader, include the visible `Mods/README.txt` supplied by the template; it is not a mod and is not added to the mod list. Actual mods appear only when listed in `game.json`.
-
-Successful catalog syncs save the most recent repository's metadata and artwork to `%LOCALAPPDATA%/CannaModManager/catalog-cache.json`. On the next connection, Canna shows matching cached data while contacting GitHub. If refresh fails, the catalog stays visible with an offline label and its age. The owner, repository, branch and catalog folder must match; changing repositories clears the previous repository's artwork. Tokens are never included in the cache. The cache contains private catalog content as ordinary local files. Up to 16 MiB of artwork is cached; remaining games can fall back to Steam artwork.
+Steam catalog metadata and artwork are cached locally for offline browsing. Sessions are never stored in this cache. Historical repository templates below document the migration input, rather than the current transport.
 
 To add another game, add its folder to `catalog.json` and give it a unique Steam app ID in `game.json`. File paths are relative to the game folder. Mod files must be beneath `Mods/`:
 
@@ -123,7 +121,7 @@ CustomLocalColorsRedux includes Canna Shared Colors: press F8 to select your lob
 
 Canna checks the latest stable release in the private `fortnitegamerboy2020/canna-mod-manager` repository at startup. New Windows executables are downloaded using the separate release read token, bounded by size and checked against GitHub's SHA-256 asset digest. A hidden helper waits for Canna to exit, retains the previous executable, replaces it and restarts. Open pack/group editors, settings and active installations defer the restart. Update failures leave the current app usable; the Console records check errors, and replacement logs are under `%LOCALAPPDATA%/CannaModManager/updates`.
 
-This first updater-enabled version must be installed manually once. Future releases use a stable `vMAJOR.MINOR.PATCH` tag and an executable asset named `Canna-Mod-Manager.exe`. `scripts/Publish-AppRelease.ps1` publishes explicitly selected source files and a draft release, verifies uploaded hashes, then makes the release available. The admin token is used only by this publishing script. `canna-token.txt` embeds the original mods read credential; `canna-update-token.txt` embeds the separate application releases read credential. Both are excluded from Git. Environment overrides are `CANNA_GITHUB_TOKEN` and `CANNA_UPDATE_TOKEN` respectively.
+This first updater-enabled version must be installed manually once. Future releases use a stable `vMAJOR.MINOR.PATCH` tag and an executable asset named `Canna-Mod-Manager.exe`. `scripts/Publish-AppRelease.ps1` publishes explicitly selected source files and a draft release, verifies uploaded hashes, then makes the release available. The admin token is used only by this publishing script. `canna-update-token.txt` embeds the separate application-release read credential and is excluded from Git. The update credential can be overridden with `CANNA_UPDATE_TOKEN`. Mod access uses the Canna account session.
 
 Each modpack's Content table has an **Enabled** checkbox; right-click a mod for **Enable mod** / **Disable mod**. Switches save immediately without removing the selection or version pin. Use **Apply modpack** or **Launch modded** with the game closed to apply them. Disabled mods are excluded from downloads and from the fresh managed plugin directory, and exports/imports retain the enabled states. Existing manifests default to enabled. Plugins installed outside Canna's managed directory are unaffected.
 
@@ -132,3 +130,7 @@ The catalog includes **Canna Procedural Maps 1.1.1**. Add it to a Bopl pack on e
 **Canna Anvil 1.0.6** uses a native flat-sided box hull fitted to its artwork, with low bounce and settling friction. Native drop tests from upright, upside-down and sideways orientations settle on flat faces. The hull approximates the outline rather than tracing the narrow waist. Momentum, unlocked rotation, team-colored HUD circles and the five-second transformation remain.
 
 
+
+### Minecraft work in progress
+
+The debug desktop includes Minecraft instances, Microsoft device sign-in, managed Java, loader installation paths for Vanilla/Fabric/Forge/NeoForge/Quilt, process stop controls, and local skin import/export/account application. Microsoft sign-in requires Canna's registered public client ID. Login and live Minecraft launches have not been verified yet; content dependency installation, Minecraft modpack sharing, and complete launcher parity are still pending. No desktop release build has been made for these changes, and the installed app is untouched for updater testing.

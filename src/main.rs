@@ -2,15 +2,20 @@
 mod cache;
 mod chrome;
 mod console;
+mod credentials;
+mod minecraft;
+mod minecraft_auth;
 mod model;
 mod modpacks;
 mod owned_game;
 mod pack_ui;
 mod repository;
 mod runtime;
+mod skins;
 mod steam;
 mod ui_helpers;
 mod updater;
+mod website;
 
 use eframe::egui::{self, Color32, RichText};
 use model::{GameInfo, InstalledGame, Scan, Settings};
@@ -21,7 +26,8 @@ use std::{
 
 const GREEN: Color32 = Color32::from_rgb(163, 220, 144);
 const MUTED: Color32 = Color32::from_rgb(143, 157, 149);
-include!(concat!(env!("OUT_DIR"), "/canna_token.rs"));
+#[cfg(test)]
+const EMBEDDED_GITHUB_TOKEN: &str = "";
 include!(concat!(env!("OUT_DIR"), "/canna_update_token.rs"));
 enum Event {
     Update(Result<Option<updater::Ready>, String>),
@@ -37,6 +43,9 @@ enum Event {
     Synced(cache::Source, Result<repository::RepositoryData, String>),
 }
 struct Canna {
+    website: website::Website,
+    skins: skins::Skins,
+    minecraft: minecraft::Minecraft,
     chrome: chrome::Chrome,
     update_status: String,
     pending_update: Option<updater::Ready>,
@@ -105,9 +114,16 @@ impl Canna {
         style.spacing.button_padding = egui::vec2(16.0, 10.0);
         ctx.set_style(style);
         let (tx, rx) = mpsc::channel();
-        let settings = Settings::load();
+        let mut settings = Settings::load();
+        settings.owner = "canna".into();
+        settings.repository = "server".into();
+        settings.branch = "main".into();
+        settings.catalog_folder.clear();
         let configured = !settings.owner.is_empty();
         let mut app = Self {
+            website: website::Website::default(),
+            skins: Default::default(),
+            minecraft: Default::default(),
             chrome: chrome::Chrome::new(ctx),
             owned_games: BTreeMap::new(),
             discover_page: std::env::args().any(|arg| arg == "--discover"),
@@ -139,10 +155,7 @@ impl Canna {
             }),
             pack_ui: pack_ui::PackUi::new(),
             settings,
-            token: std::env::var("CANNA_GITHUB_TOKEN")
-                .ok()
-                .filter(|token| !token.trim().is_empty())
-                .unwrap_or_else(|| EMBEDDED_GITHUB_TOKEN.to_owned()),
+            token: website::session(),
             settings_open: false,
             query: String::new(),
             supported_only: false,
@@ -158,7 +171,7 @@ impl Canna {
             scanning: false,
             syncing: false,
             scan_status: String::new(),
-            repo_status: "Connect your family's GitHub repository in Settings".into(),
+            repo_status: "Connect your Canna account in Settings".into(),
             tx,
             rx,
             screenshot: std::env::var_os("CANNA_SCREENSHOT").map(Into::into),
@@ -215,7 +228,7 @@ impl Canna {
             return;
         }
         self.syncing = true;
-        self.repo_status = "Reading GitHub catalog…".into();
+        self.repo_status = "Reading Canna server catalog…".into();
         let s = self.settings.clone();
         let source = cache::Source::from_settings(&s);
         if self.active_source.as_ref() != Some(&source) {
@@ -373,7 +386,7 @@ impl Canna {
                         Ok(Some(data)) => {
                             self.cached_at = data.cached_at;
                             self.repo_status = format!(
-                                "Cached catalog · last synced {} · checking GitHub…",
+                                "Cached catalog · last synced {} · checking server…",
                                 cache::age_label(data.cached_at.unwrap_or(0))
                             );
                             self.apply_catalog(ctx, data);
@@ -428,25 +441,42 @@ impl Canna {
     }
     fn settings_ui(&mut self, ctx: &egui::Context) {
         let mut open = self.settings_open;
-        egui::Window::new("Your private library").open(&mut open).resizable(false).default_width(500.0).show(ctx,|ui| {
-            ui.label(RichText::new("GITHUB REPOSITORY").color(GREEN).strong());
-            ui.label("Read-only access. Add games and mods directly on GitHub.");
-            ui.label("Owner / organization"); ui.text_edit_singleline(&mut self.settings.owner);
-            ui.label("Repository"); ui.text_edit_singleline(&mut self.settings.repository);
-            ui.label("Branch"); ui.text_edit_singleline(&mut self.settings.branch);
-            ui.label("Catalog folder inside repository (optional)");
-            ui.add(egui::TextEdit::singleline(&mut self.settings.catalog_folder).hint_text("Leave empty for root, or use games"));
-            let folder = if self.settings.catalog_folder.is_empty() { String::new() } else { format!("{}/", self.settings.catalog_folder) };
-            ui.label(RichText::new(format!("Reads {folder}catalog.json → {folder}bopl-battle/game.json → Mods/")).small().color(MUTED));
-            ui.label("Private repository token");
-            ui.add(egui::TextEdit::singleline(&mut self.token).password(true).hint_text("Fine-grained token with Contents: read"));
-            ui.label(RichText::new("Family builds can include a default token. Changes here last for this session; CANNA_GITHUB_TOKEN overrides the build default.").small().color(MUTED));
-            ui.separator(); ui.label("Steam location override (optional)");
-            ui.add(egui::TextEdit::singleline(&mut self.settings.steam_path).hint_text("e.g. D:\\Steam — leave empty for auto-detection"));
-            if ui.add_enabled(!self.scanning && !self.syncing, egui::Button::new("Save, scan & connect")).clicked() {
-                match self.settings.save() {Ok(())=>{self.scan(ctx);self.sync(ctx);},Err(e)=>self.repo_status=format!("Could not save settings: {e}")}
-            }
-        });
+        egui::Window::new("Canna settings")
+            .open(&mut open)
+            .default_width(500.0)
+            .show(ctx, |ui| {
+                ui.strong("CANNA SERVER");
+                ui.label("cannamods.vip · private community library");
+                ui.label(if self.token.is_empty() {
+                    "Not connected"
+                } else {
+                    "Account connected · sessions last 12 hours"
+                });
+                if ui.button("Sign in & connect account").clicked() {
+                    ctx.open_url(egui::OpenUrl::new_tab("https://cannamods.vip/connect"));
+                }
+                if ui
+                    .add_enabled(
+                        !self.token.is_empty(),
+                        egui::Button::new("Disconnect account"),
+                    )
+                    .clicked()
+                {
+                    website::disconnect();
+                    self.token.clear();
+                    self.catalog = vec![model::bopl()];
+                    self.repository_textures.clear();
+                    self.repo_status = "Account disconnected".into();
+                }
+                ui.separator();
+                ui.label("Steam location override (optional)");
+                ui.text_edit_singleline(&mut self.settings.steam_path);
+                if ui.button("Save, scan & sync server").clicked() {
+                    let _ = self.settings.save();
+                    self.scan(ctx);
+                    self.sync(ctx);
+                }
+            });
         self.settings_open = open;
     }
     fn art(&self, ui: &mut egui::Ui, id: u32, size: egui::Vec2) {
@@ -621,6 +651,9 @@ impl Canna {
         }
         if self.pending_update.is_some()
             && !self.runtime_busy
+            && !self.website.busy()
+            && !self.minecraft.busy()
+            && !self.skins.busy()
             && self.owned_games.is_empty()
             && !self.pack_ui.editing()
             && !self.settings_open
@@ -794,6 +827,33 @@ impl Canna {
                     self.last_console_poll =
                         std::time::Instant::now() - std::time::Duration::from_secs(2);
                 }
+                if ui
+                    .add(
+                        egui::Button::new(RichText::new("#").size(24.0).color(GREEN))
+                            .min_size(egui::vec2(48.0, 48.0)),
+                    )
+                    .on_hover_text("Community · profiles, forum and administration")
+                    .clicked()
+                {
+                    ctx.open_url(egui::OpenUrl::new_tab("https://cannamods.vip"));
+                }
+                if self.chrome.nav(ui, 4, "Skins", self.skins.open).clicked() {
+                    self.skins.open = true;
+                }
+                if ui
+                    .add(egui::Button::new("MC").min_size(egui::vec2(48.0, 48.0)))
+                    .on_hover_text("Minecraft instances and Microsoft account")
+                    .clicked()
+                {
+                    self.minecraft.open = true;
+                }
+                if ui
+                    .add(egui::Button::new("DL").min_size(egui::vec2(48.0, 48.0)))
+                    .on_hover_text("Website downloads")
+                    .clicked()
+                {
+                    self.website.open = true;
+                }
                 for id in self.owned_games.keys().copied().collect::<Vec<_>>() {
                     let name = self
                         .games
@@ -953,7 +1013,7 @@ impl Canna {
                         self.scan(ctx)
                     }
                     if ui
-                        .add_enabled(!self.syncing, egui::Button::new("Sync repository"))
+                        .add_enabled(!self.syncing, egui::Button::new("Sync server"))
                         .clicked()
                     {
                         self.sync(ctx)
@@ -1112,7 +1172,17 @@ impl Canna {
 }
 impl eframe::App for Canna {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if self.website.update(ctx) {
+            self.pack_ui = pack_ui::PackUi::new();
+            self.token = website::session();
+            self.sync(ctx);
+        }
         self.render(ctx);
+        self.skins.ui(ctx);
+        self.minecraft.ui(ctx);
+        if self.website.ui(ctx) {
+            self.pack_ui = pack_ui::PackUi::new();
+        }
     }
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
         egui::Rgba::from(chrome::CANVAS).to_array()
@@ -1153,6 +1223,15 @@ fn main() -> eframe::Result {
         }
         return Ok(());
     }
+    let uri = std::env::args().find(|a| a.starts_with("canna:"));
+    let ticket = uri.as_deref().and_then(|raw| website::parse_uri(raw).ok());
+    if uri.is_some() && ticket.is_none() {
+        return Ok(());
+    }
+    let _ = website::register_protocol();
+    let Some(website_receiver) = website::instance(ticket) else {
+        return Ok(());
+    };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_decorations(false)
@@ -1164,7 +1243,11 @@ fn main() -> eframe::Result {
     eframe::run_native(
         "Canna Mod Manager",
         options,
-        Box::new(|cc| Ok(Box::new(Canna::new(cc)))),
+        Box::new(move |cc| {
+            let mut app = Canna::new(cc);
+            app.website.set_receiver(website_receiver);
+            Ok(Box::new(app))
+        }),
     )
 }
 #[cfg(test)]

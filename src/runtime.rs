@@ -13,9 +13,6 @@ use std::{
     time::Duration,
 };
 
-pub const BOPL_FRAMEWORK_URL: &str =
-    "https://github.com/BepInEx/BepInEx/releases/download/v5.4.23.5/BepInEx_win_x64_5.4.23.5.zip";
-
 fn client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .user_agent("Canna-Mod-Manager/0.1")
@@ -209,30 +206,9 @@ pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
         &repo_path(pack, "Framework/BepInEx.zip"),
         32 * 1024 * 1024,
     )?;
-    let bytes = match bytes {
-        Some(bytes) => bytes,
-        None if game.app_id == 1686940 => {
-            let download = reqwest::blocking::Client::builder()
-                .timeout(Duration::from_secs(60))
-                .build()?;
-            let response = download
-                .get(BOPL_FRAMEWORK_URL)
-                .send()?
-                .error_for_status()?;
-            let mut bytes = Vec::new();
-            response
-                .take(32 * 1024 * 1024 + 1)
-                .read_to_end(&mut bytes)?;
-            if bytes.len() > 32 * 1024 * 1024 {
-                bail!("Framework archive exceeds limit")
-            }
-            bytes
-        }
-        None => bail!(
-            "Upload a compatible BepInEx 5 package as {}/Framework/BepInEx.zip first",
-            pack.game.folder
-        ),
-    };
+    let bytes = bytes.ok_or_else(|| {
+        anyhow::anyhow!("The Canna server does not have a compatible framework for this game")
+    })?;
     let entries = archive_files(&bytes)?;
     for required in [
         "BepInEx/core/BepInEx.dll",

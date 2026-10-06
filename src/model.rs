@@ -84,7 +84,7 @@ pub struct GameInfo {
     pub mod_folder_status: String,
 }
 pub fn bopl() -> GameInfo {
-    GameInfo { app_id: 1686940, name: "Bopl Battle".into(), folder: "bopl-battle".into(), description: "Your family's first supported game. Connect your private GitHub repository to browse its mods.".into(), icon: String::new(), mods: vec![], mod_folder_status: String::new() }
+    GameInfo { app_id: 1686940, name: "Bopl Battle".into(), folder: "bopl-battle".into(), description: "Your family's first supported game. Connect your Canna account in Settings to browse the server library.".into(), icon: String::new(), mods: vec![], mod_folder_status: String::new() }
 }
 #[derive(Clone, Debug)]
 pub struct InstalledGame {

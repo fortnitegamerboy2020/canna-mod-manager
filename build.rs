@@ -6,27 +6,6 @@ fn main() {
         "canna_update_token.rs",
         "EMBEDDED_UPDATE_TOKEN",
     );
-    println!("cargo:rerun-if-changed=canna-token.txt");
-    let path = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap()).join("canna-token.txt");
-    let token = match fs::read_to_string(path) {
-        Ok(value) => value
-            .trim()
-            .trim_start_matches('\u{feff}')
-            .trim()
-            .to_owned(),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
-        Err(_) => panic!("Could not read canna-token.txt"),
-    };
-    assert!(
-        !token.chars().any(char::is_whitespace),
-        "canna-token.txt must contain only one token"
-    );
-    let output = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("canna_token.rs");
-    fs::write(
-        output,
-        format!("const EMBEDDED_GITHUB_TOKEN: &str = {token:?};\n"),
-    )
-    .expect("Could not generate embedded token configuration");
 }
 
 fn embed(file: &str, output: &str, constant: &str) {

@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.4', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.5', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -10,6 +10,14 @@ function Invoke-CannaApi([string]$Path, [string]$Method = 'GET', $Body = $null) 
     Invoke-RestMethod @cannaRequest
 }
 try {
+    if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw 'Invalid release version' }
+    $cannaPackage=[IO.File]::ReadAllText((Join-Path $cannaRoot 'Cargo.toml'))
+    if ($cannaPackage -notmatch ('(?m)^version\s*=\s*"'+[regex]::Escape($Version)+'"')) { throw 'Cargo package version does not match release' }
+    if (!$SourceOnly) {
+        foreach($cannaArtifact in @('dist/Canna Mod Manager.exe','dist/Canna-Mod-Manager-Windows.zip')) {
+            if (!(Test-Path -LiteralPath (Join-Path $cannaRoot $cannaArtifact))) { throw 'Release build is missing' }
+        }
+    }
     $cannaRepo = Invoke-CannaApi ''
     $cannaBranch = $cannaRepo.default_branch
     try { $cannaRef = Invoke-CannaApi "git/ref/heads/$cannaBranch" } catch {
@@ -32,10 +40,21 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: borderless window controls, compact icon navigation and blended panel corners"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: server catalog, account connection, website downloads and Minecraft preview"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
-    $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = "Canna 0.2.4 adds a compact icon sidebar using the supplied library, discover, console and settings icons. A borderless window uses adjacent yellow minimize and red close controls in the upper right, with a draggable header and double-click maximize/restore. Rounded panel corners now blend into the shared green canvas. UI regression checks and strict clippy passed. Existing private catalog and modpack behavior are retained." }
+    $cannaReleaseNotes = @'
+Mod downloads, game artwork and BepInEx now come from the authenticated Canna server. Connect the desktop account through Settings and the website; Windows DPAPI protects the desktop session. The mod-repository token is no longer embedded.
+
+Website downloads open Canna through a short-lived, single-use link and verify the downloaded file before it can be added to a matching Steam modpack. Existing Bopl modpacks keep access to migrated and historical archives. The website library includes external imports and game/provider/content filters.
+
+Minecraft preview includes instance setup, managed Java, loader selection, Microsoft device sign-in and local skin import/export/application. Microsoft sign-in requires a registered public client ID. Live Minecraft login/launch and complete Minecraft modpack/content support are still pending; this is not a complete Minecraft launcher release.
+
+Automatic updates wait for managed games, installation jobs, website transfers and skin application to finish. Application updates continue to use the separate private GitHub releases repository.
+
+Validation: desktop unit/UI tests and strict Clippy; server authorization, transfer, catalog and encryption tests; migration checksum audit. Real Microsoft sign-in and family multiplayer were not tested for this release.
+'@
+    $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(
         @{ file = 'dist/Canna Mod Manager.exe'; name = 'Canna-Mod-Manager.exe'; mime = 'application/octet-stream' },
         @{ file = 'dist/Canna-Mod-Manager-Windows.zip'; name = 'Canna-Mod-Manager-Windows.zip'; mime = 'application/zip' }
