@@ -149,3 +149,9 @@ For Microsoft login, register Canna in Microsoft Entra → App registrations →
 
 Official registration guide: https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app
 Public client configuration: https://learn.microsoft.com/en-us/entra/identity-platform/scenario-desktop-app-configuration
+
+### Microsoft sign-in popup (0.2.8)
+
+Minecraft → Microsoft account → Sign in with Microsoft opens a separate popup and automatically opens Microsoft's verification page once the device code arrives. The popup offers a large code, Copy code, countdown, reopen-page button and cancellation. Closing or cancelling prevents the login from being saved. Canna's registered public client ID is the default; saved overrides still work.
+
+Errors identify the failing Microsoft, Xbox, Minecraft API login, entitlement or profile step. A Minecraft API login 403 explains the possible application approval requirement. Successful device-code issuance alone does not verify a full Minecraft login. Tokens and raw authentication response bodies are not included in displayed errors.

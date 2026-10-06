@@ -688,6 +688,7 @@ fn launch(i: &Instance, id: &str) -> Result<Child> {
 }
 enum Outcome {
     Status(String),
+    SignIn(crate::minecraft_auth::SignInEvent),
     Versions(Vec<String>),
     Done(Result<String>),
     Launched(Result<(String, Child)>),
@@ -700,15 +701,20 @@ pub struct Minecraft {
     client_id: String,
     job: Option<Receiver<Outcome>>,
     running: BTreeMap<String, Child>,
+    sign_in_popup: bool,
+    sign_in_prompt: Option<crate::minecraft_auth::DevicePrompt>,
+    sign_in_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 pub fn client_id() -> String {
     std::fs::read_to_string(root().join("client-id.txt"))
-        .unwrap_or_default()
+        .unwrap_or_else(|_| "5c67b262-465a-4e7e-8486-c7d422d3eefc".into())
         .trim()
         .into()
 }
 impl Default for Minecraft {
     fn default() -> Self {
+        let preview = std::env::var_os("CANNA_SCREENSHOT").is_some()
+            && std::env::args().any(|a| a == "--microsoft-sign-in-preview");
         Self {
             open: false,
             status: String::new(),
@@ -725,6 +731,17 @@ impl Default for Minecraft {
             client_id: client_id(),
             job: None,
             running: BTreeMap::new(),
+            sign_in_popup: preview,
+            sign_in_prompt: preview.then(|| crate::minecraft_auth::DevicePrompt {
+                code: "EXAMPLE".into(),
+                url: "https://www.microsoft.com/link".into(),
+                expires: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+                    + 900,
+            }),
+            sign_in_cancel: Default::default(),
         }
     }
 }
@@ -746,12 +763,21 @@ impl Minecraft {
             while let Ok(outcome) = rx.try_recv() {
                 match outcome {
                     Outcome::Status(s) => self.status = s,
+                    Outcome::SignIn(event) => match event {
+                        crate::minecraft_auth::SignInEvent::Status(s) => self.status = s,
+                        crate::minecraft_auth::SignInEvent::Device(prompt) => {
+                            ctx.open_url(egui::OpenUrl::new_tab(&prompt.url));
+                            self.status = "Waiting for Microsoft approval in your browser…".into();
+                            self.sign_in_prompt = Some(prompt);
+                        }
+                    },
                     Outcome::Versions(v) => {
                         self.versions = v;
                         done = true;
                     }
                     Outcome::Done(r) => {
                         self.status = r.unwrap_or_else(|e| e.to_string());
+                        self.sign_in_prompt = None;
                         done = true;
                     }
                     Outcome::Launched(r) => {
@@ -780,7 +806,13 @@ impl Minecraft {
             ui.heading("Minecraft library · preview");ui.label("Microsoft sign-in needs Canna's registered client ID. Minecraft launching is still being verified.");ui.label(&self.status);let busy=self.job.is_some();
             ui.collapsing("Microsoft account",|ui| {ui.label(crate::minecraft_auth::account().map(|a|format!("Playing as {}",a.name)).unwrap_or_else(|_|"Not signed in".into()));ui.label("Canna Application (client) ID · public, not a secret");ui.text_edit_singleline(&mut self.client_id);
                 if ui.button("Save client ID").clicked(){let _=std::fs::create_dir_all(root());let _=std::fs::write(root().join("client-id.txt"),self.client_id.trim());}
-                if ui.add_enabled(!busy && !self.client_id.is_empty(),egui::Button::new("Sign in with Microsoft")).clicked(){let id=self.client_id.clone();self.work(move|tx|Outcome::Done(crate::minecraft_auth::sign_in(&id,|s|{let _=tx.send(Outcome::Status(s));})));}
+                if ui.add_enabled(!busy && !self.client_id.is_empty(),egui::Button::new("Sign in with Microsoft")).clicked(){
+                    self.sign_in_popup=true; self.sign_in_prompt=None;
+                    self.status="Requesting Microsoft sign-in…".into();
+                    self.sign_in_cancel=Default::default();
+                    let cancel=self.sign_in_cancel.clone(); let id=self.client_id.clone();
+                    self.work(move|tx|Outcome::Done(crate::minecraft_auth::sign_in(&id,|s|{let _=tx.send(Outcome::SignIn(s));},&cancel)));
+                }
                 if ui.button("Open Microsoft code page").clicked(){ctx.open_url(egui::OpenUrl::new_tab("https://www.microsoft.com/link"));}
                 if ui.add_enabled(!busy,egui::Button::new("Sign out of Minecraft")).clicked(){crate::minecraft_auth::sign_out();}
             });
@@ -804,6 +836,72 @@ impl Minecraft {
             });});
         });
         self.open = open;
+        if self.sign_in_popup {
+            let mut popup = true;
+            egui::Window::new("Connect your Microsoft account")
+                .id(egui::Id::new("microsoft-sign-in"))
+                .frame(
+                    egui::Frame::window(&ctx.style())
+                        .fill(egui::Color32::from_rgb(23, 32, 27))
+                        .inner_margin(18),
+                )
+                .open(&mut popup)
+                .collapsible(false)
+                .resizable(false)
+                .default_width(440.0)
+                .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+                .show(ctx, |ui| {
+                    ui.label("Complete sign-in in the Microsoft page opened in your browser.");
+                    if let Some(prompt) = &self.sign_in_prompt {
+                        ui.add_space(12.0);
+                        ui.vertical_centered(|ui| {
+                            ui.label(
+                                egui::RichText::new(&prompt.code)
+                                    .monospace()
+                                    .size(32.0)
+                                    .strong(),
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            if ui.button("Copy code").clicked() {
+                                ctx.copy_text(prompt.code.clone());
+                            }
+                            if ui.button("Open Microsoft page").clicked() {
+                                ctx.open_url(egui::OpenUrl::new_tab(&prompt.url));
+                            }
+                        });
+                        let remaining = prompt.expires.saturating_sub(
+                            std::time::SystemTime::now()
+                                .duration_since(std::time::UNIX_EPOCH)
+                                .unwrap_or_default()
+                                .as_secs(),
+                        );
+                        ui.label(format!(
+                            "Code expires in {}:{:02}",
+                            remaining / 60,
+                            remaining % 60
+                        ));
+                        ctx.request_repaint_after(Duration::from_secs(1));
+                    }
+                    ui.add_space(12.0);
+                    ui.label(&self.status);
+                    if self.job.is_some() {
+                        ui.spinner();
+                        if ui.button("Cancel sign-in").clicked() {
+                            self.sign_in_cancel
+                                .store(true, std::sync::atomic::Ordering::Relaxed);
+                            self.status = "Cancelling Microsoft sign-in…".into();
+                        }
+                    } else if ui.button("Done").clicked() {
+                        self.sign_in_popup = false;
+                    }
+                });
+            if !popup {
+                self.sign_in_popup = false;
+                self.sign_in_cancel
+                    .store(true, std::sync::atomic::Ordering::Relaxed);
+            }
+        }
     }
 }
 #[cfg(test)]

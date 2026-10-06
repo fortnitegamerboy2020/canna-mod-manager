@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.7', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.8', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -40,19 +40,19 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: browser-approved account connection and multi-site skin discovery"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: Microsoft sign-in popup and authentication diagnostics"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Account connection now starts a five-minute browser approval request. Sign into the Canna website, compare the code, and approve: the desktop waits and connects automatically without relying on a Windows custom-protocol callback. Requests and claims are expiring and single-use.
+Microsoft sign-in now displays a separate popup with a large device code, Copy code, expiry countdown, Cancel and a button to reopen the verification page. The Microsoft verification page opens automatically as soon as the code arrives. Cancel or closing the popup prevents a cancelled login from being saved.
 
-Skins is a full searchable gallery. Search MinecraftSkins.net and SkinsMC together or individually, preview results, preserve attribution, and save skins for classic/slim preview, PNG export or application to a signed-in Minecraft account. Skindex is attempted too; a source that blocks requests displays a status and browser search link.
+Authentication failures now identify the failing Microsoft, Xbox, Minecraft API, ownership or profile step. A Minecraft API login 403 explains the possible application approval requirement and links the review form. Authentication response bodies and tokens are not shown in diagnostics.
 
-Skin downloads have format, dimensions, size and redirect-host checks. Microsoft login still needs Canna's registered public client ID and verification with an eligible Minecraft account. Minecraft launching remains a preview.
+Canna's supplied public Application (client) ID is the default for new installations; saved overrides remain supported. A registered client ID is not a secret. Minecraft API approval and a complete account login still need verification. Minecraft launching remains a preview.
 
 Application updates continue to use the separate private GitHub releases repository.
 
-Validation: 31 desktop tests passed, strict Clippy passed, live search and PNG downloads passed for both working providers, and the native gallery was visually checked. The server's 31 tests and strict Clippy passed. No game was launched.
+Validation: 32 desktop tests passed, strict Clippy passed, verification URL restrictions and stage-specific errors tested, and a native popup preview visually checked. No account login or game launch was performed during these checks.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(
