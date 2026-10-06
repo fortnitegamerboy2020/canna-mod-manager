@@ -242,6 +242,7 @@ impl Canna {
             app.discover_page = true;
             app.discover.game = 1686940;
             app.catalog[0].mods = vec![model::ModInfo {
+                provenance: serde_json::Value::Null,
                 content_type: String::new(),
                 enabled: true,
                 name: "Preview mod".into(),
@@ -1296,6 +1297,7 @@ impl Canna {
                                     .corner_radius(ui_helpers::SURFACE_RADIUS)
                                     .show(ui, |ui| {
                                         ui.strong(&m.name);
+                                        ui_helpers::mod_credits(ui,m);
                                         ui.label(
                                             RichText::new(format!("v{}", m.version)).color(GREEN),
                                         );

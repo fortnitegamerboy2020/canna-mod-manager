@@ -150,6 +150,11 @@ pub fn install(
     let api = runtime::client()?;
     let mut files = Vec::new();
     for item in pack.mods.iter().filter(|item| item.enabled) {
+        anyhow::ensure!(
+            item.provenance["external_only"] != true,
+            "{} is an original-site download, not a Canna modpack addon",
+            item.name
+        );
         progress(&format!("Preparing VPK addon: {}", item.name));
         let data = if !item.local_file.is_empty() {
             fs::read(crate::modpacks::local_directory().join(&item.local_file))?
@@ -339,5 +344,72 @@ mod tests {
         data[8..12].copy_from_slice(&(tree.len() as u32).to_le_bytes());
         data.extend(tree);
         assert!(check_vpk(&data).is_err());
+    }
+    #[test]
+    #[ignore = "Requires scripts/Prepare-SourceCatalog.py; temporary game fixtures only"]
+    fn curated_source_archives_install_without_touching_real_games() {
+        for name in [
+            "L4D2-Practice-Script",
+            "L4dAutoConfig",
+            "L4dRemovedMainMenuMusic",
+        ] {
+            let mut game = fixture();
+            if name != "L4D2-Practice-Script" {
+                game.app_id = 500;
+                fs::create_dir_all(game.path.join("left4dead/addons")).unwrap();
+                fs::write(game.path.join("left4dead/gameinfo.txt"), "fixture").unwrap();
+            }
+            let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("server/staging-source")
+                .join(format!("{name}.zip"));
+            let data = fs::read(&path).unwrap();
+            let archive = runtime::archive_files(&data).unwrap();
+            assert!(
+                archive
+                    .iter()
+                    .any(|(p, _)| p.to_string_lossy() == "LICENSE")
+            );
+            let vpk = &archive
+                .iter()
+                .find(|(p, _)| p.to_string_lossy() == "addon.vpk")
+                .unwrap()
+                .1;
+            check_vpk(vpk).unwrap();
+            let item = crate::modpacks::add_local(&path).unwrap();
+            let info = crate::model::supported_catalog()
+                .into_iter()
+                .find(|g| g.app_id == game.app_id)
+                .unwrap();
+            let mut pack = Modpack::create(
+                "Curated fixture".into(),
+                String::new(),
+                &info,
+                crate::cache::Source {
+                    owner: "canna".into(),
+                    repository: "server".into(),
+                    branch: "main".into(),
+                    catalog_folder: String::new(),
+                },
+                vec![item.clone()],
+            );
+            pack.validate().unwrap();
+            install(&game, &pack, "", &|_| {}).unwrap();
+            set_mode(&game, true).unwrap();
+            assert_eq!(
+                fs::read(
+                    addons(&game)
+                        .unwrap()
+                        .join(format!("canna-{}.vpk", hash(vpk)))
+                )
+                .unwrap(),
+                *vpk
+            );
+            set_mode(&game, false).unwrap();
+            pack.mods[0].provenance = serde_json::json!({"external_only":true});
+            assert!(pack.validate().is_err());
+            assert!(install(&game, &pack, "", &|_| {}).is_err());
+            fs::remove_file(crate::modpacks::local_directory().join(item.local_file)).unwrap();
+            fs::remove_dir_all(game.path).unwrap();
+        }
     }
 }

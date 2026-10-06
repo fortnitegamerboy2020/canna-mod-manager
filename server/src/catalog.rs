@@ -3,6 +3,9 @@ use super::*;
 pub struct FileQuery {
     pub path: String,
 }
+pub fn recommendations() -> Vec<Value> {
+    serde_json::from_str(include_str!("../web/source-recommendations.json")).expect("Curated Source catalog")
+}
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS game_assets(id TEXT PRIMARY KEY,alias TEXT UNIQUE NOT NULL,sha256 TEXT NOT NULL,size INTEGER NOT NULL,game_id INTEGER NOT NULL,kind TEXT NOT NULL);")
 }
@@ -88,7 +91,12 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
                 })
                 .collect()
         };
-        game["mods"].as_array_mut().unwrap().push(json!({"enabled":true,"content_type":d["project_type"].as_str().or(d["content_type"].as_str()).unwrap_or("mod"),"name":name,"version":version,"description":description,"file":format!("Mods/{id}.zip"),"sha256":hash,"dependencies":deps}));
+        game["mods"].as_array_mut().unwrap().push(json!({"enabled":true,"provenance":d,"content_type":d["project_type"].as_str().or(d["content_type"].as_str()).unwrap_or("mod"),"name":name,"version":version,"description":description,"file":format!("Mods/{id}.zip"),"sha256":hash,"dependencies":deps}));
+    }
+    for item in recommendations() {
+        if let Some(game)=games.get_mut(&(item["app_id"].as_u64().unwrap() as u32)) {
+            game["mods"].as_array_mut().unwrap().push(json!({"enabled":false,"provenance":item["details"],"content_type":"mod","name":item["name"],"version":item["version"],"description":item["description"],"file":format!("Mods/{}.zip",item["id"].as_str().unwrap()),"sha256":"","dependencies":item["details"]["dependencies"]}));
+        }
     }
     Ok(axum::Json(
         json!({"games":games.into_values().collect::<Vec<_>>()}),
@@ -222,6 +230,20 @@ pub async fn audit(app: &App) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[test]
+    fn workshop_recommendations_preserve_credit_and_are_not_hosted_downloads() {
+        let entries=recommendations();
+        assert_eq!(entries.len(),6);
+        for item in &entries {
+            assert_eq!(item["app_id"],550);
+            assert_eq!(item["details"]["external_only"],true);
+            assert!(item["details"]["author_links"][0]["url"].as_str().unwrap().starts_with("https://steamcommunity.com/"));
+            assert!(!item["details"]["icon_data"].as_str().unwrap().is_empty());
+            assert!(!item["description"].as_str().unwrap().is_empty());
+        }
+        let bots=entries.iter().find(|m|m["name"]=="Left 4 Bots 2").unwrap();
+        assert_eq!(bots["details"]["dependencies"],json!(["Left 4 Lib","NavFixes"]));
+    }
     #[tokio::test]
     async fn catalog_and_legacy_file_aliases_require_auth_and_preserve_pins() {
         let (dir, app) = fixture();

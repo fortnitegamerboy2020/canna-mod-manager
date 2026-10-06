@@ -39,6 +39,8 @@ impl Settings {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ModInfo {
+    #[serde(default)]
+    pub provenance: serde_json::Value,
     #[serde(default = "default_enabled")]
     pub enabled: bool,
     pub name: String,

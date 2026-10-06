@@ -144,7 +144,14 @@ impl PackUi {
                             ui.label(RichText::new(format!("v{}",item.version)).color(GREEN));
                         });
                         ui.label(RichText::new(&game.name).color(GREEN));
-                        ui.label(&item.description);
+                        crate::ui_helpers::mod_credits(ui,item);
+                        ui.collapsing("Original description",|ui|{ui.label(&item.description);});
+                        if item.provenance["external_only"]==true {
+                            ui.label("Official-site download. Steam manages Workshop subscriptions separately from Canna modpacks.");
+                            if let Some(url)=item.provenance["source_url"].as_str(){ui.hyperlink_to("Subscribe on Steam Workshop",url);}
+                            if !item.dependencies.is_empty(){ui.label(format!("Required: {}",item.dependencies.join(", ")));}
+                            return;
+                        }
                         if game.app_id==u32::MAX { if ui.button("Download from website").clicked() {ui.ctx().open_url(egui::OpenUrl::new_tab("https://cannamods.vip/?game=minecraft"));} return; }
                         let pack = self.packs.iter().find(|p|Some(&p.id)==target.as_ref());
                         let compatible = pack.is_some_and(|p|p.game.app_id==game.app_id && Some(&p.repository)==source);
@@ -181,6 +188,10 @@ impl PackUi {
         source: Option<&Source>,
         mut item: crate::model::ModInfo,
     ) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            item.provenance["external_only"] != true,
+            "This addon is downloaded through its original site"
+        );
         let index = self
             .packs
             .iter()
@@ -1380,6 +1391,7 @@ mod tests {
         let game = crate::model::bopl();
         let source = Source::from_settings(&crate::model::Settings::load());
         let item = crate::model::ModInfo {
+            provenance: serde_json::Value::Null,
             content_type: String::new(),
             enabled: false,
             name: "Discovery fixture".into(),

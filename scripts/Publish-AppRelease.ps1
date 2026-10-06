@@ -58,11 +58,11 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.18 shows supported Steam games in Library even before they are installed. Missing games have dimmed artwork, a Not Installed label and disabled modpack/launch controls; Rescan Steam enables them after installation.
+Canna 0.2.19 adds an attributed Left 4 Dead starter catalog, author profile and original-project links, original Workshop artwork, and botanical Canna Leaf Minecraft skins with different color patterns.
 
-ROUNDS uses the server-hosted official BepInEx loader. Left 4 Dead 1/2 support self-contained VPK packs with -insecure practice launches. Native SourceMod/Metamod tools and live Left 4 Dead launches remain unverified.
+Three licensed Source packages install through Canna. Six official Workshop listings open their original subscription pages and list required addons; Steam manages these subscriptions separately from Canna modpacks. Left 4 Dead modded launches use -insecure. Native SourceMod/Metamod tools and live Left 4 Dead launches remain unverified.
 
-Community 0.3.31 adds named upload-game selection and keeps supported games visible in website filters even without published mods. Updates continue to come from cannamods.vip.
+Community 0.3.32 includes the starter catalog, original descriptions and author links. New Thunderstore, Modrinth and CurseForge imports retain provider artwork and author profile metadata. Updates continue to come from cannamods.vip.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

@@ -800,6 +800,7 @@ mod tests {
         item.pack_ids.clear();
         assert!(!super::belongs(&item, &pack));
         pack.mods.push(crate::model::ModInfo {
+            provenance: serde_json::Value::Null,
             content_type: String::new(),
             enabled: true,
             name: item.name.clone(),

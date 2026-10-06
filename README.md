@@ -198,3 +198,7 @@ Community 0.3.30 keeps supported games visible in the catalog even before mods a
 ## Library visibility (0.2.18)
 
 Supported Steam games remain visible before installation. Missing games show dimmed artwork and Not Installed; Library modpack and launch controls are disabled. Install the game in Steam, then Rescan Steam. Community 0.3.31 provides named game selection when uploading and supported game filters even before any mods have been published.
+
+## Attributed Source catalog (0.2.19)
+
+Nine starter listings cover Left 4 Dead and Left 4 Dead 2. Three licensed GitHub source packages install through Canna; six official Workshop subscriptions are opened on Steam. Author links, provided original artwork and descriptions are retained. Workshop subscriptions are separate from Canna-managed modpacks. Licensed source and its license are preserved inside each packaged VPK. Canna Leaf skins replace the robot home feed with botanical color patterns. Live Left 4 Dead launches remain unverified.

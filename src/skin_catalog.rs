@@ -308,7 +308,7 @@ fn safe_title(title: &str) -> bool {
     .iter()
     .any(|word| title.contains(word))
 }
-// Original fully-clothed robot designs: home does not pull unreviewed external uploads.
+// Original leaf designs: home does not pull unreviewed external uploads.
 fn home(page: usize) -> SearchResult {
     let mut skins = Vec::new();
     for n in (page - 1) * 24..page * 24 {
@@ -337,22 +337,47 @@ fn home(page: usize) -> SearchResult {
                 ]);
             }
         }
-        for y in 10..14 {
-            for x in 9..15 {
-                png.put_pixel(x, y, image::Rgba([25, 35, 40, 255]));
+        let leaf = [
+            "...##...", "#..##..#", ".#.##.#.", ".######.", "..####..", ".##..##.", "#..##..#",
+            "...##...",
+        ];
+        let accents = [
+            [99, 221, 111, 255],
+            [183, 112, 237, 255],
+            [239, 184, 73, 255],
+            [122, 232, 206, 255],
+            [104, 160, 239, 255],
+            [224, 124, 68, 255],
+        ];
+        for (ox, oy) in [(8, 8), (20, 22), (32, 22)] {
+            for (dy, row) in leaf.iter().enumerate() {
+                for (dx, c) in row.bytes().enumerate() {
+                    let p = if c == b'#' {
+                        accents[n % 6]
+                    } else {
+                        [20, 30, 25, 255]
+                    };
+                    png.put_pixel(ox + dx as u32, oy + dy as u32, image::Rgba(p));
+                }
             }
-        }
-        png.put_pixel(10, 11, image::Rgba([235, 255, 245, 255]));
-        png.put_pixel(13, 11, image::Rgba([235, 255, 245, 255]));
-        for x in 10..14 {
-            png.put_pixel(x, 14, image::Rgba([25, 35, 40, 255]));
         }
         let mut bytes = std::io::Cursor::new(Vec::new());
         image::DynamicImage::ImageRgba8(png)
             .write_to(&mut bytes, image::ImageFormat::Png)
-            .expect("Bundled robot skin");
+            .expect("Bundled leaf skin");
         skins.push(SkinResult {
-            title: format!("Canna Bot {}", n + 1),
+            title: format!(
+                "Canna Leaf · {} {}",
+                [
+                    "Emerald",
+                    "Purple Haze",
+                    "Amber",
+                    "Ice Mint",
+                    "Midnight",
+                    "Copper"
+                ][n % 6],
+                n / 6 + 1
+            ),
             source: "Canna originals".into(),
             page: "https://cannamods.vip/help#minecraft".into(),
             bytes: bytes.into_inner(),
@@ -361,7 +386,7 @@ fn home(page: usize) -> SearchResult {
     SearchResult {
         skins,
         messages: vec![
-            "Friendly Canna originals · search above for skins from multiple websites.".into(),
+            "Canna leaf collection · search above for skins from multiple websites.".into(),
         ],
         more: true,
     }

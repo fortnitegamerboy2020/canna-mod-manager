@@ -590,7 +590,7 @@ async fn mods(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::
     let db = app.db.lock().unwrap();
     let mut stmt = db.prepare("SELECT m.id,m.app_id,m.name,m.version,m.description,m.sha256,m.size,u.username FROM mods m JOIN users u ON m.user_id=u.id WHERE NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') ORDER BY m.name")?;
     let entries = stmt.query_map([], |r|Ok(json!({"id":r.get::<_,String>(0)?,"app_id":r.get::<_,u32>(1)?,"name":r.get::<_,String>(2)?,"version":r.get::<_,String>(3)?,"description":r.get::<_,String>(4)?,"sha256":r.get::<_,String>(5)?,"size":r.get::<_,i64>(6)?,"author":r.get::<_,String>(7)?})))?.collect::<Result<Vec<_>,_>>()?;
-    let entries: Vec<Value> = entries
+    let mut entries: Vec<Value> = entries
         .into_iter()
         .map(|mut m| {
             let details =
@@ -606,6 +606,7 @@ async fn mods(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::
             m
         })
         .collect();
+    entries.extend(catalog::recommendations());
     Ok(axum::Json(json!(entries)))
 }
 async fn download(

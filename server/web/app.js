@@ -35,26 +35,33 @@ async function download(path, filename) {
 function entry(item, kind) {
   const row = document.createElement('div'); row.className = 'entry';
   const info = document.createElement('div');
+  const external=!!item.details?.external_only;
+  if(item.details?.icon_data) {const img=document.createElement('img');img.className='modart';img.src='data:image/jpeg;base64,'+item.details.icon_data;img.alt=item.name+' original artwork';img.loading='lazy';row.append(img);}
+  else if(item.details?.icon_url && /^https:\/\/(cdn\.thunderstore\.io|gcdn\.thunderstore\.io|cdn\.modrinth\.com|media\.forgecdn\.net|images\.steamusercontent\.com)\//.test(item.details.icon_url)){const img=document.createElement('img');img.className='modart';img.src=item.details.icon_url;img.alt=item.name+' original artwork';img.loading='lazy';img.referrerPolicy='no-referrer';row.append(img);}
   const title = document.createElement('strong'); title.textContent = item.name;
   const detail = document.createElement('p'); detail.textContent = `${item.version || 'Modpack'} · ${libraryGameName(item)} · ${item.details?.authors || item.author}`;
   info.append(title, detail);
-  if(item.description) { const description=document.createElement('p'); description.className='moddescription'; description.textContent=item.description;info.append(description); }
+  if(item.details?.author_links?.length) {const authors=document.createElement('p');authors.append('By ');for(const author of item.details.author_links){const link=document.createElement('a');link.textContent=author.name;link.href=author.url;link.target='_blank';link.rel='noopener noreferrer';authors.append(link,' ');}info.append(authors);}
+  if(item.description) { const expand=document.createElement('details'),heading=document.createElement('summary'),description=document.createElement('p');heading.textContent='Original description'; description.className='moddescription'; description.textContent=item.description;expand.append(heading,description);info.append(expand); }
+  if(item.details?.dependencies?.length) {const deps=document.createElement('p');deps.textContent='Required: '+item.details.dependencies.join(', ');info.append(deps);}
+  if(item.details?.install_notes){const notes=document.createElement('p');notes.textContent=item.details.install_notes;info.append(notes);}
   if(item.details?.source_url) {const source=document.createElement('a');source.textContent='Original project · '+(item.details.provider || 'Family catalog');source.href=item.details.source_url;source.target='_blank';source.rel='noopener noreferrer';info.append(source);}
   row.append(info);
   const actions = document.createElement('div'); actions.className = 'row';
-  if (kind === 'mods' && currentUser.admin) {
+  if (!external && kind === 'mods' && currentUser.admin) {
     const source = document.createElement('button'); source.textContent = 'View source';
     source.addEventListener('click', () => action(() => viewSource(item.id))); actions.append(source);
   }
   const pending = kind === 'mods' && item.review_status === 'pending';
   if(pending) {const note=document.createElement('p');note.textContent='Awaiting administrator review';info.append(note);if(currentUser.admin){const approve=document.createElement('button');approve.textContent='Approve mod';approve.addEventListener('click',()=>action(async()=>{if(!await cannaConfirm(`Approve ${item.name} for community downloads? Review the archive and its author first. Approval does not certify it free of malware.`))return;await api(`mods/${item.id}/approve`,{method:'POST'});await refresh();}));actions.append(approve);}}
-  const button = document.createElement('button'); button.textContent = 'Download';button.disabled=pending;
-  button.addEventListener('click', () => action(() => downloadToApp(item,kind))); actions.append(button);
+  const button = document.createElement('button'); button.textContent = external?'Subscribe on Steam Workshop':'Download';button.disabled=pending;
+  button.addEventListener('click', () => external?window.open(item.details.source_url,'_blank','noopener,noreferrer'):action(() => downloadToApp(item,kind))); actions.append(button);
+  if(external){const note=document.createElement('p');note.textContent='Official-site download. Workshop subscriptions are managed by Steam, separately from Canna modpacks.';info.append(note);}
   if (kind === 'packs') {
     const copy = document.createElement('button'); copy.textContent = 'Copy link';
     copy.addEventListener('click', () => action(async () => { await navigator.clipboard.writeText(`https://cannamods.vip/packs/${item.id}`); message('Share link copied. Your family will need to sign in.'); })); actions.append(copy);
   }
-  if (currentUser.admin || currentUser.username === item.author) {
+  if (!external && (currentUser.admin || currentUser.username === item.author)) {
     const remove = document.createElement('button'); remove.textContent = 'Delete';
     remove.addEventListener('click', () => action(async () => {
       if (!await cannaConfirm(`Delete ${item.name}?`)) return;

@@ -33,6 +33,8 @@ pub struct Release {
 }
 #[derive(Clone, serde::Serialize)]
 pub struct Project {
+    #[serde(flatten)]
+    pub attribution: Value,
     pub provider: String,
     pub id: String,
     pub name: String,
@@ -258,6 +260,7 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
             other => other,
         };
         Ok(Project {
+            attribution: json!({"icon_url":text(latest,"icon"),"author_links":[{"name":text(&p,"owner"),"url":format!("https://thunderstore.io/c/{}/p/{}/",parts[1],parts[3])}]}),
             provider,
             id: format!("{}-{}", parts[3], parts[4]),
             name: text(&p, "name"),
@@ -306,12 +309,17 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
         )
         .await?;
         let team = text(&project, "team");
+        let mut author_links=Vec::new();
         let authors = if slug(&team) {
             let members = metadata(
                 &format!("https://api.modrinth.com/v2/team/{team}/members"),
                 false,
             )
             .await?;
+            for m in members.as_array().into_iter().flatten() {
+                let name=text(&m["user"],"username");
+                if slug(&name) {author_links.push(json!({"name":name,"url":format!("https://modrinth.com/user/{name}")}));}
+            }
             members
                 .as_array()
                 .map(|a| {
@@ -325,6 +333,7 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
             String::new()
         };
         Ok(Project {
+            attribution: json!({"icon_url":text(&project,"icon_url"),"author_links":author_links}),
             provider,
             id,
             name: text(&project, "title"),
@@ -402,6 +411,7 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
         let files = cf_pages(&format!("https://api.curseforge.com/v1/mods/{id}/files")).await?;
         let releases = files.iter().filter_map(cf_release).collect();
         Ok(Project {
+            attribution: json!({"icon_url":text(&project["logo"],"thumbnailUrl"),"author_links":project["authors"].as_array().into_iter().flatten().map(|a|json!({"name":text(a,"name"),"url":text(a,"url")})).collect::<Vec<_>>()}),
             provider,
             id,
             name: text(project, "name"),
@@ -1081,6 +1091,21 @@ pub async fn catalog(app: &App, manifest: &std::path::Path) -> anyhow::Result<()
         )?;
         println!("Imported {} {}", text(m, "name"), text(m, "version"));
     }
+    // Backfill provider attribution without changing existing release pins or dependency graphs.
+    let rows = {
+        let db=app.db.lock().unwrap();
+        db.prepare("SELECT mod_id,data FROM mod_details WHERE json_extract(data,'$.provider') IN ('thunderstore','modrinth','curseforge')")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?
+    };
+    for (id,raw) in rows {
+        let mut details:Value=serde_json::from_str(&raw)?;
+        if details["author_links"].is_array() {continue;}
+        if let Ok(project)=resolve(details["source_url"].as_str().unwrap_or_default()).await {
+            details["author_links"]=project.attribution["author_links"].clone();
+            details["icon_url"]=project.attribution["icon_url"].clone();
+            app.db.lock().unwrap().execute("UPDATE mod_details SET data=?1 WHERE mod_id=?2",params![details.to_string(),id])?;
+            println!("Refreshed provider attribution");
+        } else {println!("Provider attribution unavailable; retained existing metadata");}
+    }
     Ok(())
 }
 #[cfg(test)]
@@ -1161,6 +1186,7 @@ mod tests {
             name: "Mod".into(),
             description: String::new(),
             source_url: String::new(),
+            attribution: json!({}),
             game: "Bopl Battle".into(),
             authors: String::new(),
             license: String::new(),

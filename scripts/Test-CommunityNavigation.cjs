@@ -33,6 +33,17 @@ async function fixture(path){
  return {ctx,get,navigation,requests};
 }
 (async()=>{
+ const library=await fixture('/mods');
+ const example=JSON.parse(fs.readFileSync('server/web/source-recommendations.json','utf8'))[0];
+ library.ctx.curatedExample=example;
+ const row=vm.runInContext("entry(curatedExample,'mods')",library.ctx);
+ function descendants(n){return [n,...(n.children||[]).flatMap(c=>typeof c==='object'?descendants(c):[])];}
+ const cells=descendants(row);
+ assert(cells.some(n=>n.tag==='img'&&n.src.startsWith('data:image/')));
+ assert(cells.some(n=>n.tag==='a'&&n.href===example.details.author_links[0].url));
+ assert(cells.some(n=>n.textContent==='Subscribe on Steam Workshop'));
+ assert(!cells.some(n=>n.textContent==='Delete'||n.textContent==='View source'||n.textContent==='Download'));
+ assert(cells.some(n=>n.textContent===example.description));
  assert(html.includes('#space[data-booting]{display:none}'));
  const directory=await fixture('/members');assert(directory.requests.includes('/api/v1/profiles?page=1&search='));assert(!directory.requests.includes('/api/v1/packs'));
  const warmed=await fixture('/forums');await vm.runInContext("warmPage('/members')",warmed.ctx);const count=warmed.requests.filter(p=>p.startsWith('/api/v1/profiles?page=')).length;const auth=warmed.requests.filter(p=>p==='/api/v1/me').length;await vm.runInContext("navigatePage('/members')",warmed.ctx);assert.equal(warmed.requests.filter(p=>p.startsWith('/api/v1/profiles?page=')).length,count);assert(warmed.requests.filter(p=>p==='/api/v1/me').length>auth);assert.equal(warmed.get('profilesview').hidden,false);await vm.runInContext("api('notifications/read',{method:'POST'})",warmed.ctx);assert.equal(vm.runInContext('pageWarm.size',warmed.ctx),0);await vm.runInContext("listPages.get('people').page=2;loadPeople()",warmed.ctx);assert(warmed.requests.includes('/api/v1/profiles?page=2&search='));warmed.get('membersearch').value='Owner';await vm.runInContext("listPages.get('people').page=1;loadPeople()",warmed.ctx);assert(warmed.requests.includes('/api/v1/profiles?page=1&search=Owner'));

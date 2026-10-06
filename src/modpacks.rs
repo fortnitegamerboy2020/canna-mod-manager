@@ -76,6 +76,7 @@ pub fn add_local(path: &Path) -> Result<ModInfo> {
     std::fs::create_dir_all(local_directory())?;
     std::fs::write(local_directory().join(&file), bytes)?;
     Ok(ModInfo {
+        provenance: serde_json::Value::Null,
         content_type: String::new(),
         enabled: true,
         name: path
@@ -194,6 +195,10 @@ impl Modpack {
         }
         let mut files = BTreeSet::new();
         for item in &self.mods {
+            anyhow::ensure!(
+                item.provenance["external_only"] != true,
+                "Original-site downloads cannot be installed as Canna modpack files"
+            );
             let extension = item.file.to_ascii_lowercase();
             if (self.game.framework == "source-vpk" && extension.ends_with(".dll"))
                 || (self.game.framework == "bepinex" && extension.ends_with(".vpk"))
@@ -574,6 +579,7 @@ mod tests {
             &crate::model::bopl(),
             source,
             vec![ModInfo {
+                provenance: serde_json::Value::Null,
                 content_type: String::new(),
                 enabled: true,
                 name: "Fixture mod".into(),
