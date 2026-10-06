@@ -43,3 +43,75 @@ html{min-height:100%;background-repeat:no-repeat;background-attachment:fixed;bac
 .reviewpage main{max-width:2400px}.reviewworkspace{display:grid;grid-template-columns:300px minmax(0,1fr);border:1px solid var(--line)}.reviewfiles{padding:16px;border-right:1px solid var(--line);overflow:auto;max-height:85vh}.reviewfiles summary{cursor:pointer;padding:3px}.filelink{display:block;border:0;background:none;padding:3px 6px;text-align:left;font-size:12px;overflow-wrap:anywhere}.reviewfiles details details{margin-left:10px}.reviewcode{min-width:0}.reviewcode h2{font-size:14px;overflow-wrap:anywhere}.reviewcode #code{height:52vh;overflow:auto;background:#0b1313;font-size:12px;font-family:Consolas,monospace;padding:10px 0}.codeline{display:flex;white-space:pre;min-width:max-content}.linenumber{width:65px;text-align:right;padding-right:15px;color:#698585;user-select:none;flex-shrink:0}.codeline code{font:inherit}.flaggedline{background:#5a431c}.syntax-comment{color:#7fa684}.syntax-string{color:#ddbb87}.syntax-keyword{color:#7fcabe}.syntax-number{color:#b0bbec}.reviewfindings{padding:14px;border-top:1px solid var(--line);max-height:50vh;overflow:auto}.finding{border:1px solid var(--line);padding:12px;margin:10px 0}.finding strong{display:block}.finding pre{white-space:pre-wrap;overflow-wrap:anywhere}.reviewfiles #inventory p{font-size:11px;overflow-wrap:anywhere}@media(max-width:800px){.reviewworkspace{grid-template-columns:180px minmax(0,1fr)}}
 
 .brandmark.brandlogo{object-fit:contain;padding:0;border:0;background:none;box-shadow:none}
+/* Phone and tablet layouts. Keep wide source code scrolling inside its viewer. */
+main,.brand,.headeractions,.navaccount,.forummain,.librarylists>section,.ticketlayout>*,.reviewworkspace>*{min-width:0}
+img{max-width:100%}.brandmark{flex-shrink:0}
+button,a,summary{-webkit-tap-highlight-color:transparent}button,summary{touch-action:manipulation}
+.siteheader h1,.pageheading h2,.threadheader h2,.entry strong,.membercard strong,.finding,.paneltitle,.navaccount{overflow-wrap:anywhere}
+@media(max-width:1000px){
+ .mainnav{flex-wrap:wrap}.navaccount{flex:1 1 100%;justify-content:flex-end;padding:8px}
+ .signinlayout{grid-template-columns:minmax(0,1fr) minmax(0,360px)}
+}
+@media(max-width:760px){
+ :root{font-size:14px}
+ main,.communitypage main,.reviewpage main{width:100%;padding:0 12px 24px}
+ .siteheader{height:auto;min-height:70px;flex-wrap:wrap;align-items:flex-start;gap:12px;padding:14px 12px;margin-top:12px}
+ .siteheader>.brand{flex:1 1 100%}.brand h1{font-size:25px}.brand p{display:block}.brand h1 span{display:none}
+ .headeractions{flex:1 1 100%;flex-wrap:wrap;gap:8px}.headeractions .headerbadge{display:none}
+ .headeractions .helpbutton,.headeractions button{flex:1 1 auto;text-align:center}
+ button,.helpbutton,summary,input:not([type=checkbox]),select{min-height:44px}
+ input,textarea,select{font-size:16px}input[type=checkbox]{width:20px;height:20px;flex-shrink:0}
+ button,.helpbutton{white-space:normal;font-size:14px;max-width:100%}
+ .mainnav{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:0;padding:0;margin-bottom:14px}
+ .mainnav>button{min-width:0;padding:10px 6px;font-size:13px;border-bottom:1px solid #3f725633}
+ .navaccount{grid-column:1/-1;justify-content:flex-end;flex-wrap:wrap;margin:0;padding:10px;gap:10px;width:auto}
+ .navaccount .headerbadge{display:inline-block;font-size:12px}.mainnav .navaccount .profilelink{min-height:44px;padding:8px 0}
+ .signinlayout{grid-template-columns:minmax(0,1fr);margin:22px 0;gap:20px}.intro{padding:0}.intro h2{font-size:24px}
+ .intro>p{margin:12px 0}.previewcategory{display:none}.signinbox{padding:18px}
+ .card{padding:14px}.grid,.librarylists,.ticketlayout,.sectionfields{grid-template-columns:minmax(0,1fr)}
+ .pageheading{align-items:flex-start;flex-direction:column;margin:16px 0}.pageheading>.row{width:100%}.pageheading>.row>button{flex:1 1 150px}
+ .paneltitle{gap:10px;flex-wrap:wrap}.paneltitle h3{font-size:11px}
+ .categoryrow{padding:12px 10px;gap:10px;grid-template-columns:34px minmax(0,1fr) 42px}.categoryname{width:100%;padding:6px 0}
+ .forumtools{flex-wrap:wrap}.forumtools input,.forumtools select{width:100%;flex:1 1 180px}
+ .topichead,.topicrow{grid-template-columns:minmax(0,1fr) 44px;padding:10px;gap:10px}
+ .topichead>:nth-child(n+3){display:none}.topicrow>.topicmeta{display:block;font-size:12px}
+ .topicrow>:nth-child(3){grid-column:1}.topicrow>:nth-child(4){grid-column:1/-1}.topicrow .topiclink{font-size:14px}
+ .threadpost{grid-template-columns:minmax(0,1fr)}
+ .postauthor{display:flex;align-items:center;gap:10px;text-align:left;border-right:0;border-bottom:1px solid var(--line);padding:10px 12px;flex-wrap:wrap}
+ .postauthor .authorinitial{width:40px;height:40px;margin:0;flex-shrink:0}.postauthor button{width:auto;min-width:0;flex:1;text-align:left;font-size:14px}.postauthor small{margin:0}
+ .postcontent{padding:12px}.postmeta,.postactions{gap:8px;flex-wrap:wrap}.postactions button{padding:8px 12px;font-size:13px}
+ .threadheader{flex-wrap:wrap}.composerfooter{flex-wrap:wrap}.composerfooter button{flex:1 1 120px}
+ .entry{align-items:flex-start;flex-direction:column;padding:14px 0}.entry>div,.entry>.row{width:100%;min-width:0}
+ .entry .row{justify-content:flex-start}.entry button{font-size:13px;padding:8px 12px}.entry strong{font-size:14px}.entry p{font-size:13px}
+ .row>div{min-width:0;flex:1 1 180px}.row>input{flex:1 1 180px}.row>select{max-width:100%}
+ .membercard{display:grid;grid-template-columns:48px minmax(0,1fr);gap:10px}.membercard:not(:has(img)){grid-template-columns:minmax(0,1fr)}
+ .membercard>button{grid-column:1/-1;justify-self:start;margin:0}.membercard p{font-size:13px}
+ .pagination{flex-wrap:wrap;align-items:center;margin:12px 0;gap:8px}.pagination>input{flex:1 1 100%}.pagination>span{flex:1;text-align:center;font-size:12px}
+ .admintabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}.admintabs button{font-size:13px;padding:8px 5px}
+ .adminmetrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}.metric{padding:12px}.metric strong{font-size:22px}
+ .admincards,#memberlist{grid-template-columns:minmax(0,1fr)}.admincards .entry,#memberlist .entry{padding:14px}
+ .globalchat summary small{float:none;display:block}.chatline{flex-wrap:wrap;gap:6px}.chatwho{white-space:normal;overflow-wrap:anywhere}
+ .chatline .chattext{flex:1 1 100%;order:1}.chatdelete{min-width:44px}.chatmessages{height:220px;padding:8px 10px}
+ .globalchat form{padding:10px;gap:8px;align-items:center}.globalchat form button{margin:0;flex:0 0 auto}
+ .chatcommands{gap:6px;padding:8px 10px}.chatcommands button{font-size:13px;padding:8px}
+ .reviewworkspace{grid-template-columns:minmax(0,1fr)}.reviewfiles{border-right:0;border-bottom:1px solid var(--line);max-height:32vh;padding:12px}
+ .filelink{min-height:44px;white-space:normal;width:100%}.reviewcode #code{height:50vh;max-width:100%;font-size:13px;overscroll-behavior:contain}
+ .linenumber{width:48px;padding-right:10px}.reviewfindings{max-height:none;padding:12px}.finding button{white-space:normal;overflow-wrap:anywhere;text-align:left}
+ dialog,#sectionreview{width:calc(100% - 24px);max-width:calc(100% - 24px);max-height:calc(100dvh - 24px);padding:16px;overflow:auto}
+ dialog .row>button{flex:1 1 120px}dialog h2{font-size:20px}
+ .sitefooter{flex-direction:column;gap:6px;padding-bottom:env(safe-area-inset-bottom);font-size:12px}.sitefooter a{display:inline-flex;align-items:center;min-height:44px;width:fit-content}
+ .authhelp{gap:12px;align-items:center}.authhelp button{min-height:44px;padding:8px 0;font-size:13px;text-align:left}
+ .connectbox{margin:24px auto}.connectbox #connectioncode{font-size:22px}
+}
+@media(max-width:360px){
+ .mainnav,.admintabs{grid-template-columns:repeat(2,minmax(0,1fr))}
+ .headeractions .helpbutton{font-size:13px;padding:8px}.navaccount{justify-content:space-between}
+ .pagination>span{flex:1 1 100%;order:1}.pagination>button{flex:1}
+ .categoryrow{grid-template-columns:30px minmax(0,1fr)}.categoryrow .countcell{grid-column:2;text-align:left;font-size:12px}.countcell small{display:inline;margin-left:5px}
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+/* Long names, notification text and project URLs must wrap at every width. */
+.entry>div,.entry>.row,.membercard>div{min-width:0}
+.entry button,.membercard button,.finding button{white-space:normal;overflow-wrap:anywhere}
+.entry p,.entry a,.membercard p{overflow-wrap:anywhere}
+

@@ -4,7 +4,7 @@ function loungeNode(tag,text,className){const n=document.createElement(tag);if(t
 function setupLounge(){
  if(loungeReady)return;loungeReady=true;
  const banner=loungeNode('aside',undefined,'announcementbanner');banner.id='announcementbanner';banner.hidden=true;banner.setAttribute('aria-label','Community announcement');
- const box=loungeNode('details',undefined,'globalchat');box.id='globalchat';box.open=true;
+ const box=loungeNode('details',undefined,'globalchat');box.id='globalchat';box.open=!(window.matchMedia?.('(max-width:760px)')?.matches);
  const summary=loungeNode('summary','Community live chat');summary.append(loungeNode('small','Messages expire after 24 hours'));
  const list=loungeNode('div',undefined,'chatmessages');list.id='chatmessages';list.setAttribute('aria-label','Recent chat messages');
  const form=loungeNode('form');form.id='chatform';const input=loungeNode('input');input.id='chatbody';input.maxLength=1000;input.required=true;input.placeholder='Say something to the community…';input.setAttribute('aria-label','Chat message');
