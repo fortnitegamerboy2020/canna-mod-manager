@@ -7,11 +7,23 @@ pub struct Section {
     description: String,
     active: bool,
     vip_only: bool,
+    #[serde(default = "default_group")]
+    group: String,
+}
+fn default_group() -> String {
+    "unity".into()
+}
+#[derive(Clone, serde::Serialize, Deserialize)]
+pub struct Group {
+    id: String,
+    name: String,
 }
 #[derive(serde::Serialize, Deserialize)]
 pub struct Layout {
     revision: i64,
     sections: Vec<Section>,
+    #[serde(default)]
+    groups: Vec<Group>,
     #[serde(default)]
     moves: std::collections::HashMap<String, String>,
 }
@@ -19,6 +31,16 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS forum_sections(id TEXT PRIMARY KEY,name TEXT NOT NULL,description TEXT NOT NULL,active INTEGER NOT NULL,vip_only INTEGER NOT NULL,position INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS forum_layout(id INTEGER PRIMARY KEY CHECK(id=1),revision INTEGER NOT NULL);
         CREATE TABLE IF NOT EXISTS section_reviews(hash TEXT PRIMARY KEY,actor INTEGER NOT NULL REFERENCES users(id),revision INTEGER NOT NULL,payload TEXT NOT NULL,expires INTEGER NOT NULL);")?;
+    db.execute_batch("CREATE TABLE IF NOT EXISTS forum_groups(id TEXT PRIMARY KEY,name TEXT NOT NULL,position INTEGER NOT NULL);")?;
+    let has_group = db
+        .prepare("PRAGMA table_info(forum_sections)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?
+        .iter()
+        .any(|name| name == "group_id");
+    if !has_group {
+        db.execute_batch("ALTER TABLE forum_sections ADD COLUMN group_id TEXT NOT NULL DEFAULT 'unity'; INSERT OR IGNORE INTO forum_groups VALUES('unity','Unity modding',0);")?;
+    }
     if db.execute("INSERT OR IGNORE INTO forum_layout VALUES(1,0)", [])? == 1 {
         for (position, (id, name, description)) in [
             (
@@ -46,7 +68,7 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
         .enumerate()
         {
             db.execute(
-                "INSERT INTO forum_sections VALUES(?1,?2,?3,1,?4,?5)",
+                "INSERT INTO forum_sections(id,name,description,active,vip_only,position) VALUES(?1,?2,?3,1,?4,?5)",
                 params![id, name, description, id == "guides", position as i64],
             )?;
         }
@@ -58,7 +80,7 @@ fn layout(db: &Connection) -> ApiResult<Layout> {
         r.get(0)
     })?;
     let mut stmt = db.prepare(
-        "SELECT id,name,description,active,vip_only FROM forum_sections ORDER BY position,id",
+        "SELECT id,name,description,active,vip_only,group_id FROM forum_sections ORDER BY position,id",
     )?;
     let sections = stmt
         .query_map([], |r| {
@@ -68,10 +90,21 @@ fn layout(db: &Connection) -> ApiResult<Layout> {
                 description: r.get(2)?,
                 active: r.get(3)?,
                 vip_only: r.get(4)?,
+                group: r.get(5)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    let groups = db
+        .prepare("SELECT id,name FROM forum_groups ORDER BY position,id")?
+        .query_map([], |r| {
+            Ok(Group {
+                id: r.get(0)?,
+                name: r.get(1)?,
             })
         })?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(Layout {
+        groups,
         revision,
         sections,
         moves: Default::default(),
@@ -88,10 +121,32 @@ fn validate(input: &Layout, existing: &Layout) -> ApiResult<()> {
     {
         return Err(bad("Keep 1–32 sections and at least one open to members"));
     }
+    if input.groups.is_empty() || input.groups.len() > 16 {
+        return Err(bad("Keep 1–16 forum groups"));
+    }
+    let mut group_ids = std::collections::HashSet::new();
+    let mut group_names = std::collections::HashSet::new();
+    for group in &input.groups {
+        if group.id.is_empty()
+            || group.id.len() > 64
+            || !group
+                .id
+                .bytes()
+                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-')
+            || !group_ids.insert(&group.id)
+            || group.name.trim().is_empty()
+            || group.name.len() > 80
+            || group.name.chars().any(char::is_control)
+            || !group_names.insert(group.name.trim().to_lowercase())
+        {
+            return Err(bad("Forum groups need unique IDs and names up to 80 bytes"));
+        }
+    }
     let mut ids = std::collections::HashSet::new();
     let mut names = std::collections::HashSet::new();
     for s in &input.sections {
-        if s.id.is_empty()
+        if !group_ids.contains(&s.group)
+            || s.id.is_empty()
             || s.id.len() > 64
             || !s
                 .id
@@ -140,6 +195,12 @@ pub async fn review(
             StatusCode::CONFLICT,
             "Sections changed; reload before reviewing",
         ));
+    }
+    if input.groups.is_empty() {
+        input.groups = existing.groups.clone();
+    }
+    for group in &mut input.groups {
+        group.name = group.name.trim().to_owned();
     }
     validate(&input, &existing)?;
     for removed in existing
@@ -218,8 +279,15 @@ pub async fn apply(
             ));
         }
     }
+    tx.execute("DELETE FROM forum_groups", [])?;
+    for (position, group) in input.groups.iter().enumerate() {
+        tx.execute(
+            "INSERT INTO forum_groups VALUES(?1,?2,?3)",
+            params![group.id, group.name, position as i64],
+        )?;
+    }
     for (position, s) in input.sections.iter().enumerate() {
-        tx.execute("INSERT INTO forum_sections VALUES(?1,?2,?3,?4,?5,?6) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,active=excluded.active,vip_only=excluded.vip_only,position=excluded.position",params![s.id,s.name,s.description,s.active,s.vip_only,position as i64])?;
+        tx.execute("INSERT INTO forum_sections(id,name,description,active,vip_only,position,group_id) VALUES(?1,?2,?3,?4,?5,?6,?7) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,active=excluded.active,vip_only=excluded.vip_only,position=excluded.position,group_id=excluded.group_id",params![s.id,s.name,s.description,s.active,s.vip_only,position as i64,s.group])?;
     }
     for removed in existing
         .sections
@@ -248,6 +316,100 @@ pub async fn apply(
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+
+    #[tokio::test]
+    async fn groups_move_sections_without_changing_discussions() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "owner", true);
+        let original = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/sections",
+                Value::Null,
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(original["groups"][0]["name"], "Unity modding");
+        let mut draft = original.clone();
+        draft["groups"]
+            .as_array_mut()
+            .unwrap()
+            .push(json!({"id":"minecraft","name":"Minecraft"}));
+        draft["sections"][0]["group"] = json!("minecraft");
+        let mut invalid = draft.clone();
+        invalid["groups"].as_array_mut().unwrap().remove(0);
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/admin/sections/review",
+                invalid,
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        let review = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/admin/sections/review",
+                draft,
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(
+            value(
+                call(
+                    app.clone(),
+                    "GET",
+                    "/api/v1/sections",
+                    Value::Null,
+                    Some(&owner)
+                )
+                .await
+            )
+            .await,
+            original
+        );
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/admin/sections/apply",
+                json!({"token":review["token"]}),
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        let result = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/sections",
+                Value::Null,
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(result["groups"].as_array().unwrap().len(), 2);
+        assert_eq!(result["sections"][0]["id"], "help");
+        assert_eq!(result["sections"][0]["group"], "minecraft");
+        let topic=value(call(app.clone(),"POST","/api/v1/topics",json!({"title":"Group discussion","body":"Posting inside the reassigned section","category":"help","app_id":1686940}),Some(&owner)).await).await;
+        assert!(topic["id"].is_string());
+        let db = app.db.lock().unwrap();
+        initialize(&db).unwrap();
+        assert_eq!(layout(&db).unwrap().groups.len(), 2);
+    }
 
     #[tokio::test]
     async fn deletion_moves_discussions_and_requires_valid_destination() {

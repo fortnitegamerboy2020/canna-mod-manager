@@ -1,9 +1,9 @@
 'use strict';
 let openThread = '', threadData, topicPage = 0, topicItems = [], sourceItems = [];
-let forumCategories = [], sectionRevision = 0;
+let forumGroups = [{id:'unity',name:'Unity modding'}], forumCategories = [], sectionRevision = 0;
 function categoryName(key) { return forumCategories.find(c => c.id === key)?.name || key; }
 async function loadSections() {
-  const data = await (await api('sections')).json(); forumCategories = data.sections; sectionRevision = data.revision;
+  const data = await (await api('sections')).json(); forumCategories = data.sections; forumGroups = data.groups || [{id:'unity',name:'Unity modding'}]; sectionRevision = data.revision;
   const filter = $('topicfilter').value, selected = $('topiccategory').value;
   $('topicfilter').replaceChildren(new Option('All sections',''),...forumCategories.map(s => new Option(s.name + (s.active ? '' : ' · Closed'),s.id)));
   $('topicfilter').value = forumCategories.some(s=>s.id===filter) ? filter : '';
@@ -53,7 +53,7 @@ async function loadTopics() {
   if(mods.some(m=>m.id===selectedMod)) $('topicmod').value=selectedMod;
 }
 function renderCategories() {
-  $('categories').replaceChildren(...forumCategories.map(({id:key,name,description,active,vip_only}) => {
+  const makeRow = ({id:key,name,description,active,vip_only}) => {
     const glyph = key === 'help' ? '?' : key === 'showcase' ? '+' : key === 'guides' ? '≡' : '#';
     const row = document.createElement('div'); row.className = 'categoryrow';
     const icon = document.createElement('span'); icon.className = 'categoryglyph'; icon.textContent = glyph; icon.setAttribute('aria-hidden','true');
@@ -63,6 +63,15 @@ function renderCategories() {
     const count = document.createElement('div'); count.className = 'countcell'; count.textContent = String(topicItems.filter(t => t.category === key).length);
     const label = document.createElement('small'); label.textContent = 'on this page'; count.append(label);
     row.append(icon,info,count); return row;
+  };
+  $('categories').replaceChildren(...forumGroups.map(group=>{
+    const panel=document.createElement('section');panel.className='forumtable forumgroup';panel.dataset.group=group.id;
+    const header=document.createElement('div');header.className='paneltitle';const title=document.createElement('h3');title.textContent=group.name;
+    header.append(title);panel.append(header);
+    const sections=forumCategories.filter(s=>(s.group||'unity')===group.id);
+    if(sections.length)panel.append(...sections.map(makeRow));
+    else {const empty=document.createElement('p');empty.className='sidebody';empty.textContent='No discussion sections yet.';panel.append(empty);}
+    return panel;
   }));
   $('sidecount').textContent = String(topicItems.length);
   $('sideposts').textContent = String(topicItems.reduce((total,t)=>total + t.posts,0));
