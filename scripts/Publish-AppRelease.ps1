@@ -58,11 +58,9 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.20 displays mod descriptions directly, with Show more opening the full description, author/source credits, dependencies and available Minecraft loader/version compatibility.
+Canna 0.2.21 adds managed native L4D2 server plugins alongside VPK addons. Auto-Hop activates automatically on locally hosted -insecure maps without console commands or enabling sv_cheats. Canna manages the DLL, generated plugin registration and VPK together and disables them for vanilla launch, preserving unrelated addons.
 
-Workshop recommendations have been removed. Existing licensed Source practice/configuration packages remain available; controller-specific bhop behavior has not been verified in a running game. Modded Source launches retain -insecure.
-
-Community 0.3.35 corrects MPRESS substring false positives and separates uncertain packing/protection heuristics from confirmed signatures. Uncertain findings require review, confirmed packing/malware signatures are denied, and manually uploaded mods always require staff approval. Updates continue to come from cannamods.vip.
+Local automatic activation and hold-to-hop were verified with sv_cheats 0. Physical controller input and multiplayer prediction with a second player remain unverified. Community 0.3.37 includes updated setup instructions. Updates continue to come from cannamods.vip.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

@@ -1,24 +1,27 @@
-# Canna Auto-Hop (L4D2) - 0.1.0 preview
+# Canna Auto-Hop (L4D2) - 0.2.0 preview
 
-Hold your bound jump action to repeat hops when landing. The script reads L4D2's
-jump action, shared by keyboard, controller and Steam Input mappings. It applies
-a vertical hop impulse while preserving horizontal velocity.
+Add Canna Auto-Hop to a Left 4 Dead 2 modpack and choose **Launch modded** in
+Canna. Host a local game and hold your bound jump button. It starts automatically
+on each map without console commands, keybind changes or enabling sv_cheats.
 
-Install through a Canna L4D2 modpack and choose **Launch modded** (`-insecure`).
-Host a local map. In the host developer console, enter `sv_cheats 1`, then
-`script_execute canna_autohop`. Repeat the script command after map changes.
-This enables local practice cheats, so use a local practice session only.
-The script does not enable cheats or change keybinds automatically.
+A native Windows x86 Valve server plugin creates a logic_script entity that
+starts the included, readable movement logic. There are no binary patches or
+process injection. The plugin requires -insecure and rejects -dedicated; the
+movement logic additionally requires a local listen-server host. It applies a
+vertical hop impulse on landing while preserving horizontal velocity. Human
+survivors, including friends, are eligible; bots, infected players, pinned or
+incapacitated survivors, ladders and deep water are excluded.
 
-The host script processes all human survivors, including friends joining the
-local server. Bots, infected players, pinned or incapacitated survivors, ladders
-and deep water are excluded. Guests do not need the script to receive server
-movement changes. Dedicated servers and joining a remote host are unsupported.
+Automatic local activation and hold-to-hop were verified in L4D2 with sv_cheats
+remaining 0. Physical controller input and movement prediction with a second
+player remain unverified. Guests do not need this package installed; the host
+controls the server movement. This preview is not a speedrun ruleset certification.
 
-Run `script CannaAutoHop.enabled = false` on the host to disable auto-hop; set it
-to `true` to resume. Reloading replaces only this mod's own tick handler.
+Canna manages the VPK, DLL and registration together, removes them for vanilla
+launch, and preserves unrelated addons. Changes require the game to be closed.
+Removing or unloading the plugin during a running map does not remove movement
+logic already running in that map; restart the game to disable the whole addon.
 
-This original Canna code is MIT licensed. Repeated hops were tested in a running
-local L4D2 map with VAC disabled, and the tester confirmed holding jump works.
-Physical controller input and multiplayer prediction with a second player have
-not been verified. This is a preview, not a speedrun ruleset certification.
+Original Canna code is MIT licensed. ABI declarations match Valve's public
+L4D2 SDK interfaces (IServerPluginCallbacks002 and VSERVERTOOLS001):
+https://github.com/alliedmodders/hl2sdk/tree/l4d2/public

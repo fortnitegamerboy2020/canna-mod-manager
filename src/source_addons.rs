@@ -25,6 +25,60 @@ pub fn setup(game: &InstalledGame) -> Result<()> {
 fn hash(bytes: &[u8]) -> String {
     format!("{:x}", Sha256::digest(bytes))
 }
+fn plugin_vdf(name: &str) -> Vec<u8> {
+    format!(
+        "\"Plugin\" {{ \"file\" \"addons/{}\" }}\n",
+        name.trim_end_matches(".dll")
+    )
+    .into_bytes()
+}
+fn check_plugin(bytes: &[u8]) -> Result<()> {
+    // L4D2's Windows server plugin ABI is 32-bit x86. Reject executables,
+    // incompatible architectures and malformed PE headers before installation.
+    anyhow::ensure!(
+        bytes.len() >= 64 && bytes.len() <= 8 * 1024 * 1024 && &bytes[..2] == b"MZ",
+        "Invalid Source plugin DLL"
+    );
+    let offset = u32::from_le_bytes(bytes[60..64].try_into()?) as usize;
+    let header = bytes
+        .get(offset..offset.saturating_add(24))
+        .context("Truncated Source plugin PE header")?;
+    anyhow::ensure!(
+        &header[..4] == b"PE\0\0"
+            && header[4..6] == [0x4c, 1]
+            && u16::from_le_bytes(header[22..24].try_into()?) & 0x2000 != 0,
+        "Source plugin must be a 32-bit x86 DLL"
+    );
+    Ok(())
+}
+fn native_library(game: &InstalledGame, content: &[(PathBuf, Vec<u8>)]) -> Result<Option<Vec<u8>>> {
+    let Some((_, data)) = content
+        .iter()
+        .find(|(path, _)| path == std::path::Path::new("manifest.json"))
+    else {
+        return Ok(None);
+    };
+    anyhow::ensure!(data.len() <= 8192, "Source plugin manifest exceeds limits");
+    let manifest: serde_json::Value = serde_json::from_slice(data)?;
+    anyhow::ensure!(
+        manifest["format"] == "canna-source-plugin-v1"
+            && manifest["game"] == game.app_id
+            && game.app_id == 550
+            && manifest["library"] == "plugin.dll",
+        "Unsupported Source plugin manifest"
+    );
+    let bytes = &content
+        .iter()
+        .find(|(path, _)| path == std::path::Path::new("plugin.dll"))
+        .context("Source plugin DLL is missing")?
+        .1;
+    anyhow::ensure!(
+        manifest["sha256"].as_str() == Some(hash(bytes).as_str()),
+        "Source plugin DLL checksum mismatch"
+    );
+    check_plugin(bytes)?;
+    Ok(Some(bytes.clone()))
+}
 /// Only self-contained VPKs. Split archives require all matching segments and are not supported.
 fn check_vpk(bytes: &[u8]) -> Result<()> {
     if bytes.len() < 12 || bytes[..4] != [0x34, 0x12, 0xaa, 0x55] {
@@ -105,12 +159,22 @@ fn entries(game: &InstalledGame) -> Result<Vec<(String, Vec<u8>)>> {
         let path = item.path();
         runtime::no_links(&path)?;
         let name = item.file_name().to_string_lossy().into_owned();
-        if !name.starts_with("canna-") || !name.ends_with(".vpk") || !item.file_type()?.is_file() {
+        let extension = if name.ends_with(".vpk") {
+            "vpk"
+        } else if name.ends_with(".dll") && game.app_id == 550 {
+            "dll"
+        } else {
+            bail!("Unexpected file in Canna Source store");
+        };
+        if !name.starts_with("canna-") || !item.file_type()?.is_file() {
             bail!("Unexpected file in Canna Source store");
         }
         let data = fs::read(path)?;
-        if name != format!("canna-{}.vpk", hash(&data)) {
+        if name != format!("canna-{}.{}", hash(&data), extension) {
             bail!("Canna addon checksum mismatch");
+        }
+        if extension == "dll" {
+            check_plugin(&data)?;
         }
         entries.push((name, data));
     }
@@ -126,16 +190,36 @@ pub fn set_mode(game: &InstalledGame, enabled: bool) -> Result<()> {
         if path.exists() && hash(&fs::read(&path)?) != hash(data) {
             bail!("Addon changed outside Canna: {name}; restore or move it before switching packs");
         }
+        if name.ends_with(".dll") {
+            let vdf = target.join(name.replace(".dll", ".vdf"));
+            runtime::no_links(&vdf)?;
+            if vdf.exists() && fs::read(&vdf)? != plugin_vdf(name) {
+                bail!("Plugin registration changed outside Canna: {name}");
+            }
+        }
     }
     fs::create_dir_all(&target)?;
     for (name, data) in files {
-        let path = target.join(name);
+        let path = target.join(&name);
+        let registration = name
+            .ends_with(".dll")
+            .then(|| target.join(name.replace(".dll", ".vdf")));
         if enabled {
             if !path.exists() {
                 fs::write(path, data)?;
             }
-        } else if path.exists() {
-            fs::remove_file(path)?;
+            if let Some(vdf) = registration {
+                fs::write(vdf, plugin_vdf(&name))?;
+            }
+        } else {
+            if let Some(vdf) = registration {
+                if vdf.exists() {
+                    fs::remove_file(vdf)?;
+                }
+            }
+            if path.exists() {
+                fs::remove_file(path)?;
+            }
         }
     }
     Ok(())
@@ -155,7 +239,7 @@ pub fn install(
             "{} is an original-site download, not a Canna modpack addon",
             item.name
         );
-        progress(&format!("Preparing VPK addon: {}", item.name));
+        progress(&format!("Preparing Source addon: {}", item.name));
         let data = if !item.local_file.is_empty() {
             fs::read(crate::modpacks::local_directory().join(&item.local_file))?
         } else {
@@ -178,6 +262,10 @@ pub fn install(
         } else {
             bail!("Source packs accept VPK files or ZIPs containing VPKs");
         };
+        let native = native_library(game, &content)?;
+        if let Some(bytes) = &native {
+            files.push((format!("canna-{}.dll", hash(bytes)), bytes.clone()));
+        }
         let mut count = 0;
         for (path, bytes) in content {
             if path
@@ -187,6 +275,9 @@ pub fn install(
                 check_vpk(&bytes)?;
                 files.push((format!("canna-{}.vpk", hash(&bytes)), bytes));
                 count += 1;
+            } else if path == std::path::Path::new("plugin.dll") && native.is_some() {
+                // The verified library is installed under a content-derived name;
+                // registrations are generated locally, never accepted from archives.
             } else if !matches!(
                 path.file_name().and_then(|n| n.to_str()),
                 Some("README.md" | "LICENSE" | "manifest.json" | "icon.png")
@@ -258,6 +349,60 @@ mod tests {
             plugins: 0,
             icon: None,
         }
+    }
+    fn test_dll() -> Vec<u8> {
+        let mut bytes = vec![0; 128];
+        bytes[..2].copy_from_slice(b"MZ");
+        bytes[60..64].copy_from_slice(&64u32.to_le_bytes());
+        bytes[64..68].copy_from_slice(b"PE\0\0");
+        bytes[68..70].copy_from_slice(&0x14cu16.to_le_bytes());
+        bytes[86..88].copy_from_slice(&0x2000u16.to_le_bytes());
+        bytes
+    }
+    #[test]
+    fn plugin_manifest_checks_game_digest_architecture_and_missing_library() {
+        let mut game = fixture();
+        let bytes = test_dll();
+        let manifest = serde_json::json!({"format":"canna-source-plugin-v1","game":550,"library":"plugin.dll","sha256":hash(&bytes)});
+        let mut content = vec![
+            (
+                PathBuf::from("manifest.json"),
+                serde_json::to_vec(&manifest).unwrap(),
+            ),
+            (PathBuf::from("plugin.dll"), bytes),
+        ];
+        assert!(native_library(&game, &content).unwrap().is_some());
+        game.app_id = 500;
+        assert!(native_library(&game, &content).is_err());
+        game.app_id = 550;
+        content[1].1[68] = 0x64;
+        assert!(native_library(&game, &content).is_err());
+        assert!(check_plugin(&content[1].1).is_err());
+        content.pop();
+        assert!(native_library(&game, &content).is_err());
+        fs::remove_dir_all(game.path).unwrap();
+    }
+    #[test]
+    fn plugin_switching_manages_registration_and_preserves_unrelated_plugins() {
+        let game = fixture();
+        let bytes = test_dll();
+        fs::create_dir(store(&game)).unwrap();
+        let name = format!("canna-{}.dll", hash(&bytes));
+        fs::write(store(&game).join(&name), &bytes).unwrap();
+        let target = addons(&game).unwrap();
+        let vdf = target.join(name.replace(".dll", ".vdf"));
+        fs::write(target.join("other.vdf"), "keep").unwrap();
+        set_mode(&game, true).unwrap();
+        assert_eq!(fs::read(&vdf).unwrap(), plugin_vdf(&name));
+        fs::write(&vdf, "modified").unwrap();
+        assert!(set_mode(&game, false).is_err());
+        assert!(target.join(&name).exists());
+        fs::write(&vdf, plugin_vdf(&name)).unwrap();
+        set_mode(&game, false).unwrap();
+        assert!(!target.join(&name).exists());
+        assert!(!vdf.exists());
+        assert_eq!(fs::read(target.join("other.vdf")).unwrap(), b"keep");
+        fs::remove_dir_all(game.path).unwrap();
     }
     #[test]
     fn switching_preserves_other_addons_and_rejects_changed_files() {
@@ -331,6 +476,40 @@ mod tests {
                 .iter()
                 .any(|(path, bytes)| path.to_string_lossy().ends_with(".vpk") && bytes == &data)
         );
+        fs::remove_file(crate::modpacks::local_directory().join(item.local_file)).unwrap();
+        fs::remove_dir_all(game.path).unwrap();
+    }
+    #[test]
+    #[ignore = "Requires scripts/Build-AutoHop.ps1; temporary game fixture only"]
+    fn native_autohop_package_install_and_vanilla_switch() {
+        let game = fixture();
+        let item = crate::modpacks::add_local(
+            &std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("server/staging-autohop/Canna-Auto-Hop.zip"),
+        )
+        .unwrap();
+        let info = crate::model::supported_catalog()
+            .into_iter()
+            .find(|g| g.app_id == 550)
+            .unwrap();
+        let pack = Modpack::create(
+            "Auto-Hop".into(),
+            String::new(),
+            &info,
+            crate::cache::Source {
+                owner: "canna".into(),
+                repository: "server".into(),
+                branch: "main".into(),
+                catalog_folder: String::new(),
+            },
+            vec![item.clone()],
+        );
+        install(&game, &pack, "", &|_| {}).unwrap();
+        assert_eq!(entries(&game).unwrap().len(), 2);
+        set_mode(&game, true).unwrap();
+        assert_eq!(fs::read_dir(addons(&game).unwrap()).unwrap().count(), 3);
+        set_mode(&game, false).unwrap();
+        assert_eq!(fs::read_dir(addons(&game).unwrap()).unwrap().count(), 0);
         fs::remove_file(crate::modpacks::local_directory().join(item.local_file)).unwrap();
         fs::remove_dir_all(game.path).unwrap();
     }

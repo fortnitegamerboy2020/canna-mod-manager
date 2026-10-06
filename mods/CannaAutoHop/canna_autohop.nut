@@ -1,5 +1,5 @@
-// Canna Auto-Hop 0.1.0 preview. MIT license; see LICENSE.
-// Run on the host after loading a local map: script_execute canna_autohop
+// Canna Auto-Hop 0.2.0 preview. MIT license; see LICENSE.
+// Automatically bootstrapped by the native local-server plugin.
 // Jump input is IN_JUMP, shared by keyboard, remapped keys and controllers.
 if ("CannaAutoHop" in getroottable()) {
     if (::CannaAutoHop.ticker != null && ::CannaAutoHop.ticker.IsValid())
@@ -57,10 +57,6 @@ if ("CannaAutoHop" in getroottable()) {
     },
 
     function Start() {
-        if (!LocalHost()) {
-            printl("[Canna Auto-Hop] Start a local listen-server map first.");
-            return;
-        }
         ticker = SpawnEntityFromTable("logic_script", { targetname = "canna_autohop_tick" });
         if (ticker == null || !ticker.ValidateScriptScope()) {
             printl("[Canna Auto-Hop] Could not create the tick handler.");
