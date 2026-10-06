@@ -160,6 +160,7 @@ impl App {
         db.execute_batch("CREATE TABLE IF NOT EXISTS mod_reviews(mod_id TEXT PRIMARY KEY REFERENCES mods(id) ON DELETE CASCADE, approved INTEGER NOT NULL DEFAULT 0);")?;
         scans::initialize(&db)?;
         notifications::initialize(&db)?;
+        scans::enforce_manual_uploads(&db)?;
         handoff::initialize(&db)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS profiles(user_id INTEGER PRIMARY KEY REFERENCES users(id), status TEXT NOT NULL DEFAULT '', bio TEXT NOT NULL DEFAULT '', avatar TEXT);
             CREATE TABLE IF NOT EXISTS profile_comments(id TEXT PRIMARY KEY,target INTEGER NOT NULL REFERENCES users(id),author INTEGER NOT NULL REFERENCES users(id),body TEXT NOT NULL,created INTEGER NOT NULL);
@@ -570,10 +571,8 @@ async fn upload(
                 size as i64
             ],
         )?;
-        let approved: bool =
-            tx.query_row("SELECT role='owner' FROM users WHERE id=?1", [owner], |r| {
-                r.get(0)
-            })?;
+        let approved=false;
+        tx.execute("INSERT INTO mod_details VALUES(?1,?2,?3)",params![id,format!("uploaded:{id}"),json!({"provider":"uploaded","manual_review_required":true}).to_string()])?;
         tx.execute(
             "INSERT INTO mod_reviews(mod_id,approved) VALUES(?1,?2)",
             params![id, approved],

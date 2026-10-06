@@ -206,3 +206,5 @@ Nine starter listings cover Left 4 Dead and Left 4 Dead 2. Three licensed GitHub
 ## External mod updates
 
 Community 0.3.33 checks supported external projects one at a time, at least 30 seconds apart, daily or following a member request. Mods & modpacks → Check mod updates has one persistent 120-second cooldown shared by all members. New compatible versions import required dependencies and pass through scan/review before replacing the discoverable release. Old pinned files remain downloadable; existing packs require explicit entry updates. Steam maintains Workshop subscriptions. API credentials remain server-side.
+
+Community 0.3.34 requires manual staff approval for manually uploaded mods, including Owner uploads, after analysis. Existing manual uploads without a recorded staff approval return to review. Clean external imports retain automatic approval; suspicious findings require review and packing/malware signatures cause automatic denial.
