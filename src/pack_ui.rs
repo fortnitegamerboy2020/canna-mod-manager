@@ -38,6 +38,13 @@ pub struct PackUi {
     content_query: String,
     deleted: Option<std::path::PathBuf>,
     mod_details: Option<crate::model::ModInfo>,
+    mod_details_context: Option<(GameInfo, Option<Source>, Option<Modpack>)>,
+    mod_download: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    mod_download_status: String,
+    #[cfg(test)]
+    modal_rect: Option<egui::Rect>,
+    #[cfg(test)]
+    discover_rects: Vec<egui::Rect>,
 }
 pub enum RuntimeAction {
     Stop(u32),
@@ -83,11 +90,11 @@ impl PackUi {
             target,
             kind,
         } = state;
-        ui.label(RichText::new("Discover").size(32.0).strong().color(TEXT));
-        ui.label(RichText::new("Find your family's next favorite mod.").color(MUTED));
-        ui.add_space(14.0);
+        #[cfg(test)]
+        self.discover_rects.clear();
+        ui.add_space(6.0);
         ui.add_sized(
-            [ui.available_width(), 40.0],
+            [ui.available_width(), 30.0],
             egui::TextEdit::singleline(query)
                 .hint_text("Search mods, games, or descriptions…")
                 .desired_width(f32::INFINITY),
@@ -133,22 +140,29 @@ impl PackUi {
         let mut addition = None;
         let mut matches = 0;
         let query = query.to_lowercase();
-        egui::ScrollArea::vertical().show(ui, |ui| {
+        egui::ScrollArea::vertical().id_salt("discover-results").auto_shrink([false,false]).max_height(ui.available_height()).show(ui, |ui| {
+            ui.set_width(ui.available_width());
             for game in catalog.iter().filter(|g| *game_filter==0 || g.app_id==*game_filter) {
                 for item in &game.mods {
                     if !format!("{} {} {}",game.name,item.name,item.description).to_lowercase().contains(&query) { continue; }
                     if !kind.is_empty() && item.content_type != *kind { continue; }
                     matches += 1;
-                    egui::Frame::new().fill(SURFACE).corner_radius(crate::ui_helpers::SURFACE_RADIUS).inner_margin(20).show(ui, |ui| {
+                    let card = egui::Frame::new().fill(SURFACE).corner_radius(crate::ui_helpers::SURFACE_RADIUS).inner_margin(12).show(ui, |ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                        crate::ui_helpers::mod_art(ui,item,egui::vec2(64.0,64.0));
+                        ui.vertical(|ui| {
                         ui.horizontal_wrapped(|ui| {
                             ui.label(RichText::new(&item.name).size(20.0).strong());
                             ui.label(RichText::new(format!("v{}",item.version)).color(GREEN));
                         });
                         ui.label(RichText::new(&game.name).color(GREEN));
-                        crate::ui_helpers::mod_credits(ui,item);
-                        let preview: String = item.description.chars().take(240).collect();
-                        ui.label(format!("{}{}",preview,if item.description.chars().count()>240 {"…"}else{""}));
-                        if ui.button("Show more").clicked(){self.mod_details=Some(item.clone());}
+                        crate::ui_helpers::mod_links(ui,item);
+                        });
+                        });
+                        let preview: String = item.description.chars().take(160).collect();
+                        ui.label(format!("{}{}",preview,if item.description.chars().count()>160 {"…"}else{""}));
+                        if ui.button("Show more").clicked(){self.mod_details=Some(item.clone());self.mod_details_context=Some((game.clone(),source.cloned(),self.packs.iter().find(|p|Some(&p.id)==target.as_ref()).cloned()));self.mod_download_status.clear();}
                         if item.provenance["external_only"]==true {
                             ui.label("Official-site download. Steam manages Workshop subscriptions separately from Canna modpacks.");
                             if let Some(url)=item.provenance["source_url"].as_str(){ui.hyperlink_to("Subscribe on Steam Workshop",url);}
@@ -166,6 +180,10 @@ impl PackUi {
                         }
                         if !compatible { ui.label(RichText::new("Choose a modpack for this game and connected repository.").small().color(MUTED)); }
                     });
+                    #[cfg(test)]
+                    self.discover_rects.push(card.response.rect);
+                    #[cfg(not(test))]
+                    let _ = card;
                     ui.add_space(12.0);
                 }
             }
@@ -284,22 +302,66 @@ impl PackUi {
     pub fn open_first_pack(&mut self) {
         self.selected = self.packs.first().map(|pack| pack.id.clone());
     }
-    pub fn mod_details_window(&mut self, ctx: &egui::Context) {
+    pub fn mod_details_window(&mut self, ctx: &egui::Context) -> bool {
+        let mut downloaded = false;
+        if let Some(rx) = &self.mod_download {
+            if let Ok(result) = rx.try_recv() {
+                self.mod_download = None;
+                self.mod_download_status = match result {
+                    Ok(()) => {
+                        downloaded = true;
+                        "Downloaded. Find it in Your downloads.".into()
+                    }
+                    Err(e) => format!("Download failed: {e}"),
+                };
+            } else {
+                ctx.request_repaint_after(std::time::Duration::from_millis(100));
+            }
+        }
         let Some(item) = self.mod_details.clone() else {
-            return;
+            return downloaded;
         };
-        let mut open = true;
-        egui::Window::new(&item.name)
-            .id(egui::Id::new("mod-details-popup"))
-            .open(&mut open)
-            .default_width(700.0)
-            .resizable(true)
+        let screen = ctx.content_rect();
+        let width = (screen.width() - 72.0).clamp(280.0, 820.0);
+        let height = (screen.height() - 120.0).clamp(300.0, 650.0);
+        let mut close = false;
+        let modal = egui::Modal::new(egui::Id::new("mod-details-modal"))
+            .backdrop_color(Color32::from_black_alpha(185))
+            .frame(
+                egui::Frame::popup(&ctx.style())
+                    .fill(SURFACE)
+                    .inner_margin(20),
+            )
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical()
-                    .max_height(550.0)
-                    .show(ui, |ui| {
+                ui.set_width(width);
+                ui.set_height(height);
+                ui.horizontal(|ui| {
+                    if !crate::ui_helpers::mod_art(ui, &item, egui::vec2(96.0, 96.0)) {
+                        let (rect, _) =
+                            ui.allocate_exact_size(egui::vec2(96.0, 96.0), egui::Sense::hover());
+                        ui.painter()
+                            .rect_filled(rect, 8, Color32::from_rgb(48, 69, 54));
+                        ui.painter().text(
+                            rect.center(),
+                            egui::Align2::CENTER_CENTER,
+                            item.name.chars().next().unwrap_or('?'),
+                            egui::FontId::proportional(32.0),
+                            GREEN,
+                        );
+                    }
+                    ui.vertical(|ui| {
+                        ui.heading(&item.name);
                         ui.label(format!("Version {}", item.version));
-                        crate::ui_helpers::mod_credits(ui, &item);
+                        crate::ui_helpers::mod_links(ui, &item);
+                    });
+                });
+                ui.separator();
+                egui::ScrollArea::vertical()
+                    .id_salt("mod-details-body")
+                    .auto_shrink([false, true])
+                    .max_height((height - 190.0).max(100.0))
+                    .show(ui, |ui| {
+                        ui.set_width(width);
                         ui.label(&item.description);
                         for (label, key) in [
                             ("Minecraft versions", "game_versions"),
@@ -320,13 +382,97 @@ impl PackUi {
                             ));
                         }
                         if let Some(notes) = item.provenance["install_notes"].as_str() {
+                            ui.separator();
                             ui.label(notes);
                         }
                     });
+                ui.separator();
+                ui.horizontal(|ui| {
+                    let can_download = self
+                        .mod_details_context
+                        .as_ref()
+                        .is_some_and(|(_, source, _)| source.is_some())
+                        && item.provenance["external_only"] != true
+                        && item.sha256.len() == 64
+                        && !crate::website::session().is_empty()
+                        && self.mod_download.is_none();
+                    if ui
+                        .add_enabled(
+                            can_download,
+                            egui::Button::new(if self.mod_download.is_some() {
+                                "Downloading..."
+                            } else {
+                                "Download"
+                            }),
+                        )
+                        .clicked()
+                    {
+                        self.download_details(ctx, &item);
+                    }
+                    if let Some((game, _, _)) = &self.mod_details_context {
+                        ui.hyperlink_to(
+                            "Canna website",
+                            format!("https://cannamods.vip/?game={}", game.app_id),
+                        );
+                    }
+                    if ui.button("Close").clicked() {
+                        close = true;
+                    }
+                });
+                if !self.mod_download_status.is_empty() {
+                    ui.label(&self.mod_download_status);
+                }
             });
-        if !open {
-            self.mod_details = None;
+        #[cfg(test)]
+        {
+            self.modal_rect = Some(modal.response.rect);
         }
+        if close || modal.should_close() {
+            self.mod_details = None;
+            self.mod_details_context = None;
+        }
+        downloaded
+    }
+    fn download_details(&mut self, ctx: &egui::Context, item: &crate::model::ModInfo) {
+        let Some((game, source, selected)) = self.mod_details_context.clone() else {
+            return;
+        };
+        let Some(source) = source else {
+            return;
+        };
+        let pack = selected
+            .filter(|p| p.game.app_id == game.app_id)
+            .unwrap_or_else(|| {
+                Modpack::create("Downloads".into(), String::new(), &game, source, vec![])
+            });
+        let item = item.clone();
+        let token = crate::website::session();
+        let ctx = ctx.clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.mod_download = Some(rx);
+        self.mod_download_status = "Downloading...".into();
+        std::thread::spawn(move || {
+            let result = (|| -> anyhow::Result<()> {
+                use sha2::{Digest, Sha256};
+                let bytes = crate::repository::fetch_optional(
+                    &crate::runtime::client()?,
+                    &crate::runtime::settings(&pack),
+                    &token,
+                    &crate::runtime::repo_path(&pack, &item.file),
+                    256 * 1024 * 1024,
+                )?
+                .ok_or_else(|| anyhow::anyhow!("Mod unavailable"))?;
+                anyhow::ensure!(
+                    format!("{:x}", Sha256::digest(&bytes)) == item.sha256.to_lowercase(),
+                    "Mod checksum mismatch"
+                );
+                crate::website::remember_mod(&pack, &item, &bytes, false)?;
+                Ok(())
+            })()
+            .map_err(|e| e.to_string());
+            let _ = tx.send(result);
+            ctx.request_repaint();
+        });
     }
     pub fn new() -> Self {
         let (packs, warnings) = crate::modpacks::load_all();
@@ -360,6 +506,13 @@ impl PackUi {
             content_query: String::new(),
             deleted: None,
             mod_details: None,
+            mod_details_context: None,
+            mod_download: None,
+            mod_download_status: String::new(),
+            #[cfg(test)]
+            modal_rect: None,
+            #[cfg(test)]
+            discover_rects: Vec::new(),
         }
     }
     pub fn start_new(&mut self, game: &GameInfo, source: Option<&Source>) {
@@ -1421,6 +1574,108 @@ fn repository_label(source: &Source) -> String {
 mod tests {
     use super::*;
     #[test]
+    fn discover_cards_use_width_and_show_multiple_results() {
+        let ctx = egui::Context::default();
+        let mut page = PackUi::new();
+        let mut game = crate::model::bopl();
+        game.mods = (0..4)
+            .map(|n| crate::model::ModInfo {
+                name: format!("Mod {n}"),
+                version: "1.0".into(),
+                description: "A useful description. ".repeat(20),
+                provenance: serde_json::json!({"source_url":"https://example.com/mod"}),
+                content_type: String::new(),
+                enabled: false,
+                file: String::new(),
+                sha256: String::new(),
+                local_file: String::new(),
+                dependencies: vec![],
+            })
+            .collect();
+        let mut state = DiscoverState::default();
+        state.game = game.app_id;
+        for _ in 0..4 {
+            let _ = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1100.0, 650.0),
+                    )),
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        page.discover(ui, &[game.clone()], None, &mut state, false);
+                    });
+                },
+            );
+        }
+        assert!(
+            page.discover_rects[0].width() > 1000.0,
+            "{:?}",
+            page.discover_rects
+        );
+        assert!(
+            page.discover_rects[1].bottom() < 650.0,
+            "{:?}",
+            page.discover_rects
+        );
+    }
+    #[test]
+    fn details_modal_fits_small_windows_and_closes_on_escape() {
+        for size in [egui::vec2(1240.0, 820.0), egui::vec2(840.0, 560.0)] {
+            let ctx = egui::Context::default();
+            let mut page = PackUi::new();
+            page.mod_details = Some(crate::model::ModInfo {
+                name: "A mod with a longer name".into(),
+                version: "1.2.3".into(),
+                description: "A long description for scrolling. ".repeat(200),
+                provenance: serde_json::json!({"author_links":[{"name":"Author","url":"https://example.com/author"}],"source_url":"https://example.com/mod"}),
+                content_type: String::new(),
+                enabled: false,
+                file: String::new(),
+                sha256: String::new(),
+                local_file: String::new(),
+                dependencies: vec![],
+            });
+            let input = |events| egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                events,
+                ..Default::default()
+            };
+            for _ in 0..10 {
+                let _ = ctx.run(input(vec![]), |ctx| {
+                    page.mod_details_window(ctx);
+                });
+            }
+            let rect = page.modal_rect.unwrap();
+            assert!(
+                rect.left() >= 0.0
+                    && rect.top() >= 0.0
+                    && rect.right() <= size.x
+                    && rect.bottom() <= size.y,
+                "{size:?}: {rect:?}"
+            );
+            assert!(
+                (rect.center() - egui::pos2(size.x / 2.0, size.y / 2.0)).length() < 2.0,
+                "{rect:?}"
+            );
+            let _ = ctx.run(
+                input(vec![egui::Event::Key {
+                    key: egui::Key::Escape,
+                    physical_key: None,
+                    pressed: true,
+                    repeat: false,
+                    modifiers: Default::default(),
+                }]),
+                |ctx| {
+                    page.mod_details_window(ctx);
+                },
+            );
+            assert!(page.mod_details.is_none());
+        }
+    }
+    #[test]
     fn discover_updates_only_target_pack_and_rejects_other_repositories() {
         let game = crate::model::bopl();
         let source = Source::from_settings(&crate::model::Settings::load());
@@ -1515,7 +1770,7 @@ mod tests {
                 );
             });
         };
-        for _ in 0..3 {
+        for _ in 0..10 {
             let _ = context.run(input(vec![]), |ctx| render(ctx, &mut page));
         }
         let rect = context
@@ -1585,7 +1840,7 @@ mod tests {
                 );
             });
         };
-        for _ in 0..3 {
+        for _ in 0..10 {
             let _ = context.run(input(vec![]), |ctx| render(ctx, &mut page));
         }
         let pos = page.add_mods_rect.unwrap().center();

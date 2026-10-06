@@ -3,7 +3,8 @@ use eframe::egui;
 pub const CONTROL_RADIUS: u8 = 10;
 pub const SURFACE_RADIUS: u8 = 16;
 
-pub fn mod_credits(ui: &mut egui::Ui, item: &crate::model::ModInfo) {
+pub fn mod_art(ui: &mut egui::Ui, item: &crate::model::ModInfo, size: egui::Vec2) -> bool {
+    let mut drawn = false;
     use base64::Engine;
     let p = &item.provenance;
     if let Some(data) = p["icon_data"].as_str() {
@@ -32,9 +33,15 @@ pub fn mod_credits(ui: &mut egui::Ui, item: &crate::model::ModInfo) {
             }
         }
         if let Some(t) = texture {
-            ui.add(egui::Image::new(&t).fit_to_exact_size(egui::vec2(96.0, 96.0)));
+            ui.add(egui::Image::new(&t).fit_to_exact_size(size));
+            drawn = true;
         }
     }
+    drawn
+}
+
+pub fn mod_links(ui: &mut egui::Ui, item: &crate::model::ModInfo) {
+    let p = &item.provenance;
     if let Some(authors) = p["author_links"].as_array() {
         ui.horizontal_wrapped(|ui| {
             ui.label("By");
@@ -52,7 +59,12 @@ pub fn mod_credits(ui: &mut egui::Ui, item: &crate::model::ModInfo) {
     {
         ui.hyperlink_to("Original project", url);
     }
-    if let Some(notes) = p["install_notes"].as_str() {
+}
+
+pub fn mod_credits(ui: &mut egui::Ui, item: &crate::model::ModInfo) {
+    mod_art(ui, item, egui::vec2(96.0, 96.0));
+    mod_links(ui, item);
+    if let Some(notes) = item.provenance["install_notes"].as_str() {
         ui.label(notes);
     }
 }

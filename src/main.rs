@@ -650,42 +650,44 @@ impl Canna {
         self.discover_page = true;
     }
     fn discover_ui(&mut self, ui: &mut egui::Ui) {
-        if self.token.is_empty()
-            || self.repo_status.contains("expired")
-            || self.repo_status.contains("revoked")
-        {
-            ui.heading("Connect to Canna");
-            ui.label(
-                "Sign in and approve this app on the website to browse your community's mods.",
-            );
-            if ui
-                .add_enabled(
-                    !self.website.connecting(),
-                    egui::Button::new("Sign in & connect account"),
-                )
+        ui.horizontal_wrapped(|ui| {
+            if self.token.is_empty()
+                || self.repo_status.contains("expired")
+                || self.repo_status.contains("revoked")
+            {
+                ui.heading("Connect to Canna");
+                ui.label(
+                    "Sign in and approve this app on the website to browse your community's mods.",
+                );
+                if ui
+                    .add_enabled(
+                        !self.website.connecting(),
+                        egui::Button::new("Sign in & connect account"),
+                    )
+                    .clicked()
+                {
+                    self.website.start_sign_in();
+                }
+                if !self.website.account_status.is_empty() {
+                    ui.label(&self.website.account_status);
+                }
+            } else if ui
+                .add_enabled(!self.syncing, egui::Button::new("Refresh library"))
                 .clicked()
             {
-                self.website.start_sign_in();
+                self.sync(ui.ctx());
             }
-            if !self.website.account_status.is_empty() {
-                ui.label(&self.website.account_status);
+            if ui.button("Add mod from external site").clicked() {
+                let game = if self.discover.game == u32::MAX {
+                    "minecraft".into()
+                } else {
+                    self.discover.game.to_string()
+                };
+                ui.ctx().open_url(egui::OpenUrl::new_tab(format!(
+                    "https://cannamods.vip/?import=1&game={game}"
+                )));
             }
-        } else if ui
-            .add_enabled(!self.syncing, egui::Button::new("Refresh library"))
-            .clicked()
-        {
-            self.sync(ui.ctx());
-        }
-        if ui.button("Add mod from external site").clicked() {
-            let game = if self.discover.game == u32::MAX {
-                "minecraft".into()
-            } else {
-                self.discover.game.to_string()
-            };
-            ui.ctx().open_url(egui::OpenUrl::new_tab(format!(
-                "https://cannamods.vip/?import=1&game={game}"
-            )));
-        }
+        });
         if self.discover.game == 0 {
             ui.heading("Discover games");
             ui.label("Choose a game to browse its mods.");
@@ -749,17 +751,21 @@ impl Canna {
                     });
             });
         } else {
-            if self
-                .chrome
-                .nav(ui, 8, "Back to Discover games", false)
-                .clicked()
-            {
-                self.discover.game = 0;
-                self.discover.query.clear();
+            ui.horizontal(|ui| {
+                if self
+                    .chrome
+                    .nav(ui, 8, "Back to Discover games", false)
+                    .clicked()
+                {
+                    self.discover.game = 0;
+                    self.discover.query.clear();
+                }
+                if let Some(game) = self.catalog.iter().find(|g| g.app_id == self.discover.game) {
+                    ui.heading(&game.name);
+                }
+            });
+            if self.discover.game == 0 {
                 return;
-            }
-            if let Some(game) = self.catalog.iter().find(|g| g.app_id == self.discover.game) {
-                ui.heading(&game.name);
             }
             self.pack_ui.discover(
                 ui,
@@ -1338,7 +1344,7 @@ impl Canna {
             .frame(
                 egui::Frame::new().corner_radius(ui_helpers::SURFACE_RADIUS)
                     .fill(Color32::from_rgb(18, 24, 22))
-                    .inner_margin(28),
+                    .inner_margin(20),
             )
             .show(ctx, |ui| {
                 if self.website.open { if self.website.show(ui) { self.pack_ui = pack_ui::PackUi::new(); } return; }
@@ -1564,8 +1570,10 @@ impl eframe::App for Canna {
         self.skins.update(ctx);
         self.render(ctx);
         self.minecraft.ui(ctx);
-        self.pack_ui.mod_details_window(ctx);
-        self.pack_ui.mod_details_window(ctx);
+        if self.pack_ui.mod_details_window(ctx) {
+            self.website.refresh_downloads();
+        }
+        chrome::resize_handles(ctx);
         if self.minecraft.discover_requested {
             self.minecraft.discover_requested = false;
             self.minecraft_page = false;
@@ -1636,7 +1644,7 @@ fn main() -> eframe::Result {
             .with_decorations(false)
             .with_resizable(true)
             .with_inner_size([1240.0, 820.0])
-            .with_min_inner_size([1080.0, 680.0]),
+            .with_min_inner_size([840.0, 560.0]),
         ..Default::default()
     };
     eframe::run_native(

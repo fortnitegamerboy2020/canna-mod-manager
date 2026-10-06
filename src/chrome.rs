@@ -1,6 +1,96 @@
 use eframe::egui::{self, Color32};
 
 pub const CANVAS: Color32 = Color32::from_rgb(18, 24, 22);
+/// Borderless Windows windows need explicit native resize gestures.
+pub fn resize_handles(ctx: &egui::Context) {
+    if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
+        return;
+    }
+    use egui::ResizeDirection::*;
+    let r = ctx.content_rect();
+    let edge = 5.0;
+    let corner = 14.0;
+    let zones = [
+        (
+            egui::Rect::from_min_size(r.min, egui::vec2(corner, corner)),
+            NorthWest,
+            egui::CursorIcon::ResizeNwSe,
+        ),
+        (
+            egui::Rect::from_min_size(
+                egui::pos2(r.right() - corner, r.top()),
+                egui::vec2(corner, corner),
+            ),
+            NorthEast,
+            egui::CursorIcon::ResizeNeSw,
+        ),
+        (
+            egui::Rect::from_min_size(
+                egui::pos2(r.left(), r.bottom() - corner),
+                egui::vec2(corner, corner),
+            ),
+            SouthWest,
+            egui::CursorIcon::ResizeNeSw,
+        ),
+        (
+            egui::Rect::from_min_size(
+                r.max - egui::vec2(corner, corner),
+                egui::vec2(corner, corner),
+            ),
+            SouthEast,
+            egui::CursorIcon::ResizeNwSe,
+        ),
+        (
+            egui::Rect::from_min_max(
+                egui::pos2(r.left() + corner, r.top()),
+                egui::pos2(r.right() - corner, r.top() + edge),
+            ),
+            North,
+            egui::CursorIcon::ResizeVertical,
+        ),
+        (
+            egui::Rect::from_min_max(
+                egui::pos2(r.left() + corner, r.bottom() - edge),
+                egui::pos2(r.right() - corner, r.bottom()),
+            ),
+            South,
+            egui::CursorIcon::ResizeVertical,
+        ),
+        (
+            egui::Rect::from_min_max(
+                egui::pos2(r.left(), r.top() + corner),
+                egui::pos2(r.left() + edge, r.bottom() - corner),
+            ),
+            West,
+            egui::CursorIcon::ResizeHorizontal,
+        ),
+        (
+            egui::Rect::from_min_max(
+                egui::pos2(r.right() - edge, r.top() + corner),
+                egui::pos2(r.right(), r.bottom() - corner),
+            ),
+            East,
+            egui::CursorIcon::ResizeHorizontal,
+        ),
+    ];
+    for (index, (rect, direction, cursor)) in zones.into_iter().enumerate() {
+        let response = egui::Area::new(egui::Id::new(("window-resize", index)))
+            .order(egui::Order::Foreground)
+            .fixed_pos(rect.min)
+            .constrain(false)
+            .movable(false)
+            .show(ctx, |ui| {
+                ui.allocate_exact_size(rect.size(), egui::Sense::drag()).1
+            })
+            .inner;
+        if response.hovered() || response.dragged() {
+            ctx.set_cursor_icon(cursor);
+        }
+        if response.drag_started() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::BeginResize(direction));
+        }
+    }
+}
 pub struct Chrome {
     icons: [egui::TextureHandle; 11],
     minecraft_banner: egui::TextureHandle,
@@ -239,6 +329,53 @@ pub fn title_bar(ctx: &egui::Context) -> [egui::Rect; 2] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn border_drags_request_native_resize() {
+        for (point, direction) in [
+            (egui::pos2(1238.0, 400.0), egui::ResizeDirection::East),
+            (egui::pos2(1235.0, 815.0), egui::ResizeDirection::SouthEast),
+            (egui::pos2(2.0, 400.0), egui::ResizeDirection::West),
+        ] {
+            let ctx = egui::Context::default();
+            let input = |events| egui::RawInput {
+                screen_rect: Some(egui::Rect::from_min_size(
+                    egui::Pos2::ZERO,
+                    egui::vec2(1240.0, 820.0),
+                )),
+                events,
+                ..Default::default()
+            };
+            for _ in 0..2 {
+                let _ = ctx.run(input(vec![]), resize_handles);
+            }
+            let mut commands = Vec::new();
+            for events in [
+                vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Default::default(),
+                    },
+                ],
+                vec![egui::Event::PointerMoved(point + egui::vec2(20.0, 20.0))],
+            ] {
+                let output = ctx.run(input(events), resize_handles);
+                commands.extend(
+                    output.viewport_output[&egui::ViewportId::ROOT]
+                        .commands
+                        .clone(),
+                );
+            }
+            assert!(
+                commands
+                    .iter()
+                    .any(|c| matches!(c, egui::ViewportCommand::BeginResize(d) if *d==direction)),
+                "{direction:?}: {commands:?}"
+            );
+        }
+    }
     #[test]
     fn window_controls_send_close_and_minimize_commands() {
         for index in 0..2 {

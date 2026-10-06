@@ -212,10 +212,10 @@ pub fn set_mode(game: &InstalledGame, enabled: bool) -> Result<()> {
                 fs::write(vdf, plugin_vdf(&name))?;
             }
         } else {
-            if let Some(vdf) = registration {
-                if vdf.exists() {
-                    fs::remove_file(vdf)?;
-                }
+            if let Some(vdf) = registration
+                && vdf.exists()
+            {
+                fs::remove_file(vdf)?;
             }
             if path.exists() {
                 fs::remove_file(path)?;

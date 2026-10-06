@@ -398,6 +398,9 @@ impl Default for Website {
     }
 }
 impl Website {
+    pub fn refresh_downloads(&mut self) {
+        self.items = records();
+    }
     pub fn busy(&self) -> bool {
         self.result.is_some() || !self.pending.is_empty() || self.pairing.is_some()
     }
