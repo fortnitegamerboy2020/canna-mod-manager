@@ -94,6 +94,38 @@ struct Canna {
     screenshot_requested: bool,
     ready_frames: usize,
 }
+fn library_rows(
+    catalog: &[GameInfo],
+    installed: &[InstalledGame],
+) -> Vec<(u32, String, bool, bool, String)> {
+    let mut rows: Vec<_> = installed
+        .iter()
+        .map(|g| {
+            (
+                g.app_id,
+                g.name.clone(),
+                true,
+                catalog.iter().any(|c| c.app_id == g.app_id),
+                g.loader.clone(),
+            )
+        })
+        .collect();
+    for game in catalog {
+        if game.app_id != u32::MAX
+            && game.app_id != 0
+            && !rows.iter().any(|row| row.0 == game.app_id)
+        {
+            rows.push((
+                game.app_id,
+                game.name.clone(),
+                false,
+                true,
+                "Not Installed".into(),
+            ));
+        }
+    }
+    rows
+}
 impl Canna {
     fn new(cc: &eframe::CreationContext<'_>) -> Self {
         Self::new_with_context(&cc.egui_ctx, true)
@@ -525,6 +557,9 @@ impl Canna {
         self.settings_open = open;
     }
     fn art(&self, ui: &mut egui::Ui, id: u32, size: egui::Vec2) {
+        self.art_tinted(ui, id, size, Color32::WHITE);
+    }
+    fn art_tinted(&self, ui: &mut egui::Ui, id: u32, size: egui::Vec2, tint: Color32) {
         let texture = if id == u32::MAX {
             Some(self.chrome.minecraft_banner())
         } else {
@@ -551,6 +586,7 @@ impl Canna {
             };
             ui.add(
                 egui::Image::new(t)
+                    .tint(tint)
                     .uv(uv)
                     .maintain_aspect_ratio(false)
                     .fit_to_exact_size(size)
@@ -561,12 +597,20 @@ impl Canna {
             ui.painter().rect_filled(
                 rect,
                 ui_helpers::SURFACE_RADIUS,
-                Color32::from_rgb(44, 66, 45),
+                if tint == Color32::WHITE {
+                    Color32::from_rgb(44, 66, 45)
+                } else {
+                    Color32::from_gray(35)
+                },
             );
             ui.painter().circle_filled(
                 rect.center(),
                 size.x.min(size.y) * 0.22,
-                Color32::from_rgb(116, 163, 99),
+                if tint == Color32::WHITE {
+                    Color32::from_rgb(116, 163, 99)
+                } else {
+                    Color32::from_gray(65)
+                },
             );
             ui.painter().text(
                 rect.center(),
@@ -1221,7 +1265,7 @@ impl Canna {
                         ui.label(RichText::new("FAMILY MODS").color(GREEN).small().strong());
                         if let Some(info) = info {
                             if ui
-                                .add(
+                                .add_enabled(installed.is_some(),
                                     egui::Button::new(
                                         RichText::new("+ Create modpack")
                                             .color(Color32::from_rgb(19, 35, 22))
@@ -1336,6 +1380,11 @@ impl Canna {
                         ui.add_space(16.0); ui.heading("Family mods");
                         if info.mods.is_empty() { ui.label("No mods published for this game yet. You can still create a pack and import local mods."); }
                         for item in &info.mods { ui.label(format!("{} · {}",item.name,item.version)); }
+                    } else if let Some(info)=self.catalog.iter().find(|g|g.app_id==self.selected).cloned() {
+                        ui.add_space(20.0);self.art_tinted(ui,info.app_id,egui::vec2(400.0,225.0),Color32::from_gray(95));
+                        ui.heading(&info.name);ui.label(RichText::new("Not Installed").color(MUTED));ui.label(&info.description);
+                        ui.label("Install this game in Steam, then use Rescan Steam to enable its modpacks and launch controls.");
+                        ui.horizontal(|ui| {ui.add_enabled(false,egui::Button::new("Create modpack"));ui.add_enabled(false,egui::Button::new("Launch vanilla"));ui.add_enabled(false,egui::Button::new("Launch modded"));});
                     } else { ui.heading("Game is not installed"); }
                     return;
                 }
@@ -1374,31 +1423,7 @@ impl Canna {
                 ui.checkbox(&mut self.supported_only, "Only games in the family catalog");
                 ui.add_space(12.0);
                 let query = self.query.to_lowercase();
-                let mut rows: Vec<(u32, String, bool, bool, String)> = self
-                    .games
-                    .iter()
-                    .map(|g| {
-                        (
-                            g.app_id,
-                            g.name.clone(),
-                            true,
-                            self.catalog.iter().any(|c| c.app_id == g.app_id),
-                            g.loader.clone(),
-                        )
-                    })
-                    .collect();
-                if !self.games.iter().any(|g| g.app_id == 1686940) {
-                    rows.insert(
-                        0,
-                        (
-                            1686940,
-                            "Bopl Battle".into(),
-                            false,
-                            true,
-                            "Install this game in Steam to get started".into(),
-                        ),
-                    );
-                }
+                let mut rows = library_rows(&self.catalog, &self.games);
                 rows.retain(|r| {
                     r.1.to_lowercase().contains(&query) && (!self.supported_only || r.3)
                 });
@@ -1430,7 +1455,7 @@ impl Canna {
                             app_id: id, name: name.clone(), folder: format!("steam-{id}"), description: String::new(), icon: String::new(), mods: vec![], mod_folder_status: String::new(),
                         });
                         let card=egui::Frame::new().corner_radius(ui_helpers::SURFACE_RADIUS)
-                            .fill(if selected {
+                            .fill(if !installed { Color32::from_gray(25) } else if selected {
                                 Color32::from_rgb(36, 52, 38)
                             } else {
                                 Color32::from_rgb(27, 35, 30)
@@ -1448,23 +1473,23 @@ impl Canna {
                             .show(ui, |ui| {
                                 ui.set_min_width(ui.available_width());
                                 ui.horizontal(|ui| {
-                                    self.art(ui, id, egui::vec2(68.0, 76.0));
+                                    self.art_tinted(ui, id, egui::vec2(68.0, 76.0), if installed { Color32::WHITE } else { Color32::from_gray(95) });
                                     ui.vertical(|ui| {
                                         ui.set_max_width((ui.available_width() - 250.0).max(120.0));
-                                        ui.label(RichText::new(name).size(19.0).strong());
+                                        ui.label(RichText::new(name).size(19.0).strong().color(if installed {Color32::WHITE} else {MUTED}));
                                         ui.label(RichText::new(loader).small().color(MUTED));
                                         ui.label(
                                             RichText::new(if installed {
                                                 if supported {
-                                                    "UNITY  /  FAMILY CATALOG"
+                                                    model::framework_label(id)
                                                 } else {
                                                     "UNITY DETECTED  /  NO CATALOG ENTRY"
                                                 }
                                             } else {
-                                                "FIRST SUPPORTED GAME"
+                                                "NOT INSTALLED"
                                             })
                                             .size(10.0)
-                                            .color(GREEN),
+                                            .color(if installed {GREEN} else {MUTED}),
                                         );
                                     });
                                     ui.with_layout(
@@ -1477,7 +1502,7 @@ impl Canna {
                                                 self.selected = id;
                                                 self.game_details = true;
                                             }
-                                            let create = ui.add(egui::Button::new(RichText::new("Create modpack").color(Color32::from_rgb(19,35,22)).strong()).fill(GREEN).corner_radius(ui_helpers::CONTROL_RADIUS));
+                                            let create = ui.add_enabled(installed, egui::Button::new(RichText::new("Create modpack").color(Color32::from_rgb(19,35,22)).strong()).fill(GREEN).corner_radius(ui_helpers::CONTROL_RADIUS));
                                             #[cfg(test)]
                                             self.card_create_rects.insert(id, create.rect);
                                             if create.clicked() {
@@ -1494,7 +1519,7 @@ impl Canna {
                             });
                         crate::ui_helpers::context_menu(&card.response,|ui| {
                             if ui.button("View game").clicked() {self.selected=id;self.game_details=true;ui.close();}
-                            if ui.button("Create modpack").clicked() {self.selected=id;self.pack_ui.start_new(&pack_game,self.active_source.as_ref());self.modpacks_page=true;ui.close();}
+                            if ui.add_enabled(installed, egui::Button::new("Create modpack")).clicked() {self.selected=id;self.pack_ui.start_new(&pack_game,self.active_source.as_ref());self.modpacks_page=true;ui.close();}
                             if let Some(game)=self.games.iter().find(|g|g.app_id==id).cloned() {
                                 ui.separator();
                                 if ui.add_enabled(!self.runtime_busy,egui::Button::new("Launch vanilla")).clicked() {self.queue_game_launch(&game,&pack_game,false);ui.close();}
@@ -1637,6 +1662,77 @@ mod ui_tests {
         assert_eq!(app.discover.game, 1686940);
         app.open_discover();
         assert_eq!(app.discover.game, 0);
+    }
+    #[test]
+    fn missing_source_game_is_visible_but_cannot_create_or_launch() {
+        let ctx = egui::Context::default();
+        let mut app = Canna::new_with_context(&ctx, false);
+        app.modpacks_page = false;
+        app.selected = 550;
+        let input = |events| egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(1240.0, 1400.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        for _ in 0..3 {
+            let _ = ctx.run(input(vec![]), |ctx| app.render(ctx));
+        }
+        assert!(
+            app.card_view_rects.contains_key(&550),
+            "Uninstalled Left 4 Dead 2 must have a Library card"
+        );
+        let missing = library_rows(&app.catalog, &app.games)
+            .into_iter()
+            .find(|row| row.0 == 550)
+            .unwrap();
+        assert!(!missing.2);
+        assert_eq!(missing.4, "Not Installed");
+        let pos = app.card_create_rects[&550].center();
+        let _ = ctx.run(
+            input(vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]),
+            |ctx| app.render(ctx),
+        );
+        let _ = ctx.run(
+            input(vec![egui::Event::PointerButton {
+                pos,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }]),
+            |ctx| app.render(ctx),
+        );
+        assert!(!app.modpacks_page);
+        assert!(app.pack_ui.draft_game_id().is_none());
+        assert!(!app.runtime_busy);
+        app.game_details = true;
+        let _ = ctx.run(input(vec![]), |ctx| app.render(ctx));
+        assert!(!app.runtime_busy);
+        app.games.push(InstalledGame {
+            app_id: 550,
+            name: "Left 4 Dead 2".into(),
+            path: "fixture".into(),
+            loader: "Source VPK addons".into(),
+            plugins: 0,
+            icon: None,
+        });
+        assert!(
+            library_rows(&app.catalog, &app.games)
+                .into_iter()
+                .find(|r| r.0 == 550)
+                .unwrap()
+                .2
+        );
     }
     #[test]
     fn game_card_create_receives_pointer_click_and_opens_editor() {

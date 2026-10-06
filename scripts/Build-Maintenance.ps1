@@ -11,7 +11,8 @@ try {
 $cannaVersion=[regex]::Match([IO.File]::ReadAllText((Join-Path $cannaRoot 'src/bin/canna-updater.rs')),'MAINTENANCE_VERSION: &str = "(\d+\.\d+\.\d+)"').Groups[1].Value
 if(!$cannaVersion){throw 'Invalid maintenance version.'}
 $cannaExe=Join-Path $cannaRoot 'dist/Canna Updater.exe'
-$cannaArtifact=if($Target){Join-Path $cannaRoot "target/$Target/release/canna-updater.exe"}else{Join-Path $cannaRoot 'target/release/canna-updater.exe'}
+$cannaTargetRoot=if($env:CARGO_TARGET_DIR){[IO.Path]::GetFullPath($env:CARGO_TARGET_DIR)}else{Join-Path $cannaRoot 'target'}
+$cannaArtifact=if($Target){Join-Path $cannaTargetRoot "$Target/release/canna-updater.exe"}else{Join-Path $cannaTargetRoot 'release/canna-updater.exe'}
 Copy-Item -LiteralPath $cannaArtifact -Destination $cannaExe -Force
 $cannaHash=(Get-FileHash -LiteralPath $cannaExe -Algorithm SHA256).Hash.ToLowerInvariant()
 $cannaManifest=@{tag_name="v$cannaVersion";draft=$false;prerelease=$false;assets=@(@{name='Canna-Updater.exe';size=(Get-Item -LiteralPath $cannaExe).Length;digest="sha256:$cannaHash"})}

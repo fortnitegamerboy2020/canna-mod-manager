@@ -18,6 +18,7 @@ try {
             if (!(Test-Path -LiteralPath (Join-Path $cannaRoot $cannaArtifact))) { throw 'Release build is missing' }
         }
     }
+    if (!$SourceOnly -and [Diagnostics.FileVersionInfo]::GetVersionInfo((Join-Path $cannaRoot 'dist/Canna Mod Manager.exe')).ProductVersion -ne $Version) { throw 'Release EXE version does not match the requested version.' }
     $cannaRepo = Invoke-CannaApi ''
     $cannaBranch = $cannaRepo.default_branch
     try { $cannaRef = Invoke-CannaApi "git/ref/heads/$cannaBranch" } catch {
@@ -57,9 +58,11 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.17 adds ROUNDS to the default catalog and Left 4 Dead / Left 4 Dead 2 VPK addon packs. Source packs install self-contained VPKs from local files or reviewed server ZIPs. Modded Source launches use -insecure -console for practice; vanilla disables Canna-managed addons. Unmanaged addons and custom Steam launch options remain unchanged. Native SourceMod/Metamod plugins and standalone speedrun tools are not supported by this installer. Live Left 4 Dead launches remain unverified.
+Canna 0.2.18 shows supported Steam games in Library even before they are installed. Missing games have dimmed artwork, a Not Installed label and disabled modpack/launch controls; Rescan Steam enables them after installation.
 
-Community 0.3.30 keeps supported games visible in the catalog even before mods are published. The official ROUNDS BepInEx 5 loader is hosted on Canna. Updates continue to come from the server. Minecraft API approval remains pending.
+ROUNDS uses the server-hosted official BepInEx loader. Left 4 Dead 1/2 support self-contained VPK packs with -insecure practice launches. Native SourceMod/Metamod tools and live Left 4 Dead launches remain unverified.
+
+Community 0.3.31 adds named upload-game selection and keeps supported games visible in website filters even without published mods. Updates continue to come from cannamods.vip.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

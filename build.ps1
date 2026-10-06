@@ -6,7 +6,8 @@ try {
     else { cargo build --release --locked --bin canna-mod-manager }
     if ($LASTEXITCODE -ne 0) { throw 'Rust build failed.' }
     New-Item -ItemType Directory -Path (Join-Path $PSScriptRoot 'dist') -Force | Out-Null
-    $cannaReleasePath = if ($Target) { Join-Path $PSScriptRoot "target\$Target\release\canna-mod-manager.exe" } else { Join-Path $PSScriptRoot 'target\release\canna-mod-manager.exe' }
+    $cannaTargetRoot = if ($env:CARGO_TARGET_DIR) { [IO.Path]::GetFullPath($env:CARGO_TARGET_DIR) } else { Join-Path $PSScriptRoot 'target' }
+    $cannaReleasePath = if ($Target) { Join-Path $cannaTargetRoot "$Target/release/canna-mod-manager.exe" } else { Join-Path $cannaTargetRoot 'release/canna-mod-manager.exe' }
     Copy-Item -LiteralPath $cannaReleasePath -Destination (Join-Path $PSScriptRoot 'dist\Canna Mod Manager.exe')
     & (Join-Path $PSScriptRoot 'scripts/Build-Maintenance.ps1') -Target $Target
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination (Join-Path $PSScriptRoot 'dist\README.md')

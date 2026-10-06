@@ -2,9 +2,19 @@
 const gameNames={'1686940':'Bopl Battle','1557740':'ROUNDS','550':'Left 4 Dead 2','500':'Left 4 Dead','892970':'Valheim','220200':'Kerbal Space Program','255710':'Cities: Skylines','632360':'Risk of Rain 2'};
 function libraryGameId(item) {return item.details?.game==='Minecraft'?'minecraft':String(item.app_id || item.game?.app_id || '');}
 function libraryGameName(item) {return item.details?.game || item.game?.name || gameNames[libraryGameId(item)] || `Steam game ${libraryGameId(item)}`;}
+function updateUploadGame() {
+ const selected=$('uploadgame').value,custom=selected==='other';
+ $('customgame').hidden=!custom;$('customgamelabel').hidden=!custom;$('customgame').required=custom;
+ $('game').value=custom?$('customgame').value:selected;
+ $('uploadgamehelp').textContent=['550','500'].includes(selected)?'Source games: upload a ZIP containing self-contained VPK addons. Canna uses -insecure for modded practice launches.':'Unity games: upload a ZIP containing your mod plugins.';
+}
+$('uploadgame').addEventListener('change',updateUploadGame);
+$('customgame').addEventListener('input',updateUploadGame);
+$('upload').addEventListener('reset',()=>queueMicrotask(updateUploadGame));
+updateUploadGame();
 let initialLibraryFilters=true;
 function renderLibrary() {
-  const selected=$('librarygame').value, games=new Map();
+  const selected=$('librarygame').value, games=new Map([['1686940','Bopl Battle'],['1557740','ROUNDS'],['550','Left 4 Dead 2'],['500','Left 4 Dead'],['minecraft','Minecraft']]);
   for(const item of [...libraryItems.mods,...libraryItems.packs]) games.set(libraryGameId(item),libraryGameName(item));
   if(new URLSearchParams(location.search).get('game')==='minecraft') games.set('minecraft','Minecraft');
   $('librarygame').replaceChildren(new Option('All games',''),...[...games].sort((a,b)=>a[1].localeCompare(b[1])).map(([id,name])=>new Option(name,id)));
