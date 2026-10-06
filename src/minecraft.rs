@@ -28,9 +28,6 @@ fn root() -> PathBuf {
         .unwrap()
         .join("minecraft")
 }
-pub fn client_id_path() -> PathBuf {
-    root().join("client-id.txt")
-}
 fn safe_component(value: &str) -> bool {
     !value.is_empty()
         && value != "."
@@ -698,19 +695,19 @@ pub struct Minecraft {
     status: String,
     versions: Vec<String>,
     draft: Instance,
-    client_id: String,
+    pub creating: bool,
+    pub discover_requested: bool,
     job: Option<Receiver<Outcome>>,
     running: BTreeMap<String, Child>,
     sign_in_popup: bool,
     sign_in_prompt: Option<crate::minecraft_auth::DevicePrompt>,
     sign_in_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
+pub const CLIENT_ID: &str = "5c67b262-465a-4e7e-8486-c7d422d3eefc";
 pub fn client_id() -> String {
-    std::fs::read_to_string(root().join("client-id.txt"))
-        .unwrap_or_else(|_| "5c67b262-465a-4e7e-8486-c7d422d3eefc".into())
-        .trim()
-        .into()
+    CLIENT_ID.into()
 }
+
 impl Default for Minecraft {
     fn default() -> Self {
         let preview = std::env::var_os("CANNA_SCREENSHOT").is_some()
@@ -728,7 +725,8 @@ impl Default for Minecraft {
                 java: String::new(),
                 memory: 4096,
             },
-            client_id: client_id(),
+            creating: false,
+            discover_requested: false,
             job: None,
             running: BTreeMap::new(),
             sign_in_popup: preview,
@@ -746,6 +744,103 @@ impl Default for Minecraft {
     }
 }
 impl Minecraft {
+    pub fn library(&mut self, ui: &mut egui::Ui) {
+        let ctx = ui.ctx().clone();
+        ui.heading("Minecraft library · preview");
+        ui.label(
+            "Connect your Microsoft account to play. Minecraft launching is still being verified.",
+        );
+        ui.label(&self.status);
+        let busy = self.job.is_some();
+        ui.collapsing("Microsoft account", |ui| {
+            ui.label(
+                crate::minecraft_auth::account()
+                    .map(|a| format!("Playing as {}", a.name))
+                    .unwrap_or_else(|_| "Not signed in".into()),
+            );
+            if ui
+                .add_enabled(!busy, egui::Button::new("Sign in with Microsoft"))
+                .clicked()
+            {
+                self.sign_in_popup = true;
+                self.sign_in_prompt = None;
+                self.status = "Requesting Microsoft sign-in…".into();
+                self.sign_in_cancel = Default::default();
+                let cancel = self.sign_in_cancel.clone();
+                let id = client_id();
+                self.work(move |tx| {
+                    Outcome::Done(crate::minecraft_auth::sign_in(
+                        &id,
+                        |s| {
+                            let _ = tx.send(Outcome::SignIn(s));
+                        },
+                        &cancel,
+                    ))
+                });
+            }
+            if ui.button("Open Microsoft code page").clicked() {
+                ctx.open_url(egui::OpenUrl::new_tab("https://www.microsoft.com/link"));
+            }
+            if ui
+                .add_enabled(!busy, egui::Button::new("Sign out of Minecraft"))
+                .clicked()
+            {
+                crate::minecraft_auth::sign_out();
+            }
+        });
+        egui::ScrollArea::vertical()
+            .max_height(430.0)
+            .show(ui, |ui| {
+                for i in instances() {
+                    ui.separator();
+                    ui.strong(&i.name);
+                    ui.label(format!("{} · {} {}", i.version, i.loader, i.loader_version));
+                    ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(
+                                !busy && !self.running.contains_key(&i.id),
+                                egui::Button::new("Play"),
+                            )
+                            .clicked()
+                        {
+                            let i = i.clone();
+                            let client_id = client_id();
+                            self.work(move |_| {
+                                Outcome::Launched(launch(&i, &client_id).map(|p| (i.id, p)))
+                            });
+                        }
+                        if ui
+                            .add_enabled(
+                                self.running.contains_key(&i.id),
+                                egui::Button::new("Stop instance"),
+                            )
+                            .clicked()
+                            && let Some(mut p) = self.running.remove(&i.id)
+                        {
+                            let _ = p.kill();
+                            let _ = p.wait();
+                        }
+                        if ui
+                            .add_enabled(
+                                !busy && !self.running.contains_key(&i.id),
+                                egui::Button::new("Install / repair"),
+                            )
+                            .clicked()
+                        {
+                            let i = i.clone();
+                            self.work(move |tx| Outcome::Done(install(&i, tx)));
+                        }
+                        if ui.button("Browse compatible content").clicked() {
+                            self.discover_requested = true;
+                            self.open = false;
+                        }
+                        if ui.button("Open folder").clicked() {
+                            let _ = Command::new("explorer.exe").arg(dir(&i)).spawn();
+                        }
+                    });
+                }
+            });
+    }
     pub fn busy(&self) -> bool {
         self.job.is_some() || !self.running.is_empty()
     }
@@ -802,40 +897,93 @@ impl Minecraft {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
         let mut open = self.open;
-        egui::Window::new("Minecraft").open(&mut open).default_width(780.0).show(ctx,|ui| {
-            ui.heading("Minecraft library · preview");ui.label("Microsoft sign-in needs Canna's registered client ID. Minecraft launching is still being verified.");ui.label(&self.status);let busy=self.job.is_some();
-            ui.collapsing("Microsoft account",|ui| {ui.label(crate::minecraft_auth::account().map(|a|format!("Playing as {}",a.name)).unwrap_or_else(|_|"Not signed in".into()));ui.label("Canna Application (client) ID · public, not a secret");ui.text_edit_singleline(&mut self.client_id);
-                if ui.button("Save client ID").clicked(){let _=std::fs::create_dir_all(root());let _=std::fs::write(root().join("client-id.txt"),self.client_id.trim());}
-                if ui.add_enabled(!busy && !self.client_id.is_empty(),egui::Button::new("Sign in with Microsoft")).clicked(){
-                    self.sign_in_popup=true; self.sign_in_prompt=None;
-                    self.status="Requesting Microsoft sign-in…".into();
-                    self.sign_in_cancel=Default::default();
-                    let cancel=self.sign_in_cancel.clone(); let id=self.client_id.clone();
-                    self.work(move|tx|Outcome::Done(crate::minecraft_auth::sign_in(&id,|s|{let _=tx.send(Outcome::SignIn(s));},&cancel)));
-                }
-                if ui.button("Open Microsoft code page").clicked(){ctx.open_url(egui::OpenUrl::new_tab("https://www.microsoft.com/link"));}
-                if ui.add_enabled(!busy,egui::Button::new("Sign out of Minecraft")).clicked(){crate::minecraft_auth::sign_out();}
-            });
-            ui.collapsing("+ Create Minecraft instance",|ui| {
-                ui.label("Name");ui.text_edit_singleline(&mut self.draft.name);
-                ui.horizontal(|ui| {ui.label("Minecraft version");egui::ComboBox::from_id_salt("minecraft-version").selected_text(&self.draft.version).show_ui(ui,|ui|for v in &self.versions{ui.selectable_value(&mut self.draft.version,v.clone(),v);});ui.text_edit_singleline(&mut self.draft.version);
-                    if ui.add_enabled(!busy,egui::Button::new("Load official versions")).clicked(){self.work(|_|match metadata(MANIFEST) {Ok(v)=>Outcome::Versions(v["versions"].as_array().into_iter().flatten().filter(|v|v["type"]=="release").filter_map(|v|v["id"].as_str().map(str::to_owned)).collect()),Err(e)=>Outcome::Done(Err(e))});}
-                });
-                ui.horizontal(|ui| {ui.label("Loader");for loader in ["vanilla","fabric","forge","neoforge","quilt"]{ui.selectable_value(&mut self.draft.loader,loader.into(),loader);}});
-                ui.label("Loader version · empty selects stable/latest when supported");ui.text_edit_singleline(&mut self.draft.loader_version);
-                ui.label("Java executable override · empty downloads a managed matching runtime");ui.text_edit_singleline(&mut self.draft.java);if ui.button("Choose Java").clicked() && let Some(p)=rfd::FileDialog::new().add_filter("Java executable",&["exe"]).pick_file(){self.draft.java=p.to_string_lossy().into_owned();}
-                ui.add(egui::Slider::new(&mut self.draft.memory,1024..=16384).text("Memory (MiB)"));
-                if ui.add_enabled(!busy,egui::Button::new("Create & install instance")).clicked(){let mut i=self.draft.clone();i.id=format!("mc-{}",std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos());if let Err(e)=save(&i){self.status=e.to_string();}else{self.work(move|tx|Outcome::Done(install(&i,tx)));}}
-            });
-            egui::ScrollArea::vertical().max_height(430.0).show(ui,|ui|for i in instances(){ui.separator();ui.strong(&i.name);ui.label(format!("{} · {} {}",i.version,i.loader,i.loader_version));ui.horizontal(|ui| {
-                if ui.add_enabled(!busy && !self.running.contains_key(&i.id),egui::Button::new("Play")).clicked(){let i=i.clone();let client_id=self.client_id.clone();self.work(move|_|Outcome::Launched(launch(&i,&client_id).map(|p|(i.id,p))));}
-                if ui.add_enabled(self.running.contains_key(&i.id),egui::Button::new("Stop instance")).clicked() && let Some(mut p)=self.running.remove(&i.id){let _=p.kill();let _=p.wait();}
-                if ui.add_enabled(!busy && !self.running.contains_key(&i.id),egui::Button::new("Install / repair")).clicked(){let i=i.clone();self.work(move|tx|Outcome::Done(install(&i,tx)));}
-                if ui.button("Browse compatible content").clicked(){ctx.open_url(egui::OpenUrl::new_tab(format!("https://cannamods.vip/?game=minecraft&mcversion={}&loader={}",i.version,i.loader)));}
-                if ui.button("Open folder").clicked(){let _=Command::new("explorer.exe").arg(dir(&i)).spawn();}
-            });});
-        });
+        if open {
+            egui::Window::new("Minecraft")
+                .open(&mut open)
+                .default_width(780.0)
+                .show(ctx, |ui| self.library(ui));
+        }
         self.open = open;
+        if self.creating {
+            let busy = self.job.is_some();
+            egui::Window::new("Create Minecraft instance").show(ctx, |ui| {
+                if ui.button("Cancel").clicked() {
+                    self.creating = false;
+                }
+                ui.label("Name");
+                ui.text_edit_singleline(&mut self.draft.name);
+                ui.horizontal(|ui| {
+                    ui.label("Minecraft version");
+                    egui::ComboBox::from_id_salt("minecraft-version")
+                        .selected_text(&self.draft.version)
+                        .show_ui(ui, |ui| {
+                            for v in &self.versions {
+                                ui.selectable_value(&mut self.draft.version, v.clone(), v);
+                            }
+                        });
+                    ui.text_edit_singleline(&mut self.draft.version);
+                    if ui
+                        .add_enabled(!busy, egui::Button::new("Load official versions"))
+                        .clicked()
+                    {
+                        self.work(|_| match metadata(MANIFEST) {
+                            Ok(v) => Outcome::Versions(
+                                v["versions"]
+                                    .as_array()
+                                    .into_iter()
+                                    .flatten()
+                                    .filter(|v| v["type"] == "release")
+                                    .filter_map(|v| v["id"].as_str().map(str::to_owned))
+                                    .collect(),
+                            ),
+                            Err(e) => Outcome::Done(Err(e)),
+                        });
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Loader");
+                    for loader in ["vanilla", "fabric", "forge", "neoforge", "quilt"] {
+                        ui.selectable_value(&mut self.draft.loader, loader.into(), loader);
+                    }
+                });
+                ui.label("Loader version · empty selects stable/latest when supported");
+                ui.text_edit_singleline(&mut self.draft.loader_version);
+                ui.label("Java executable override · empty downloads a managed matching runtime");
+                ui.text_edit_singleline(&mut self.draft.java);
+                if ui.button("Choose Java").clicked()
+                    && let Some(p) = rfd::FileDialog::new()
+                        .add_filter("Java executable", &["exe"])
+                        .pick_file()
+                {
+                    self.draft.java = p.to_string_lossy().into_owned();
+                }
+                ui.add(
+                    egui::Slider::new(&mut self.draft.memory, 1024..=16384).text("Memory (MiB)"),
+                );
+                if ui
+                    .add_enabled(!busy, egui::Button::new("Create & install instance"))
+                    .clicked()
+                {
+                    let mut i = self.draft.clone();
+                    i.id = format!(
+                        "mc-{}",
+                        std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap()
+                            .as_nanos()
+                    );
+                    self.creating = false;
+                    if let Err(e) = save(&i) {
+                        self.status = e.to_string();
+                    } else {
+                        self.work(move |tx| Outcome::Done(install(&i, tx)));
+                    }
+                }
+            });
+            if ctx.input(|i| i.key_pressed(egui::Key::Escape)) {
+                self.creating = false;
+            }
+        }
         if self.sign_in_popup {
             let mut popup = true;
             egui::Window::new("Connect your Microsoft account")

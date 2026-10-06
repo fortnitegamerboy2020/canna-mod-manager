@@ -745,6 +745,7 @@ mod tests {
         item.pack_ids.clear();
         assert!(!super::belongs(&item, &pack));
         pack.mods.push(crate::model::ModInfo {
+            content_type: String::new(),
             enabled: true,
             name: item.name.clone(),
             version: item.version.clone(),

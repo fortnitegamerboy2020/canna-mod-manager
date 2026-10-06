@@ -2,7 +2,7 @@ use eframe::egui::{self, Color32};
 
 pub const CANVAS: Color32 = Color32::from_rgb(18, 24, 22);
 pub struct Chrome {
-    icons: [egui::TextureHandle; 8],
+    icons: [egui::TextureHandle; 11],
 }
 impl Chrome {
     pub fn new(ctx: &egui::Context) -> Self {
@@ -24,6 +24,9 @@ impl Chrome {
                 "downloads",
                 include_bytes!("assets/download.png").as_slice(),
             ),
+            ("back", include_bytes!("assets/back.png").as_slice()),
+            ("error", include_bytes!("assets/error.png").as_slice()),
+            ("warning", include_bytes!("assets/warning.png").as_slice()),
         ]
         .map(|(name, bytes)| {
             let mut image = image::load_from_memory(bytes)
@@ -33,6 +36,18 @@ impl Chrome {
             // outlines in a light tint so they remain readable on dark surfaces.
             for pixel in image.pixels_mut() {
                 pixel.0[..3].fill(255);
+            }
+            let bounds = image
+                .enumerate_pixels()
+                .filter(|(_, _, p)| p.0[3] > 16)
+                .fold(None::<(u32, u32, u32, u32)>, |b, x| {
+                    Some(match b {
+                        None => (x.0, x.1, x.0, x.1),
+                        Some((l, t, r, b)) => (l.min(x.0), t.min(x.1), r.max(x.0), b.max(x.1)),
+                    })
+                });
+            if let Some((l, t, r, b)) = bounds {
+                image = image::imageops::crop_imm(&image, l, t, r - l + 1, b - t + 1).to_image();
             }
             ctx.load_texture(
                 name,
@@ -57,17 +72,29 @@ impl Chrome {
         } else {
             Color32::from_rgb(193, 210, 198)
         };
+        let previous_padding = ui.spacing().button_padding;
+        if index >= 9 {
+            ui.spacing_mut().button_padding = egui::vec2(4.0, 4.0);
+        }
         let response = ui
             .add(
                 egui::Button::image(
                     egui::Image::new(&self.icons[index])
-                        .fit_to_exact_size(egui::vec2(24.0, 24.0))
+                        .fit_to_exact_size(egui::vec2(
+                            if index == 6 { 32.0 } else { 24.0 },
+                            if index == 6 { 32.0 } else { 24.0 },
+                        ))
                         .tint(tint),
                 )
                 .selected(selected)
-                .min_size(egui::vec2(48.0, 48.0)),
+                .min_size(if index >= 9 {
+                    egui::vec2(32.0, 32.0)
+                } else {
+                    egui::vec2(48.0, 48.0)
+                }),
             )
             .on_hover_text(label);
+        ui.spacing_mut().button_padding = previous_padding;
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
         response
     }

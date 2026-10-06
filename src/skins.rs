@@ -98,6 +98,9 @@ pub struct Skins {
     catalog: Vec<crate::skin_catalog::SkinResult>,
     previews: Vec<egui::TextureHandle>,
     browser: bool,
+    page: usize,
+    more: bool,
+    append: bool,
 }
 impl Skins {
     pub fn busy(&self) -> bool {
@@ -107,14 +110,28 @@ impl Skins {
         if self.search.is_some() {
             return;
         }
-        self.query = query.clone();
+        self.query = query;
+        self.page = 0;
+        self.more = true;
+        self.catalog.clear();
+        self.previews.clear();
+        self.next_page();
+    }
+    fn next_page(&mut self) {
+        if self.search.is_some() || !self.more {
+            return;
+        }
+        self.page += 1;
+        self.append = self.page > 1;
         self.browser = true;
+        let query = self.query.clone();
         let source = self.source.clone();
+        let page = self.page;
         let (tx, rx) = std::sync::mpsc::channel();
         self.search = Some(rx);
-        self.status = "Searching skin sites and loading previews…".into();
+        self.status = "Loading skins…".into();
         std::thread::spawn(move || {
-            let _ = tx.send(crate::skin_catalog::search(&query, &source));
+            let _ = tx.send(crate::skin_catalog::search_page(&query, &source, page));
         });
     }
     fn save_result(&mut self, index: usize, ctx: &egui::Context) -> Result<()> {
@@ -157,6 +174,9 @@ impl Skins {
     pub fn open_browser(&mut self) {
         self.open = true;
         self.browser = true;
+        if self.catalog.is_empty() && self.search.is_none() {
+            self.search_for(String::new());
+        }
     }
     pub fn update(&mut self, ctx: &egui::Context) {
         if let Some(receiver) = &self.applying {
@@ -172,9 +192,16 @@ impl Skins {
         }
         if let Some(rx) = &self.search {
             if let Ok(result) = rx.try_recv() {
-                self.previews.clear();
-                self.catalog.clear();
+                if !self.append {
+                    self.previews.clear();
+                    self.catalog.clear();
+                }
+                let old_count = self.catalog.len();
+                self.more = result.more;
                 for item in result.skins {
+                    if self.catalog.iter().any(|old| old.bytes == item.bytes) {
+                        continue;
+                    }
                     if let Ok(image) = image::load_from_memory(&item.bytes) {
                         let image = image.to_rgba8();
                         self.previews.push(ctx.load_texture(
@@ -187,6 +214,9 @@ impl Skins {
                         ));
                         self.catalog.push(item);
                     }
+                }
+                if self.catalog.len() == old_count {
+                    self.more = false;
                 }
                 self.status = result.messages.join(" · ");
                 self.search = None;
@@ -205,6 +235,9 @@ impl Skins {
         ui.add_space(12.0);
         if self.browser {
             let searching = self.search.is_some();
+            if ui.button("Skins home").clicked() && !searching {
+                self.search_for(String::new());
+            }
             ui.horizontal(|ui| {
                 let field = ui.add(
                     egui::TextEdit::singleline(&mut self.query)
@@ -255,20 +288,56 @@ impl Skins {
             });
             ui.separator();
             let mut save = None;
-            egui::ScrollArea::vertical().show(ui,|ui| {
-                egui::Grid::new("skin-results").num_columns(4).spacing(egui::vec2(14.0,14.0)).show(ui,|ui| {
-                    for (index,item) in self.catalog.iter().enumerate() {
-                        egui::Frame::group(ui.style()).inner_margin(12).show(ui,|ui| {ui.set_width(175.0);ui.vertical(|ui| {
-                            paint_skin(ui,&self.previews[index],false,egui::vec2(150.0,160.0));
-                            ui.label(egui::RichText::new(&item.title).strong());ui.label(egui::RichText::new(&item.source).small());
-                            ui.horizontal(|ui| {if ui.button("Save skin").clicked(){save=Some(index);}
-if ui.link("Original").clicked(){ctx.open_url(egui::OpenUrl::new_tab(&item.page));}});
-                        });});
-                        if index%4==3 {ui.end_row();}
+            egui::ScrollArea::vertical()
+                .id_salt(("skin-results", self.query.clone(), self.source.clone()))
+                .show(ui, |ui| {
+                    egui::Grid::new("skin-results")
+                        .num_columns(4)
+                        .spacing(egui::vec2(14.0, 14.0))
+                        .show(ui, |ui| {
+                            for (index, item) in self.catalog.iter().enumerate() {
+                                egui::Frame::group(ui.style())
+                                    .inner_margin(12)
+                                    .show(ui, |ui| {
+                                        ui.set_width(175.0);
+                                        ui.vertical(|ui| {
+                                            paint_skin(
+                                                ui,
+                                                &self.previews[index],
+                                                false,
+                                                egui::vec2(150.0, 160.0),
+                                            );
+                                            ui.label(egui::RichText::new(&item.title).strong());
+                                            ui.label(egui::RichText::new(&item.source).small());
+                                            ui.horizontal(|ui| {
+                                                if ui.button("Save skin").clicked() {
+                                                    save = Some(index);
+                                                }
+                                                if ui.link("Original").clicked() {
+                                                    ctx.open_url(egui::OpenUrl::new_tab(
+                                                        &item.page,
+                                                    ));
+                                                }
+                                            });
+                                        });
+                                    });
+                                if index % 4 == 3 {
+                                    ui.end_row();
+                                }
+                            }
+                        });
+                    if self.catalog.is_empty() && !searching {
+                        ui.label("No skins found. Try another search.");
+                    }
+                    let end = ui.label(if self.more {
+                        "Scroll for more skins"
+                    } else {
+                        "End of results"
+                    });
+                    if self.more && !searching && ui.is_rect_visible(end.rect) {
+                        self.next_page();
                     }
                 });
-                if self.catalog.is_empty() && !searching {ui.label("Search across skin sites to find a skin, then save it to preview or apply it.");}
-            });
             if let Some(index) = save {
                 self.status = match self.save_result(index, &ctx) {
                     Ok(()) => {
@@ -338,13 +407,12 @@ if ui.link("Original").clicked(){ctx.open_url(egui::OpenUrl::new_tab(&item.page)
                         self.applying = Some(receiver);
                         self.status = "Applying skin…".into();
                         std::thread::spawn(move || {
-                            let result =
-                                std::fs::read_to_string(super::minecraft::client_id_path())
-                                    .map_err(|e| e.to_string())
-                                    .and_then(|id| {
-                                        super::minecraft_auth::apply_skin(id.trim(), &path, slim)
-                                            .map_err(|e| e.to_string())
-                                    });
+                            let result = super::minecraft_auth::apply_skin(
+                                super::minecraft::CLIENT_ID,
+                                &path,
+                                slim,
+                            )
+                            .map_err(|e| e.to_string());
                             let _ = sender.send(result);
                         });
                     }

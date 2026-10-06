@@ -76,6 +76,7 @@ pub fn add_local(path: &Path) -> Result<ModInfo> {
     std::fs::create_dir_all(local_directory())?;
     std::fs::write(local_directory().join(&file), bytes)?;
     Ok(ModInfo {
+        content_type: String::new(),
         enabled: true,
         name: path
             .file_stem()
@@ -563,6 +564,7 @@ mod tests {
             &crate::model::bopl(),
             source,
             vec![ModInfo {
+                content_type: String::new(),
                 enabled: true,
                 name: "Fixture mod".into(),
                 version: "1.2.3".into(),

@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.8', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.9', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -27,7 +27,7 @@ try {
     }
     $cannaCommit = Invoke-CannaApi "git/commits/$($cannaRef.object.sha)"
     # Explicit source allowlist. Credential files, game assemblies, caches and build output are excluded.
-    $cannaFiles = @('Cargo.toml', 'Cargo.lock', 'build.rs', 'build.ps1', '.gitignore', 'README.md')
+    $cannaFiles = @('Cargo.toml', 'Cargo.lock', 'build.rs', 'build.ps1', '.gitignore', 'README.md', 'AGENTS.md')
     foreach ($cannaFolder in @('src', 'scripts', 'examples', 'repository-template')) {
         $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
     }
@@ -40,19 +40,19 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: Microsoft sign-in popup and authentication diagnostics"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: Game-first Discover, library and skins browsing"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Microsoft sign-in now displays a separate popup with a large device code, Copy code, expiry countdown, Cancel and a button to reopen the verification page. The Microsoft verification page opens automatically as soon as the code arrives. Cancel or closing the popup prevents a cancelled login from being saved.
+Discover now starts with game cards. Game selection survives switching pages; click Discover again while already browsing it or use the supplied back icon to return home. Missing account connection is shown with a direct website approval button and catalog refresh.
 
-Authentication failures now identify the failing Microsoft, Xbox, Minecraft API, ownership or profile step. A Minecraft API login 403 explains the possible application approval requirement and links the review form. Authentication response bodies and tokens are not shown in diagnostics.
+The server catalog now includes Minecraft content. Minecraft Discover has Mods, Shaders, Resource packs and Data packs tabs; content downloads use the existing website download flow. Minecraft instance creation lives on the first library card. Microsoft application ID is bundled and saved overrides are ignored. Full Minecraft login and launching still require verification/application approval.
 
-Canna's supplied public Application (client) ID is the default for new installations; saved overrides remain supported. A registered client ID is not a secret. Minecraft API approval and a complete account login still need verification. Minecraft launching remains a preview.
+Sidebar order: Library, Modpacks, Discover, Console, Minecraft, Skins, Downloads, Settings. Website is enlarged at the bottom. Sidebar and status bar have square corners, readable status text and header warning/error icons.
 
-Application updates continue to use the separate private GitHub releases repository.
+Skins now starts with a family-friendly home of original Canna robot designs. Scroll loads more home designs or additional external search pages; duplicate results stop repeated-page loading. External search has a title filter, not a guarantee that third-party images are moderated.
 
-Validation: 32 desktop tests passed, strict Clippy passed, verification URL restrictions and stage-specific errors tested, and a native popup preview visually checked. No account login or game launch was performed during these checks.
+Validation: Desktop tests and strict Clippy passed; native Library, Discover and Skins previews were inspected. Server authentication and catalog inclusion are tested separately. No complete Minecraft login or game launch is claimed.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

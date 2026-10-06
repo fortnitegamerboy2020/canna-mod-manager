@@ -235,6 +235,7 @@ pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
     // Never overwrite another loader or partial installation.
     ensure_closed(game)?;
     let framework = crate::model::ModInfo {
+        content_type: String::new(),
         enabled: true,
         name: "BepInEx".into(),
         version: "framework".into(),

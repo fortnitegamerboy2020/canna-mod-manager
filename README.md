@@ -152,6 +152,20 @@ Public client configuration: https://learn.microsoft.com/en-us/entra/identity-pl
 
 ### Microsoft sign-in popup (0.2.8)
 
-Minecraft → Microsoft account → Sign in with Microsoft opens a separate popup and automatically opens Microsoft's verification page once the device code arrives. The popup offers a large code, Copy code, countdown, reopen-page button and cancellation. Closing or cancelling prevents the login from being saved. Canna's registered public client ID is the default; saved overrides still work.
+Minecraft → Microsoft account → Sign in with Microsoft opens a separate popup and automatically opens Microsoft's verification page once the device code arrives. The popup offers a large code, Copy code, countdown, reopen-page button and cancellation. Closing or cancelling prevents the login from being saved. Canna's registered public client ID is the default; saved overrides are ignored as of 0.2.9.
 
 Errors identify the failing Microsoft, Xbox, Minecraft API login, entitlement or profile step. A Minecraft API login 403 explains the possible application approval requirement. Successful device-code issuance alone does not verify a full Minecraft login. Tokens and raw authentication response bodies are not included in displayed errors.
+
+### Public help and FAQ
+
+The public guide at https://cannamods.vip/help is linked prominently from both the login page and member header. It describes Canna, setup, current features, preview/planned work, and troubleshooting. It contains no private member or catalog data. When adding or changing a user-facing feature, update server/web/help.html and its relevant FAQs in the same task; AGENTS.md records this maintenance requirement. Label verification limits accurately, especially Minecraft API approval, launches and multiplayer.
+
+### Discover and navigation (0.2.9)
+
+Discover opens a game browser. Selecting a game shows its server catalog; back or pressing Discover while already on that page returns home. Switching to other pages retains the game selection. The private catalog requires a separate desktop connection approved on the website; the empty state offers that connection directly. Minecraft content is included using a reserved game ID and filtered by Mods, Shaders, Resource packs and Data packs. Minecraft downloads still use the website download flow and require manual placement in the instance folder.
+
+Minecraft is first in the game library, with Create instance. Its Microsoft application ID is compiled into the app and cannot be overridden by settings or client-id.txt. Full Minecraft account login/launch remains unverified while API approval is pending.
+
+Sidebar order is Library, Modpacks, Discover, Console, Minecraft, Skins, Downloads, Settings, with a larger Website button at the bottom. Sidebar/status surfaces have square corners. Header icons show warnings/errors and the status bar uses larger text.
+
+Skins opens friendly, original Canna robot designs. Home and external searches load additional results as the scroll reaches the end. External results are deduplicated; repeated/end pages stop loading. The title filter is not image moderation and cannot guarantee external search results are safe. Home does not fetch unreviewed external uploads.

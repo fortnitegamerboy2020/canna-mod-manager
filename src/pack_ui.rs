@@ -10,6 +10,7 @@ const SURFACE: Color32 = Color32::from_rgb(29, 39, 33);
 #[derive(Default)]
 pub struct DiscoverState {
     pub query: String,
+    pub kind: String,
     pub game: u32,
     pub target: Option<String>,
 }
@@ -79,6 +80,7 @@ impl PackUi {
             query,
             game: game_filter,
             target,
+            kind,
         } = state;
         ui.label(RichText::new("Discover").size(32.0).strong().color(TEXT));
         ui.label(RichText::new("Find your family's next favorite mod.").color(MUTED));
@@ -89,21 +91,20 @@ impl PackUi {
                 .hint_text("Search mods, games, or descriptions…")
                 .desired_width(f32::INFINITY),
         );
+        if *game_filter == u32::MAX {
+            ui.horizontal_wrapped(|ui| {
+                for (value, label) in [
+                    ("", "All"),
+                    ("mod", "Mods"),
+                    ("shader", "Shaders"),
+                    ("resourcepack", "Resource packs"),
+                    ("datapack", "Data packs"),
+                ] {
+                    ui.selectable_value(kind, value.into(), label);
+                }
+            });
+        }
         ui.horizontal_wrapped(|ui| {
-            egui::ComboBox::from_id_salt("discover_game")
-                .selected_text(
-                    catalog
-                        .iter()
-                        .find(|g| g.app_id == *game_filter)
-                        .map(|g| g.name.as_str())
-                        .unwrap_or("All games"),
-                )
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(game_filter, 0, "All games");
-                    for game in catalog {
-                        ui.selectable_value(game_filter, game.app_id, &game.name);
-                    }
-                });
             ui.label("Add to");
             egui::ComboBox::from_id_salt("discover_pack")
                 .selected_text(
@@ -135,6 +136,7 @@ impl PackUi {
             for game in catalog.iter().filter(|g| *game_filter==0 || g.app_id==*game_filter) {
                 for item in &game.mods {
                     if !format!("{} {} {}",game.name,item.name,item.description).to_lowercase().contains(&query) { continue; }
+                    if !kind.is_empty() && item.content_type != *kind { continue; }
                     matches += 1;
                     egui::Frame::new().fill(SURFACE).corner_radius(crate::ui_helpers::SURFACE_RADIUS).inner_margin(20).show(ui, |ui| {
                         ui.horizontal_wrapped(|ui| {
@@ -143,6 +145,7 @@ impl PackUi {
                         });
                         ui.label(RichText::new(&game.name).color(GREEN));
                         ui.label(&item.description);
+                        if game.app_id==u32::MAX { if ui.button("Download from website").clicked() {ui.ctx().open_url(egui::OpenUrl::new_tab("https://cannamods.vip/?game=minecraft"));} return; }
                         let pack = self.packs.iter().find(|p|Some(&p.id)==target.as_ref());
                         let compatible = pack.is_some_and(|p|p.game.app_id==game.app_id && Some(&p.repository)==source);
                         let existing = pack.and_then(|p|p.mods.iter().find(|m|m.local_file.is_empty() && m.name==item.name));
@@ -1360,6 +1363,7 @@ mod tests {
         let game = crate::model::bopl();
         let source = Source::from_settings(&crate::model::Settings::load());
         let item = crate::model::ModInfo {
+            content_type: String::new(),
             enabled: false,
             name: "Discovery fixture".into(),
             version: "1.0.0".into(),

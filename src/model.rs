@@ -44,6 +44,8 @@ pub struct ModInfo {
     pub name: String,
     pub version: String,
     #[serde(default)]
+    pub content_type: String,
+    #[serde(default)]
     pub description: String,
     pub file: String,
     #[serde(default)]

@@ -12,6 +12,7 @@ pub struct SkinResult {
 pub struct SearchResult {
     pub skins: Vec<SkinResult>,
     pub messages: Vec<String>,
+    pub more: bool,
 }
 struct Listing {
     title: String,
@@ -98,7 +99,7 @@ fn listings(source: &str, raw: &str) -> Result<Vec<Listing>> {
     let select = |s: &str| Selector::parse(s).map_err(|_| anyhow::anyhow!("Invalid skin selector"));
     match source {
         "MinecraftSkins.net" => {
-            for card in document.select(&select(".result .card")?).take(8) {
+            for card in document.select(&select(".result .card")?).take(40) {
                 let Some(link) = card
                     .select(&select("a.panel-link")?)
                     .next()
@@ -169,13 +170,13 @@ fn listings(source: &str, raw: &str) -> Result<Vec<Listing>> {
                     page,
                     download,
                 });
-                if out.len() == 8 {
+                if out.len() == 40 {
                     break;
                 }
             }
         }
         "Skindex" => {
-            for card in document.select(&select(".skin-list li")?).take(8) {
+            for card in document.select(&select(".skin-list li")?).take(40) {
                 let Some(link) = card.select(&select("a[href^='/skin/']")?).next() else {
                     continue;
                 };
@@ -207,17 +208,35 @@ fn listings(source: &str, raw: &str) -> Result<Vec<Listing>> {
     }
     Ok(out)
 }
-fn provider(source: &str, query: &str) -> Result<Vec<SkinResult>> {
+fn provider(source: &str, query: &str, page: usize) -> Result<Vec<SkinResult>> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
         .connect_timeout(std::time::Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::none())
         .user_agent("Canna-Mod-Manager/0.2.7 skin browser")
         .build()?;
-    let bytes = get(&client, &search_url(source, query)?, 3 * 1024 * 1024)?;
+    let mut url = reqwest::Url::parse(&search_url(source, query)?)?;
+    if page > 1 {
+        match source {
+            "SkinsMC" => {
+                url.path_segments_mut().unwrap().push(&page.to_string());
+            }
+            "Skindex" => {
+                let mut seg = url.path_segments_mut().unwrap();
+                seg.pop_if_empty().pop().push(&page.to_string()).push("");
+            }
+            _ => {
+                url.query_pairs_mut().append_pair("page", &page.to_string());
+            }
+        }
+    }
+    let bytes = get(&client, url.as_str(), 3 * 1024 * 1024)?;
     let raw = String::from_utf8(bytes)?;
     let mut out = Vec::new();
-    for item in listings(source, &raw)? {
+    for item in listings(source, &raw)?
+        .into_iter()
+        .filter(|item| safe_title(&item.title))
+    {
         let Ok(bytes) = get(&client, &item.download, 2 * 1024 * 1024) else {
             continue;
         };
@@ -233,12 +252,20 @@ fn provider(source: &str, query: &str) -> Result<Vec<SkinResult>> {
     }
     Ok(out)
 }
+#[cfg(test)]
 pub fn search(query: &str, source: &str) -> SearchResult {
+    search_page(query, source, 1)
+}
+pub fn search_page(query: &str, source: &str, page: usize) -> SearchResult {
+    if query.trim().is_empty() {
+        return home(page);
+    }
     let query = query.trim();
     if query.is_empty() || query.chars().count() > 80 {
         return SearchResult {
             skins: Vec::new(),
             messages: vec!["Enter a search of 1–80 characters.".into()],
+            more: false,
         };
     }
     let sources: Vec<_> = ["MinecraftSkins.net", "SkinsMC", "Skindex"]
@@ -248,11 +275,12 @@ pub fn search(query: &str, source: &str) -> SearchResult {
     std::thread::scope(|scope| {
         let jobs: Vec<_> = sources
             .iter()
-            .map(|name| (*name, scope.spawn(move || provider(name, query))))
+            .map(|name| (*name, scope.spawn(move || provider(name, query, page))))
             .collect();
         let mut result = SearchResult {
             skins: Vec::new(),
             messages: Vec::new(),
+            more: false,
         };
         for (name, job) in jobs {
             match job.join() {
@@ -260,6 +288,7 @@ pub fn search(query: &str, source: &str) -> SearchResult {
                     result
                         .messages
                         .push(format!("{name}: {} skins", skins.len()));
+                    result.more |= !skins.is_empty();
                     result.skins.append(&mut skins);
                 }
                 Ok(Err(error)) => result.messages.push(format!(
@@ -271,8 +300,93 @@ pub fn search(query: &str, source: &str) -> SearchResult {
         result
     })
 }
+fn safe_title(title: &str) -> bool {
+    let title = title.to_lowercase();
+    ![
+        "nude", "naked", "porn", "sex", "nsfw", "hitler", "nazi", "swastika",
+    ]
+    .iter()
+    .any(|word| title.contains(word))
+}
+// Original fully-clothed robot designs: home does not pull unreviewed external uploads.
+fn home(page: usize) -> SearchResult {
+    let mut skins = Vec::new();
+    for n in (page - 1) * 24..page * 24 {
+        let mut png = image::RgbaImage::new(64, 64);
+        let color = [
+            (80 + (n * 43) % 155) as u8,
+            (90 + (n * 71) % 145) as u8,
+            (80 + (n * 97) % 155) as u8,
+            255,
+        ];
+        for (x, y, p) in png.enumerate_pixels_mut() {
+            if (y < 16 && x < 32)
+                || ((16..32).contains(&y) && x < 56)
+                || ((16..48).contains(&x) && y >= 48)
+            {
+                let shade = if (x + y + n as u32).is_multiple_of(4) {
+                    0.8
+                } else {
+                    1.0
+                };
+                *p = image::Rgba([
+                    (color[0] as f32 * shade) as u8,
+                    (color[1] as f32 * shade) as u8,
+                    (color[2] as f32 * shade) as u8,
+                    255,
+                ]);
+            }
+        }
+        for y in 10..14 {
+            for x in 9..15 {
+                png.put_pixel(x, y, image::Rgba([25, 35, 40, 255]));
+            }
+        }
+        png.put_pixel(10, 11, image::Rgba([235, 255, 245, 255]));
+        png.put_pixel(13, 11, image::Rgba([235, 255, 245, 255]));
+        for x in 10..14 {
+            png.put_pixel(x, 14, image::Rgba([25, 35, 40, 255]));
+        }
+        let mut bytes = std::io::Cursor::new(Vec::new());
+        image::DynamicImage::ImageRgba8(png)
+            .write_to(&mut bytes, image::ImageFormat::Png)
+            .expect("Bundled robot skin");
+        skins.push(SkinResult {
+            title: format!("Canna Bot {}", n + 1),
+            source: "Canna originals".into(),
+            page: "https://cannamods.vip/help#minecraft".into(),
+            bytes: bytes.into_inner(),
+        });
+    }
+    SearchResult {
+        skins,
+        messages: vec![
+            "Friendly Canna originals · search above for skins from multiple websites.".into(),
+        ],
+        more: true,
+    }
+}
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn home_pages_are_original_valid_and_do_not_repeat() {
+        let first = super::search_page("", "", 1);
+        let second = super::search_page("", "", 2);
+        assert_eq!(first.skins.len(), 24);
+        assert!(first.more);
+        for skin in first.skins.iter().chain(&second.skins) {
+            crate::skins::validate_png(&skin.bytes).unwrap();
+            assert_eq!(skin.source, "Canna originals");
+        }
+        assert!(
+            first
+                .skins
+                .iter()
+                .all(|s| !second.skins.iter().any(|other| s.bytes == other.bytes))
+        );
+        assert!(!super::safe_title("NSFW skin"));
+        assert!(super::safe_title("Diamond robot"));
+    }
     #[test]
     fn providers_cannot_redirect_searches_to_other_hosts() {
         assert!(super::allowed("https://www.minecraftskins.net/diamondrobot/download").is_ok());
@@ -296,6 +410,22 @@ mod tests {
             results[0].download,
             "https://www.minecraftskins.net/diamondrobot/download"
         );
+    }
+    #[test]
+    #[ignore = "Live SkinsMC pagination and validated PNG downloads"]
+    fn live_search_pagination() {
+        let first = super::provider("SkinsMC", "robot", 1).unwrap();
+        let second = super::provider("SkinsMC", "robot", 2).unwrap();
+        assert!(!first.is_empty());
+        assert!(!second.is_empty());
+        assert!(
+            second
+                .iter()
+                .any(|skin| !first.iter().any(|old| old.page == skin.page))
+        );
+        for item in first.iter().chain(&second) {
+            crate::skins::validate_png(&item.bytes).unwrap();
+        }
     }
     #[test]
     #[ignore = "Live skin-provider search and validated PNG downloads"]
