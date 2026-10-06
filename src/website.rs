@@ -362,6 +362,9 @@ pub fn instance(ticket: Option<String>) -> Option<Receiver<String>> {
     }
 }
 pub struct Website {
+    pairing: Option<Receiver<PairEvent>>,
+    pair_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    pub account_status: String,
     tickets: Option<Receiver<String>>,
     pending: std::collections::VecDeque<String>,
     result: Option<Receiver<Result<String>>>,
@@ -374,6 +377,9 @@ pub struct Website {
 impl Default for Website {
     fn default() -> Self {
         Self {
+            pairing: None,
+            pair_cancel: Default::default(),
+            account_status: String::new(),
             tickets: None,
             pending: Default::default(),
             result: None,
@@ -387,12 +393,58 @@ impl Default for Website {
 }
 impl Website {
     pub fn busy(&self) -> bool {
-        self.result.is_some() || !self.pending.is_empty()
+        self.result.is_some() || !self.pending.is_empty() || self.pairing.is_some()
+    }
+    pub fn connecting(&self) -> bool {
+        self.pairing.is_some()
+    }
+    pub fn cancel_sign_in(&mut self) {
+        self.pair_cancel
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+    }
+    pub fn start_sign_in(&mut self) {
+        if self.pairing.is_some() {
+            return;
+        }
+        let (tx, rx) = mpsc::channel();
+        self.pairing = Some(rx);
+        self.pair_cancel = Default::default();
+        let cancel = self.pair_cancel.clone();
+        self.account_status = "Preparing a secure account connection…".into();
+        std::thread::spawn(move || {
+            let result = pair_account(&tx, &cancel).map_err(|e| e.to_string());
+            let _ = tx.send(PairEvent::Finished(result));
+        });
     }
     pub fn set_receiver(&mut self, rx: Receiver<String>) {
         self.tickets = Some(rx);
     }
     pub fn update(&mut self, ctx: &egui::Context) -> bool {
+        let mut paired = false;
+        let mut finished = false;
+        if let Some(rx) = &self.pairing {
+            while let Ok(event) = rx.try_recv() {
+                match event {
+                    PairEvent::Started(request) => {
+                        self.account_status = format!(
+                            "Approve connection {} on the website. Waiting for your approval…",
+                            request[..6].to_uppercase()
+                        );
+                        ctx.open_url(egui::OpenUrl::new_tab(format!(
+                            "https://cannamods.vip/connect?request={request}"
+                        )));
+                    }
+                    PairEvent::Finished(result) => {
+                        paired = result.is_ok();
+                        self.account_status = result.unwrap_or_else(|e| e);
+                        finished = true;
+                    }
+                }
+            }
+        }
+        if finished {
+            self.pairing = None;
+        }
         if let Some(rx) = &self.tickets {
             while let Ok(t) = rx.try_recv() {
                 self.pending.push_back(t);
@@ -401,7 +453,7 @@ impl Website {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
             }
         }
-        let mut reload = false;
+        let mut reload = paired;
         if let Some(rx) = &self.result
             && let Ok(result) = rx.try_recv()
         {
@@ -427,7 +479,7 @@ impl Website {
                 ctx.request_repaint();
             });
         }
-        if self.result.is_some() || self.tickets.is_some() {
+        if self.result.is_some() || self.tickets.is_some() || self.pairing.is_some() {
             ctx.request_repaint_after(Duration::from_millis(250));
         }
         reload
@@ -595,6 +647,72 @@ impl Website {
         });
         reload
     }
+}
+enum PairEvent {
+    Started(String),
+    Finished(std::result::Result<String, String>),
+}
+fn pair_account(
+    tx: &mpsc::Sender<PairEvent>,
+    cancel: &std::sync::atomic::AtomicBool,
+) -> Result<String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?;
+    let call = |path: &str, input: serde_json::Value| -> Result<serde_json::Value> {
+        let response = client
+            .post(format!("https://cannamods.vip/api/v1/desktop/{path}"))
+            .json(&input)
+            .send()?;
+        anyhow::ensure!(
+            response.status().is_success(),
+            "Account connection failed ({}). Start again in Canna after signing in on the website.",
+            response.status()
+        );
+        let mut bytes = Vec::new();
+        response.take(8193).read_to_end(&mut bytes)?;
+        anyhow::ensure!(bytes.len() <= 8192, "Invalid account connection response");
+        Ok(serde_json::from_slice(&bytes)?)
+    };
+    let started = call("start", serde_json::json!({}))?;
+    let request = started["request"]
+        .as_str()
+        .context("Connection request missing")?;
+    let proof = started["proof"]
+        .as_str()
+        .context("Connection proof missing")?;
+    for raw in [request, proof] {
+        anyhow::ensure!(
+            raw.len() == 64 && raw.bytes().all(|b| b.is_ascii_hexdigit()),
+            "Invalid connection request"
+        );
+    }
+    let _ = tx.send(PairEvent::Started(request.into()));
+    let deadline = std::time::Instant::now() + Duration::from_secs(300);
+    while std::time::Instant::now() < deadline {
+        if cancel.load(std::sync::atomic::Ordering::Relaxed) {
+            bail!("Account connection cancelled.");
+        }
+        let status = call("poll", serde_json::json!({"request":request,"proof":proof}))?;
+        if status["state"] == "connected" {
+            let raw = status["token"]
+                .as_str()
+                .context("Account session missing")?;
+            anyhow::ensure!(
+                raw.len() == 64 && raw.bytes().all(|b| b.is_ascii_hexdigit()),
+                "Invalid account session"
+            );
+            crate::credentials::save("canna-session", raw.as_bytes())?;
+            return Ok("Canna account connected. Server library is syncing.".into());
+        }
+        anyhow::ensure!(
+            status["state"] == "waiting",
+            "Account connection expired. Start again."
+        );
+        std::thread::sleep(Duration::from_secs(2));
+    }
+    bail!("Account connection expired. Click Sign in & connect account to try again.")
 }
 #[cfg(test)]
 mod tests {

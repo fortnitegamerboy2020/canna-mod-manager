@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.6', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.7', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -40,19 +40,19 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: supplied navigation icons and downloads grouped by modpack"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: browser-approved account connection and multi-site skin discovery"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-The sidebar now uses the supplied Minecraft, website and download icons.
+Account connection now starts a five-minute browser approval request. Sign into the Canna website, compare the code, and approve: the desktop waits and connects automatically without relying on a Windows custom-protocol callback. Requests and claims are expiring and single-use.
 
-Downloads is a full page with All, Unassigned and a tab for each Steam modpack. It includes community downloads, mod archives fetched while applying a pack, BepInEx packages and imported local files. Existing website-download records remain available. Stable pack IDs and content checksums keep renamed packs and imported bundles grouped correctly.
+Skins is a full searchable gallery. Search MinecraftSkins.net and SkinsMC together or individually, preview results, preserve attribution, and save skins for classic/slim preview, PNG export or application to a signed-in Minecraft account. Skindex is attempted too; a source that blocks requests displays a status and browser search link.
 
-Select a pack tab to import a local DLL/ZIP or add a compatible downloaded file to a pack. Framework packages cannot accidentally be added as ordinary mods. Files are checked before adding them. Minecraft remains a preview with the limitations noted in v0.2.5.
+Skin downloads have format, dimensions, size and redirect-host checks. Microsoft login still needs Canna's registered public client ID and verification with an eligible Minecraft account. Minecraft launching remains a preview.
 
 Application updates continue to use the separate private GitHub releases repository.
 
-Validation: 29 desktop tests passed, strict Clippy passed, and native screenshots checked. No game was launched during these checks.
+Validation: 31 desktop tests passed, strict Clippy passed, live search and PNG downloads passed for both working providers, and the native gallery was visually checked. The server's 31 tests and strict Clippy passed. No game was launched.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

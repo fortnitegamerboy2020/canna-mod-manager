@@ -11,6 +11,7 @@ mod owned_game;
 mod pack_ui;
 mod repository;
 mod runtime;
+mod skin_catalog;
 mod skins;
 mod steam;
 mod ui_helpers;
@@ -122,7 +123,19 @@ impl Canna {
         let configured = !settings.owner.is_empty();
         let mut app = Self {
             website: website::Website::default(),
-            skins: Default::default(),
+            skins: {
+                let mut skins = skins::Skins::default();
+                if std::env::args().any(|a| a == "--skins") {
+                    skins.open_browser();
+                }
+                if let Some(query) = std::env::args()
+                    .find_map(|a| a.strip_prefix("--skin-search=").map(str::to_owned))
+                {
+                    skins.open_browser();
+                    skins.search_for(query);
+                }
+                skins
+            },
             minecraft: Default::default(),
             chrome: chrome::Chrome::new(ctx),
             owned_games: BTreeMap::new(),
@@ -452,8 +465,20 @@ impl Canna {
                 } else {
                     "Account connected · sessions last 12 hours"
                 });
-                if ui.button("Sign in & connect account").clicked() {
-                    ctx.open_url(egui::OpenUrl::new_tab("https://cannamods.vip/connect"));
+                if ui
+                    .add_enabled(
+                        !self.website.connecting(),
+                        egui::Button::new("Sign in & connect account"),
+                    )
+                    .clicked()
+                {
+                    self.website.start_sign_in();
+                }
+                if !self.website.account_status.is_empty() {
+                    ui.label(&self.website.account_status);
+                }
+                if self.website.connecting() && ui.button("Cancel connection").clicked() {
+                    self.website.cancel_sign_in();
                 }
                 if ui
                     .add_enabled(
@@ -729,6 +754,7 @@ impl Canna {
                     ui.label(&self.runtime_status);
                     if ui.button("Open Console").clicked() {
                         self.website.open = false;
+                        self.skins.open = false;
                         self.discover_page = false;
                         self.console_page = true;
                     }
@@ -756,6 +782,7 @@ impl Canna {
             }
             if !self.scanning
                 && !self.syncing
+                && !self.skins.busy()
                 && !self.screenshot_requested
                 && (!self.console_page || self.games.is_empty() || self.console.has_snapshot())
             {
@@ -792,6 +819,7 @@ impl Canna {
                         0,
                         "Game library",
                         !self.website.open
+                            && !self.skins.open
                             && !self.modpacks_page
                             && !self.console_page
                             && !self.discover_page,
@@ -799,6 +827,7 @@ impl Canna {
                     .clicked()
                 {
                     self.website.open = false;
+                    self.skins.open = false;
                     self.discover_page = false;
                     self.modpacks_page = false;
                     self.game_details = false;
@@ -807,6 +836,7 @@ impl Canna {
                 if chrome::Chrome::packs(
                     ui,
                     !self.website.open
+                        && !self.skins.open
                         && self.modpacks_page
                         && !self.console_page
                         && !self.discover_page,
@@ -814,25 +844,38 @@ impl Canna {
                 .clicked()
                 {
                     self.website.open = false;
+                    self.skins.open = false;
                     self.discover_page = false;
                     self.modpacks_page = true;
                     self.console_page = false;
                 }
                 if self
                     .chrome
-                    .nav(ui, 1, "Discover", self.discover_page && !self.website.open)
+                    .nav(
+                        ui,
+                        1,
+                        "Discover",
+                        self.discover_page && !self.website.open && !self.skins.open,
+                    )
                     .clicked()
                 {
                     self.website.open = false;
+                    self.skins.open = false;
                     self.discover_page = true;
                     self.console_page = false;
                 }
                 if self
                     .chrome
-                    .nav(ui, 2, "Console", self.console_page && !self.website.open)
+                    .nav(
+                        ui,
+                        2,
+                        "Console",
+                        self.console_page && !self.website.open && !self.skins.open,
+                    )
                     .clicked()
                 {
                     self.website.open = false;
+                    self.skins.open = false;
                     self.discover_page = false;
                     self.console_page = true;
                     self.last_console_poll =
@@ -842,7 +885,9 @@ impl Canna {
                     ctx.open_url(egui::OpenUrl::new_tab("https://cannamods.vip"));
                 }
                 if self.chrome.nav(ui, 4, "Skins", self.skins.open).clicked() {
-                    self.skins.open = true;
+                    self.website.open = false;
+                    self.skins.open = false;
+                    self.skins.open_browser();
                 }
                 if self
                     .chrome
@@ -857,6 +902,7 @@ impl Canna {
                     .clicked()
                 {
                     self.website.open = true;
+                    self.skins.open = false;
                 }
                 for id in self.owned_games.keys().copied().collect::<Vec<_>>() {
                     let name = self
@@ -913,6 +959,7 @@ impl Canna {
                 });
             });
         if !self.website.open
+            && !self.skins.open
             && !self.modpacks_page
             && !self.game_details
             && !self.console_page
@@ -962,6 +1009,7 @@ impl Canna {
             )
             .show(ctx, |ui| {
                 if self.website.open { if self.website.show(ui) { self.pack_ui = pack_ui::PackUi::new(); } return; }
+                if self.skins.open { self.skins.show(ui); return; }
                 if self.discover_page { self.discover_ui(ui); return; }
                 if self.console_page {if self.console.show(ui,&self.games){self.last_console_poll=std::time::Instant::now()-std::time::Duration::from_secs(2);}return;}
                 if self.modpacks_page {
@@ -1138,7 +1186,7 @@ impl Canna {
                                             if create.clicked() {
                                                 self.selected = id;
                                                 self.pack_ui.start_new(&pack_game, self.active_source.as_ref());
-                                                self.website.open = false;
+                                                self.website.open = false; self.skins.open = false;
                     self.discover_page = false;
                     self.modpacks_page = true;
                                             }
@@ -1188,8 +1236,8 @@ impl eframe::App for Canna {
             self.token = website::session();
             self.sync(ctx);
         }
+        self.skins.update(ctx);
         self.render(ctx);
-        self.skins.ui(ctx);
         self.minecraft.ui(ctx);
     }
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -1236,9 +1284,15 @@ fn main() -> eframe::Result {
     if uri.is_some() && ticket.is_none() {
         return Ok(());
     }
-    let _ = website::register_protocol();
-    let Some(website_receiver) = website::instance(ticket) else {
-        return Ok(());
+    let website_receiver = if std::env::var_os("CANNA_SCREENSHOT").is_some() {
+        let (_sender, receiver) = std::sync::mpsc::channel();
+        receiver
+    } else {
+        let _ = website::register_protocol();
+        let Some(receiver) = website::instance(ticket) else {
+            return Ok(());
+        };
+        receiver
     };
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()

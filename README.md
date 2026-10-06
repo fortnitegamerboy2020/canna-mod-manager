@@ -133,8 +133,19 @@ The catalog includes **Canna Procedural Maps 1.1.1**. Add it to a Bopl pack on e
 
 ### Minecraft work in progress
 
-The debug desktop includes Minecraft instances, Microsoft device sign-in, managed Java, loader installation paths for Vanilla/Fabric/Forge/NeoForge/Quilt, process stop controls, and local skin import/export/account application. Microsoft sign-in requires Canna's registered public client ID. Login and live Minecraft launches have not been verified yet; content dependency installation, Minecraft modpack sharing, and complete launcher parity are still pending. No desktop release build has been made for these changes, and the installed app is untouched for updater testing.
+The debug desktop includes Minecraft instances, Microsoft device sign-in, managed Java, loader installation paths for Vanilla/Fabric/Forge/NeoForge/Quilt, process stop controls, and local skin import/export/account application. Microsoft sign-in requires Canna's registered public client ID. Login and live Minecraft launches have not been verified yet; content dependency installation, Minecraft modpack sharing, and complete launcher parity are still pending. The Windows releases include these preview features. Microsoft sign-in and live Minecraft launches still require verification with the registered Canna client ID.
 
 ### Downloads (0.2.6)
 
 The sidebar uses the supplied Minecraft, website and download icons. Downloads is a full page with All, Unassigned and one tab per Steam modpack. It includes downloaded mods and BepInEx archives, plus imported local mod files. Pack tabs use stable pack IDs and matching content hashes so renamed packs and imported bundles stay grouped correctly. Files from the old website-downloads directory remain available. Select a pack tab to import a local DLL/ZIP, or add a compatible downloaded file to another pack. Frameworks are tracked separately from mods.
+
+### Account connection and skin discovery (0.2.7)
+
+Settings → Sign in & connect account starts a five-minute browser approval request. Sign into the Canna website, compare the six-character code with the desktop, and click Approve Canna. The waiting desktop connects and syncs automatically; this flow does not depend on Windows opening a custom protocol link. Connection proofs stay out of browser URLs, approval requires a verified active account, and claims are single-use. Cancel stops desktop polling. The legacy website download links remain supported.
+
+Skins → Discover skins searches MinecraftSkins.net and SkinsMC together or individually, displays PNG previews, preserves attribution and original links, and saves skins for classic/slim preview, export or application to a signed-in Minecraft account. Skindex is also attempted; sites that block automated requests show a source status and a browser search link. Skin responses have size, dimensions, format and redirect-host checks.
+
+For Microsoft login, register Canna in Microsoft Entra → App registrations → New registration with Personal Microsoft accounts. Under Authentication, enable Allow public client flows. Copy the public Application (client) ID from Overview into Canna → Minecraft → Microsoft account and Save client ID. Do not create a client secret. Device-code login does not require a redirect URI. A registered client ID alone does not guarantee Minecraft API access; any required Minecraft/Xbox application approval must also be completed. Real Microsoft login remains pending the ID and a test with a Minecraft-owning account.
+
+Official registration guide: https://learn.microsoft.com/en-us/entra/identity-platform/quickstart-register-app
+Public client configuration: https://learn.microsoft.com/en-us/entra/identity-platform/scenario-desktop-app-configuration
