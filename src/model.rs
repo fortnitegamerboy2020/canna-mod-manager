@@ -62,6 +62,17 @@ fn default_enabled() -> bool {
 #[cfg(test)]
 mod tests {
     #[test]
+    fn registry_separates_source_from_unity() {
+        assert_eq!(super::framework(1557740), "bepinex");
+        assert_eq!(super::framework(550), "source-vpk");
+        assert!(super::source_addons(1172470).is_none());
+        assert!(
+            super::supported_catalog()
+                .iter()
+                .any(|g| g.app_id == 1557740)
+        );
+    }
+    #[test]
     fn existing_mod_manifests_default_to_enabled() {
         let item: super::ModInfo = serde_json::from_str(
             r#"{"name":"Existing mod","version":"1.0.0","file":"Mods/example.zip"}"#,
@@ -103,4 +114,61 @@ pub struct Scan {
     pub excluded: usize,
     pub libraries: Vec<PathBuf>,
     pub warnings: Vec<String>,
+}
+
+/// Explicit Source addon support, separate from Unity injection.
+pub fn source_addons(app_id: u32) -> Option<&'static str> {
+    match app_id {
+        550 => Some("left4dead2/addons"),
+        500 => Some("left4dead/addons"),
+        _ => None,
+    }
+}
+pub fn framework(app_id: u32) -> &'static str {
+    if source_addons(app_id).is_some() {
+        "source-vpk"
+    } else {
+        "bepinex"
+    }
+}
+pub fn framework_label(app_id: u32) -> &'static str {
+    if source_addons(app_id).is_some() {
+        "Source / VPK addons"
+    } else {
+        "BepInEx / Unity"
+    }
+}
+pub fn supported_catalog() -> Vec<GameInfo> {
+    let mut games = vec![bopl()];
+    for (id, name, folder, description) in [
+        (
+            1557740,
+            "ROUNDS",
+            "rounds",
+            "Unity modpacks with BepInEx 5 and Thunderstore dependencies.",
+        ),
+        (
+            550,
+            "Left 4 Dead 2",
+            "left-4-dead-2",
+            "VPK addon modpacks and separate -insecure practice launches. Native speedrunning plugins are not installed automatically.",
+        ),
+        (
+            500,
+            "Left 4 Dead",
+            "left-4-dead",
+            "VPK addon modpacks and separate -insecure practice launches.",
+        ),
+    ] {
+        games.push(GameInfo {
+            app_id: id,
+            name: name.into(),
+            folder: folder.into(),
+            description: description.into(),
+            icon: String::new(),
+            mods: vec![],
+            mod_folder_status: String::new(),
+        });
+    }
+    games
 }

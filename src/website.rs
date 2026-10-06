@@ -133,6 +133,8 @@ pub fn remember_mod(
     let hash = format!("{:x}", Sha256::digest(data));
     let ext = if item.file.to_lowercase().ends_with(".dll") {
         "dll"
+    } else if item.file.to_lowercase().ends_with(".vpk") {
+        "vpk"
     } else {
         "zip"
     };

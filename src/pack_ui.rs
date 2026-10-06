@@ -343,8 +343,9 @@ impl PackUi {
                     ui.label(RichText::new(&pack.name).size(28.0).color(TEXT).strong());
                     ui.label(
                         RichText::new(format!(
-                            "{}  /  BepInEx  /  {} mods",
+                            "{}  /  {}  /  {} mods",
                             pack.game.name,
+                            crate::model::framework_label(pack.game.app_id),
                             pack.mods.len()
                         ))
                         .color(GREEN),
@@ -398,7 +399,14 @@ impl PackUi {
                     self.runtime_requests
                         .push_back(RuntimeAction::Stop(pack.game.app_id));
                 }
-                if ui.button("Launch modded").clicked() {
+                if ui
+                    .button(if crate::model::source_addons(pack.game.app_id).is_some() {
+                        "Launch practice (-insecure)"
+                    } else {
+                        "Launch modded"
+                    })
+                    .clicked()
+                {
                     self.runtime_requests
                         .push_back(RuntimeAction::Launch(pack.clone(), true));
                 }
@@ -693,8 +701,9 @@ impl PackUi {
                                         );
                                         ui.label(
                                             RichText::new(format!(
-                                                "{} mods  /  BepInEx",
-                                                pack.mods.len()
+                                                "{} mods  /  {}",
+                                                pack.mods.len(),
+                                                crate::model::framework_label(pack.game.app_id)
                                             ))
                                             .small()
                                             .color(MUTED),
@@ -805,8 +814,9 @@ impl PackUi {
                     ui.strong("Game");
                     let mut id = pack.game.app_id;
                     egui::ComboBox::from_id_salt("editor_game").width(480.0).selected_text(&pack.game.name).show_ui(ui, |ui| {for game in catalog {ui.selectable_value(&mut id, game.app_id, &game.name);}});
-                    if id != pack.game.app_id && let Some(game) = catalog.iter().find(|g| g.app_id == id) {pack.game = crate::modpacks::PackGame {app_id: game.app_id, name: game.name.clone(), folder: game.folder.clone(), framework: "bepinex".into()};pack.repository = source.cloned().unwrap_or_else(empty_source);pack.mods.clear();}
-                    ui.horizontal(|ui| {ui.label(RichText::new("FRAMEWORK").small().color(MUTED)); ui.label(RichText::new("BepInEx / Unity").color(GREEN));});
+                    if id != pack.game.app_id && let Some(game) = catalog.iter().find(|g| g.app_id == id) {pack.game = crate::modpacks::PackGame {app_id: game.app_id, name: game.name.clone(), folder: game.folder.clone(), framework: crate::model::framework(game.app_id).into()};pack.repository = source.cloned().unwrap_or_else(empty_source);pack.mods.clear();}
+                    ui.horizontal(|ui| {ui.label(RichText::new("FRAMEWORK").small().color(MUTED)); ui.label(RichText::new(crate::model::framework_label(pack.game.app_id)).color(GREEN));});
+                    if crate::model::source_addons(pack.game.app_id).is_some() { ui.label("VPK packs launch in practice mode (-insecure). Vanilla removes Canna addons. Native plugins and bhop tools need their own supported setup."); }
                     ui.strong("Group"); egui::ComboBox::from_id_salt("editor_group").width(480.0).selected_text(if pack.group.is_empty() {"Ungrouped"} else {&pack.group}).show_ui(ui, |ui| {ui.selectable_value(&mut pack.group, String::new(), "Ungrouped");for group in &self.groups {ui.selectable_value(&mut pack.group, group.clone(), group);}});
                     ui.strong("Description"); ui.add(egui::TextEdit::multiline(&mut pack.description).desired_width(f32::INFINITY).desired_rows(2));
                     ui.add_space(10.0);ui.separator();ui.strong(format!("Choose mods  ·  {} selected", pack.mods.len()));
@@ -939,8 +949,8 @@ impl PackUi {
                 .push_back(RuntimeAction::Launch(pack, modded)),
             Some(Action::Local(mut pack)) => {
                 if let Some(path) = rfd::FileDialog::new()
-                    .set_title("Add a local plugin DLL or ZIP")
-                    .add_filter("Mods", &["dll", "zip"])
+                    .set_title("Add a local plugin DLL, VPK or ZIP")
+                    .add_filter("Mods", &["dll", "zip", "vpk"])
                     .pick_file()
                 {
                     match crate::modpacks::add_local(&path) {
@@ -1165,7 +1175,14 @@ fn pack_menu(
     ui.separator();
     for (label, next) in [
         ("Apply modpack", Action::Install(pack.clone())),
-        ("Launch modded", Action::Launch(pack.clone(), true)),
+        (
+            if crate::model::source_addons(pack.game.app_id).is_some() {
+                "Launch practice (-insecure)"
+            } else {
+                "Launch modded"
+            },
+            Action::Launch(pack.clone(), true),
+        ),
         ("Launch vanilla", Action::Launch(pack.clone(), false)),
     ] {
         if ui.add_enabled(!busy, egui::Button::new(label)).clicked() {

@@ -308,7 +308,13 @@ pub fn scan(override_path: &str) -> Scan {
                 if !path.is_dir() || seen.contains(&id) {
                     return Ok(None);
                 }
-                if !is_unity_game(&path) {
+                if !is_unity_game(&path)
+                    && !crate::model::source_addons(id).is_some_and(|addons| {
+                        path.join(addons)
+                            .parent()
+                            .is_some_and(|content| content.join("gameinfo.txt").is_file())
+                    })
+                {
                     seen.insert(id);
                     out.excluded += 1;
                     return Ok(None);
@@ -316,7 +322,11 @@ pub fn scan(override_path: &str) -> Scan {
                 Ok(Some(InstalledGame {
                     app_id: id,
                     name: get("name")?.into(),
-                    loader: loader(&path),
+                    loader: if crate::model::source_addons(id).is_some() {
+                        "Source VPK addons".into()
+                    } else {
+                        loader(&path)
+                    },
                     plugins: plugins(&path.join("BepInEx/plugins"), 0),
                     path,
                     icon: icon(&roots, id),
@@ -358,6 +368,26 @@ mod tests {
             assert!(!safe_dir(p));
         }
         assert!(safe_dir("Bopl Battle"));
+    }
+    #[test]
+    fn source_scan_requires_known_app_and_game_content() {
+        let base = std::env::temp_dir().join(format!("canna-source-scan-{}", std::process::id()));
+        let apps = base.join("steamapps");
+        for (id, name, content) in [
+            (550, "Left 4 Dead 2", "left4dead2"),
+            (500, "Left 4 Dead", "left4dead"),
+        ] {
+            let path = apps.join("common").join(name).join(content);
+            std::fs::create_dir_all(&path).unwrap();
+            std::fs::write(path.join("gameinfo.txt"), "fixture").unwrap();
+            std::fs::write(apps.join(format!("appmanifest_{id}.acf")),format!("\"AppState\" {{ \"appid\" \"{id}\" \"name\" \"{name}\" \"installdir\" \"{name}\" }}")).unwrap();
+        }
+        let found = scan(base.to_str().unwrap());
+        assert_eq!(found.games.len(), 2);
+        assert!(found.games.iter().all(|g| g.loader == "Source VPK addons"));
+        std::fs::remove_file(apps.join("common/Left 4 Dead 2/left4dead2/gameinfo.txt")).unwrap();
+        assert_eq!(scan(base.to_str().unwrap()).games.len(), 1);
+        std::fs::remove_dir_all(base).unwrap();
     }
     #[test]
     fn scans_secondary_library_and_loader() {
@@ -409,4 +439,21 @@ mod tests {
         );
         std::fs::remove_dir_all(base).unwrap();
     }
+}
+
+pub fn launch_practice(app_id: u32) -> Result<()> {
+    if crate::model::source_addons(app_id).is_none() {
+        bail!("Unsupported practice game");
+    }
+    let steam = roots("")
+        .into_iter()
+        .map(|root| root.join("steam.exe"))
+        .find(|path| path.is_file())
+        .ok_or_else(|| {
+            anyhow::anyhow!("Steam executable not found; check your Steam installation")
+        })?;
+    std::process::Command::new(steam)
+        .args(["-applaunch", &app_id.to_string(), "-insecure", "-console"])
+        .spawn()?;
+    Ok(())
 }

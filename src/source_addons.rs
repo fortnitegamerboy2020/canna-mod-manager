@@ -1,0 +1,343 @@
+use crate::{model::InstalledGame, modpacks::Modpack, runtime};
+use anyhow::{Context, Result, bail};
+use sha2::{Digest, Sha256};
+use std::{fs, path::PathBuf};
+
+fn addons(game: &InstalledGame) -> Result<PathBuf> {
+    let path = game
+        .path
+        .join(crate::model::source_addons(game.app_id).context("Unsupported Source game")?);
+    runtime::no_links(&path)?;
+    Ok(path)
+}
+fn store(game: &InstalledGame) -> PathBuf {
+    game.path.join(".canna-source")
+}
+pub fn setup(game: &InstalledGame) -> Result<()> {
+    runtime::ensure_closed(game)?;
+    let path = addons(game)?;
+    if !path.parent().unwrap().join("gameinfo.txt").is_file() {
+        bail!("Source game content is missing; verify the installation in Steam");
+    }
+    fs::create_dir_all(path)?;
+    Ok(())
+}
+fn hash(bytes: &[u8]) -> String {
+    format!("{:x}", Sha256::digest(bytes))
+}
+/// Only self-contained VPKs. Split archives require all matching segments and are not supported.
+fn check_vpk(bytes: &[u8]) -> Result<()> {
+    if bytes.len() < 12 || bytes[..4] != [0x34, 0x12, 0xaa, 0x55] {
+        bail!("Invalid VPK header");
+    }
+    let version = u32::from_le_bytes(bytes[4..8].try_into()?);
+    let header = match version {
+        1 => 12,
+        2 => 28,
+        _ => bail!("Unsupported VPK version"),
+    };
+    let tree = u32::from_le_bytes(bytes[8..12].try_into()?) as usize;
+    if tree == 0 || header + tree > bytes.len() {
+        bail!("Truncated VPK directory");
+    }
+    // Parse directory entries to reject split VPK references and malformed directory trees.
+    let directory = &bytes[header..header + tree];
+    let mut pos = 0;
+    fn text<'a>(data: &'a [u8], pos: &mut usize) -> Result<&'a [u8]> {
+        let start = *pos;
+        let len = data
+            .get(start..)
+            .context("Truncated VPK tree")?
+            .iter()
+            .position(|v| *v == 0)
+            .context("Unterminated VPK name")?;
+        *pos += len + 1;
+        Ok(&data[start..start + len])
+    }
+    loop {
+        if text(directory, &mut pos)?.is_empty() {
+            break;
+        }
+        loop {
+            if text(directory, &mut pos)?.is_empty() {
+                break;
+            }
+            loop {
+                if text(directory, &mut pos)?.is_empty() {
+                    break;
+                }
+                let entry = directory
+                    .get(pos..pos + 18)
+                    .context("Truncated VPK entry")?;
+                let preload = u16::from_le_bytes(entry[4..6].try_into()?) as usize;
+                if u16::from_le_bytes(entry[6..8].try_into()?) != 0x7fff {
+                    bail!("Split VPKs are not supported; use a self-contained addon");
+                }
+                if entry[16..18] != [0xff, 0xff] {
+                    bail!("Invalid VPK entry terminator");
+                }
+                let offset = u32::from_le_bytes(entry[8..12].try_into()?) as usize;
+                let length = u32::from_le_bytes(entry[12..16].try_into()?) as usize;
+                if offset
+                    .checked_add(length)
+                    .is_none_or(|end| end > bytes.len() - header - tree)
+                {
+                    bail!("VPK data is truncated");
+                }
+                pos += 18 + preload;
+                if pos > directory.len() {
+                    bail!("VPK preload data is truncated");
+                }
+            }
+        }
+    }
+    Ok(())
+}
+fn entries(game: &InstalledGame) -> Result<Vec<(String, Vec<u8>)>> {
+    let root = store(game);
+    runtime::no_links(&root)?;
+    if !root.exists() {
+        return Ok(vec![]);
+    }
+    let mut entries = Vec::new();
+    for item in fs::read_dir(root)? {
+        let item = item?;
+        let path = item.path();
+        runtime::no_links(&path)?;
+        let name = item.file_name().to_string_lossy().into_owned();
+        if !name.starts_with("canna-") || !name.ends_with(".vpk") || !item.file_type()?.is_file() {
+            bail!("Unexpected file in Canna Source store");
+        }
+        let data = fs::read(path)?;
+        if name != format!("canna-{}.vpk", hash(&data)) {
+            bail!("Canna addon checksum mismatch");
+        }
+        entries.push((name, data));
+    }
+    Ok(entries)
+}
+pub fn set_mode(game: &InstalledGame, enabled: bool) -> Result<()> {
+    let target = addons(game)?;
+    let files = entries(game)?;
+    // Preflight all files before changing any. Never overwrite an unrelated addon.
+    for (name, data) in &files {
+        let path = target.join(name);
+        runtime::no_links(&path)?;
+        if path.exists() && hash(&fs::read(&path)?) != hash(data) {
+            bail!("Addon changed outside Canna: {name}; restore or move it before switching packs");
+        }
+    }
+    fs::create_dir_all(&target)?;
+    for (name, data) in files {
+        let path = target.join(name);
+        if enabled {
+            if !path.exists() {
+                fs::write(path, data)?;
+            }
+        } else if path.exists() {
+            fs::remove_file(path)?;
+        }
+    }
+    Ok(())
+}
+pub fn install(
+    game: &InstalledGame,
+    pack: &Modpack,
+    token: &str,
+    progress: &dyn Fn(&str),
+) -> Result<()> {
+    setup(game)?;
+    let api = runtime::client()?;
+    let mut files = Vec::new();
+    for item in pack.mods.iter().filter(|item| item.enabled) {
+        progress(&format!("Preparing VPK addon: {}", item.name));
+        let data = if !item.local_file.is_empty() {
+            fs::read(crate::modpacks::local_directory().join(&item.local_file))?
+        } else {
+            crate::repository::fetch_optional(
+                &api,
+                &runtime::settings(pack),
+                token,
+                &runtime::repo_path(pack, &item.file),
+                32 * 1024 * 1024,
+            )?
+            .context("Addon not available on the Canna server")?
+        };
+        if item.sha256.is_empty() || hash(&data) != item.sha256.to_lowercase() {
+            bail!("Addon checksum mismatch: {}", item.name);
+        }
+        let content = if item.file.to_lowercase().ends_with(".vpk") {
+            vec![(PathBuf::from("addon.vpk"), data.clone())]
+        } else if item.file.to_lowercase().ends_with(".zip") {
+            runtime::archive_files(&data)?
+        } else {
+            bail!("Source packs accept VPK files or ZIPs containing VPKs");
+        };
+        let mut count = 0;
+        for (path, bytes) in content {
+            if path
+                .extension()
+                .is_some_and(|ext| ext.eq_ignore_ascii_case("vpk"))
+            {
+                check_vpk(&bytes)?;
+                files.push((format!("canna-{}.vpk", hash(&bytes)), bytes));
+                count += 1;
+            } else if !matches!(
+                path.file_name().and_then(|n| n.to_str()),
+                Some("README.md" | "LICENSE" | "manifest.json" | "icon.png")
+            ) {
+                bail!(
+                    "Source addon archive contains unsupported file: {}",
+                    path.display()
+                );
+            }
+        }
+        if count == 0 {
+            bail!("{} contains no VPK addons", item.name);
+        }
+        let _ = crate::website::remember_mod(pack, item, &data, false);
+    }
+    let root = store(game);
+    let stage = game.path.join(".canna-source-stage");
+    let previous = game.path.join(".canna-source-previous");
+    for path in [&root, &stage, &previous] {
+        runtime::no_links(path)?;
+    }
+    if stage.exists() || previous.exists() {
+        bail!("Previous Source pack operation needs recovery; leave its files intact");
+    }
+    fs::create_dir(&stage)?;
+    for (name, data) in files {
+        fs::write(stage.join(name), data)?;
+    }
+    runtime::ensure_closed(game)?;
+    if let Err(error) = set_mode(game, false) {
+        let _ = fs::remove_dir_all(&stage);
+        return Err(error);
+    }
+    if root.exists() {
+        fs::rename(&root, &previous)?;
+    }
+    if let Err(error) = fs::rename(&stage, &root) {
+        if previous.exists() {
+            fs::rename(&previous, &root)?;
+        }
+        return Err(error.into());
+    }
+    if previous.exists() {
+        fs::remove_dir_all(previous)?;
+    }
+    progress(
+        "Source pack saved. Launch modded uses -insecure practice mode; vanilla disables Canna addons.",
+    );
+    Ok(())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    fn fixture() -> InstalledGame {
+        let root = std::env::temp_dir().join(format!(
+            "canna-source-test-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir_all(root.join("left4dead2/addons")).unwrap();
+        fs::write(root.join("left4dead2/gameinfo.txt"), "fixture").unwrap();
+        InstalledGame {
+            app_id: 550,
+            name: "Left 4 Dead 2".into(),
+            path: root,
+            loader: String::new(),
+            plugins: 0,
+            icon: None,
+        }
+    }
+    #[test]
+    fn switching_preserves_other_addons_and_rejects_changed_files() {
+        let game = fixture();
+        let data = [0x34, 0x12, 0xaa, 0x55, 1, 0, 0, 0, 1, 0, 0, 0, 0];
+        check_vpk(&data).unwrap();
+        fs::create_dir(store(&game)).unwrap();
+        let name = format!("canna-{}.vpk", hash(&data));
+        fs::write(store(&game).join(&name), data).unwrap();
+        let target = addons(&game).unwrap();
+        fs::write(target.join("unmanaged.vpk"), "keep").unwrap();
+        set_mode(&game, true).unwrap();
+        assert!(target.join(&name).exists());
+        set_mode(&game, false).unwrap();
+        assert!(!target.join(&name).exists());
+        assert_eq!(fs::read(target.join("unmanaged.vpk")).unwrap(), b"keep");
+        fs::write(target.join(&name), "changed").unwrap();
+        assert!(set_mode(&game, false).is_err());
+        assert!(target.join(&name).exists());
+        fs::remove_dir_all(game.path).unwrap();
+    }
+    #[test]
+    fn local_vpk_pack_install_and_bundle_round_trip() {
+        let game = fixture();
+        let source = game.path.join("practice.vpk");
+        let mut data = vec![0x34, 0x12, 0xaa, 0x55, 1, 0, 0, 0, 1, 0, 0, 0, 0];
+        data.extend_from_slice(game.path.to_string_lossy().as_bytes());
+        fs::write(&source, &data).unwrap();
+        let item = crate::modpacks::add_local(&source).unwrap();
+        let info = crate::model::supported_catalog()
+            .into_iter()
+            .find(|g| g.app_id == 550)
+            .unwrap();
+        let pack = Modpack::create(
+            "Practice".into(),
+            String::new(),
+            &info,
+            crate::cache::Source {
+                owner: "canna".into(),
+                repository: "server".into(),
+                branch: "main".into(),
+                catalog_folder: String::new(),
+            },
+            vec![item.clone()],
+        );
+        pack.validate().unwrap();
+        install(&game, &pack, "", &|_| {}).unwrap();
+        assert_eq!(entries(&game).unwrap().len(), 1);
+        set_mode(&game, true).unwrap();
+        assert!(
+            addons(&game)
+                .unwrap()
+                .join(format!("canna-{}.vpk", hash(&data)))
+                .exists()
+        );
+        let mut empty = pack.clone();
+        empty.mods.clear();
+        install(&game, &empty, "", &|_| {}).unwrap();
+        assert!(entries(&game).unwrap().is_empty());
+        assert!(
+            !addons(&game)
+                .unwrap()
+                .join(format!("canna-{}.vpk", hash(&data)))
+                .exists()
+        );
+        let bundle = game.path.join("pack.canna.zip");
+        pack.export(&bundle).unwrap();
+        let archive = runtime::archive_files(&fs::read(bundle).unwrap()).unwrap();
+        assert!(
+            archive
+                .iter()
+                .any(|(path, bytes)| path.to_string_lossy().ends_with(".vpk") && bytes == &data)
+        );
+        fs::remove_file(crate::modpacks::local_directory().join(item.local_file)).unwrap();
+        fs::remove_dir_all(game.path).unwrap();
+    }
+    #[test]
+    fn invalid_and_split_vpks_rejected() {
+        assert!(check_vpk(b"not a vpk").is_err());
+        let mut data = vec![0x34, 0x12, 0xaa, 0x55, 1, 0, 0, 0, 0, 0, 0, 0];
+        let mut tree = b"txt\0 \0example\0".to_vec();
+        tree.extend_from_slice(&[0; 18]);
+        tree.extend_from_slice(&[0, 0, 0]);
+        data[8..12].copy_from_slice(&(tree.len() as u32).to_le_bytes());
+        data.extend(tree);
+        assert!(check_vpk(&data).is_err());
+    }
+}

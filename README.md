@@ -188,3 +188,9 @@ The desktop and server source can be reviewed without production keys. To run yo
 The installer includes **Canna Maintenance** and **Canna Recovery** in Windows Start. Maintenance updates or repairs the launcher and itself, restores verified previous copies, opens update logs, and runs the full uninstaller. Recovery is an independent installed copy that stays intact during maintenance updates. If the updater cannot start, open Recovery and choose **Repair updater**. Launcher and maintenance releases use separate versioned channels on cannamods.vip.
 
 Run `pwsh -File scripts/Build-Maintenance.ps1` to build only the maintenance executable. Run `pwsh -File scripts/Test-Maintenance.ps1` and `pwsh -File scripts/Test-Installer.ps1` for isolated Windows replacement, rollback and uninstall checks. Publish maintenance with `scripts/Publish-Maintenance.ps1`, then rebuild/publish the installer with `scripts/Build-Installer.ps1` and `scripts/Publish-Installer.ps1`. Building maintenance does not rebuild the launcher EXE.
+
+## Source addon packs (0.2.17)
+
+Canna 0.2.17 adds ROUNDS to the default catalog and Left 4 Dead / Left 4 Dead 2 VPK addon packs. Source packs install self-contained VPKs from local files or reviewed server ZIPs. Modded Source launches use -insecure -console for practice; vanilla disables Canna-managed addons. Unmanaged addons and custom Steam launch options remain unchanged. Native SourceMod/Metamod plugins and standalone speedrun tools are not supported by this installer. Live Left 4 Dead launches remain unverified.
+
+Community 0.3.30 keeps supported games visible in the catalog even before mods are published. The official ROUNDS BepInEx 5 loader is hosted on Canna. Updates continue to come from the server. Minecraft API approval remains pending.

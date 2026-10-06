@@ -13,6 +13,7 @@ mod repository;
 mod runtime;
 mod skin_catalog;
 mod skins;
+mod source_addons;
 mod steam;
 mod ui_helpers;
 mod updater;
@@ -175,7 +176,7 @@ impl Canna {
             query: String::new(),
             supported_only: false,
             games: vec![],
-            catalog: vec![model::bopl()],
+            catalog: model::supported_catalog(),
             libraries: vec![],
             warnings: vec![],
             textures: BTreeMap::new(),
@@ -259,7 +260,7 @@ impl Canna {
         let s = self.settings.clone();
         let source = cache::Source::from_settings(&s);
         if self.active_source.as_ref() != Some(&source) {
-            self.catalog = vec![model::bopl()];
+            self.catalog = model::supported_catalog();
             self.repository_textures.clear();
             self.cached_at = None;
         }
@@ -395,7 +396,7 @@ impl Canna {
                         }
                     }
                     self.scan_status = format!(
-                        "{} Unity games · {} Steam libraries · {} other entries excluded",
+                        "{} Supported games · {} Steam libraries · {} other entries excluded",
                         scan.games.len(),
                         scan.libraries.len(),
                         scan.excluded
@@ -461,8 +462,10 @@ impl Canna {
             self.texture(ctx, id, &bytes, true);
         }
         self.catalog = data.games;
-        if !self.catalog.iter().any(|game| game.app_id == 1686940) {
-            self.catalog.insert(0, model::bopl());
+        for game in model::supported_catalog() {
+            if !self.catalog.iter().any(|entry| entry.app_id == game.app_id) {
+                self.catalog.push(game);
+            }
         }
         self.warnings.extend(data.warnings);
     }
@@ -506,7 +509,7 @@ impl Canna {
                 {
                     website::disconnect();
                     self.token.clear();
-                    self.catalog = vec![model::bopl()];
+                    self.catalog = model::supported_catalog();
                     self.repository_textures.clear();
                     self.repo_status = "Account disconnected".into();
                 }
@@ -780,7 +783,7 @@ impl Canna {
                     pack_ui::RuntimeAction::Stop(_) => unreachable!(),
                     pack_ui::RuntimeAction::Setup(pack) => {
                         runtime::setup(&game, &pack, &token)?;
-                        Ok("BepInEx is ready. Choose mods for your pack.".into())
+                        Ok("Mod framework is ready. Choose mods for your pack.".into())
                     }
                     pack_ui::RuntimeAction::Install(pack) => {
                         runtime::install_pack(&game, &pack, &token, &progress)?;
@@ -1163,41 +1166,127 @@ impl Canna {
             && !self.discover_page
             && !self.minecraft_page
         {
-            egui::SidePanel::right("detail").exact_width(310.0).resizable(false).frame(egui::Frame::new().corner_radius(ui_helpers::SURFACE_RADIUS).fill(Color32::from_rgb(23,29,26)).inner_margin(22)).show(ctx,|ui| {
-            egui::ScrollArea::vertical().show(ui,|ui| {
-                let installed=self.games.iter().find(|g|g.app_id==self.selected);
-                let info=self.catalog.iter().find(|g|g.app_id==self.selected);
-                self.art(ui,self.selected,egui::vec2(266.0,150.0));ui.add_space(10.0);
-                ui.heading(info.map(|g|g.name.as_str()).or_else(|| installed.map(|g|g.name.as_str())).unwrap_or("Choose a game"));
-                ui.label(RichText::new(if installed.is_some(){"INSTALLED"}else{"NOT INSTALLED"}).color(GREEN).small());
-                if let Some(g)=installed {
-                    ui.add_space(12.0);ui.label(&g.loader);
-                    ui.label(RichText::new("Detected from files; launch health is unverified.").small().color(MUTED));
-                    ui.label(format!("{} local plugin DLLs",g.plugins));
-                    ui.label(RichText::new(g.path.to_string_lossy()).small().color(MUTED));
-                    if ui.button("Open game folder").clicked()
-                        && let Err(e)=std::process::Command::new("explorer.exe").arg(&g.path).spawn() {self.warnings.push(format!("Cannot open game folder: {e}"));}
-                    if ui.button("View game & launch options").clicked() { self.game_details=true; }
-                }
-                ui.add_space(16.0);ui.separator();ui.label(RichText::new("FAMILY MODS").color(GREEN).small().strong());
-                if let Some(info)=info {
-                    if ui.add(egui::Button::new(RichText::new("+ Create modpack").color(Color32::from_rgb(19,35,22)).strong()).fill(GREEN)).clicked() {
-                        self.pack_ui.start_new(info, self.active_source.as_ref()); self.modpacks_page = true;
-                    }
-                    ui.label(RichText::new(&info.description).color(MUTED));
-                    if !info.mod_folder_status.is_empty() {ui.label(RichText::new(&info.mod_folder_status).small().color(MUTED));}
-                    if info.mods.is_empty() {ui.add_space(12.0);ui.label("No mods in the catalog yet.");}
-                    for m in &info.mods {egui::Frame::new().corner_radius(ui_helpers::SURFACE_RADIUS).fill(Color32::from_rgb(33,43,36)).inner_margin(12).corner_radius(ui_helpers::SURFACE_RADIUS).show(ui,|ui| {ui.strong(&m.name);ui.label(RichText::new(format!("v{}",m.version)).color(GREEN));ui.label(&m.description);ui.label(RichText::new(&m.file).small().color(MUTED));});}
-                } else {
-                    ui.label("This game isn't in your family's catalog yet.");
-                    if let Some(game) = installed && ui.button("+ Create modpack").clicked() {
-                        let game = GameInfo { app_id: game.app_id, name: game.name.clone(), folder: format!("steam-{}", game.app_id), description: String::new(), icon: String::new(), mods: vec![], mod_folder_status: String::new() };
-                        self.pack_ui.start_new(&game, self.active_source.as_ref()); self.modpacks_page = true;
-                    }
-                }
-                ui.add_space(18.0);ui.label(RichText::new("Create a modpack to set up BepInEx, add mods and launch vanilla or modded.").small().color(MUTED));
-            });
-        });
+            egui::SidePanel::right("detail")
+                .exact_width(310.0)
+                .resizable(false)
+                .frame(
+                    egui::Frame::new()
+                        .corner_radius(ui_helpers::SURFACE_RADIUS)
+                        .fill(Color32::from_rgb(23, 29, 26))
+                        .inner_margin(22),
+                )
+                .show(ctx, |ui| {
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        let installed = self.games.iter().find(|g| g.app_id == self.selected);
+                        let info = self.catalog.iter().find(|g| g.app_id == self.selected);
+                        self.art(ui, self.selected, egui::vec2(266.0, 150.0));
+                        ui.add_space(10.0);
+                        ui.heading(
+                            info.map(|g| g.name.as_str())
+                                .or_else(|| installed.map(|g| g.name.as_str()))
+                                .unwrap_or("Choose a game"),
+                        );
+                        ui.label(
+                            RichText::new(if installed.is_some() {
+                                "INSTALLED"
+                            } else {
+                                "NOT INSTALLED"
+                            })
+                            .color(GREEN)
+                            .small(),
+                        );
+                        if let Some(g) = installed {
+                            ui.add_space(12.0);
+                            ui.label(&g.loader);
+                            ui.label(
+                                RichText::new("Detected from files; launch health is unverified.")
+                                    .small()
+                                    .color(MUTED),
+                            );
+                            if model::source_addons(g.app_id).is_some() { ui.label("Modded launches use -insecure practice mode. Vanilla disables Canna addons; external modifications remain your responsibility."); } else { ui.label(format!("{} local plugin DLLs", g.plugins)); }
+                            ui.label(RichText::new(g.path.to_string_lossy()).small().color(MUTED));
+                            if ui.button("Open game folder").clicked()
+                                && let Err(e) = std::process::Command::new("explorer.exe")
+                                    .arg(&g.path)
+                                    .spawn()
+                            {
+                                self.warnings.push(format!("Cannot open game folder: {e}"));
+                            }
+                            if ui.button("View game & launch options").clicked() {
+                                self.game_details = true;
+                            }
+                        }
+                        ui.add_space(16.0);
+                        ui.separator();
+                        ui.label(RichText::new("FAMILY MODS").color(GREEN).small().strong());
+                        if let Some(info) = info {
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new("+ Create modpack")
+                                            .color(Color32::from_rgb(19, 35, 22))
+                                            .strong(),
+                                    )
+                                    .fill(GREEN),
+                                )
+                                .clicked()
+                            {
+                                self.pack_ui.start_new(info, self.active_source.as_ref());
+                                self.modpacks_page = true;
+                            }
+                            ui.label(RichText::new(&info.description).color(MUTED));
+                            if !info.mod_folder_status.is_empty() {
+                                ui.label(
+                                    RichText::new(&info.mod_folder_status).small().color(MUTED),
+                                );
+                            }
+                            if info.mods.is_empty() {
+                                ui.add_space(12.0);
+                                ui.label("No mods in the catalog yet.");
+                            }
+                            for m in &info.mods {
+                                egui::Frame::new()
+                                    .corner_radius(ui_helpers::SURFACE_RADIUS)
+                                    .fill(Color32::from_rgb(33, 43, 36))
+                                    .inner_margin(12)
+                                    .corner_radius(ui_helpers::SURFACE_RADIUS)
+                                    .show(ui, |ui| {
+                                        ui.strong(&m.name);
+                                        ui.label(
+                                            RichText::new(format!("v{}", m.version)).color(GREEN),
+                                        );
+                                        ui.label(&m.description);
+                                        ui.label(RichText::new(&m.file).small().color(MUTED));
+                                    });
+                            }
+                        } else {
+                            ui.label("This game isn't in your family's catalog yet.");
+                            if let Some(game) = installed
+                                && ui.button("+ Create modpack").clicked()
+                            {
+                                let game = GameInfo {
+                                    app_id: game.app_id,
+                                    name: game.name.clone(),
+                                    folder: format!("steam-{}", game.app_id),
+                                    description: String::new(),
+                                    icon: String::new(),
+                                    mods: vec![],
+                                    mod_folder_status: String::new(),
+                                };
+                                self.pack_ui.start_new(&game, self.active_source.as_ref());
+                                self.modpacks_page = true;
+                            }
+                        }
+                        ui.add_space(18.0);
+                        ui.label(
+                            RichText::new(
+                                "Create a modpack to add mods and launch vanilla or modded.",
+                            )
+                            .small()
+                            .color(MUTED),
+                        );
+                    });
+                });
         }
         egui::CentralPanel::default()
             .frame(
@@ -1242,10 +1331,10 @@ impl Canna {
                             if ui.button("+ Create modpack").clicked() { self.pack_ui.start_new(&info,self.active_source.as_ref()); self.modpacks_page=true; }
                             if self.owned_games.contains_key(&game.app_id) && ui.button("Stop instance").clicked() { self.stop_game(game.app_id); }
                             if ui.button("Launch vanilla").clicked() { self.queue_game_launch(&game, &info, false); }
-                            if ui.button("Launch modded").clicked() { self.queue_game_launch(&game, &info, true); }
+                            if ui.button(if model::source_addons(game.app_id).is_some() { "Launch practice (-insecure)" } else { "Launch modded" }).clicked() { self.queue_game_launch(&game, &info, true); }
                         });
                         ui.add_space(16.0); ui.heading("Family mods");
-                        if info.mods.is_empty() { ui.label("No mods published for this game yet. You can still create a pack and set up BepInEx."); }
+                        if info.mods.is_empty() { ui.label("No mods published for this game yet. You can still create a pack and import local mods."); }
                         for item in &info.mods { ui.label(format!("{} · {}",item.name,item.version)); }
                     } else { ui.heading("Game is not installed"); }
                     return;
@@ -1260,7 +1349,7 @@ impl Canna {
                         ui.label(RichText::new("Your game library").size(30.0).strong());
                     });
                 });
-                ui.label(RichText::new("Unity games · BepInEx framework · Your family catalog").color(MUTED));
+                ui.label(RichText::new("Supported games · Unity plugins / Source addons · Your family catalog").color(MUTED));
                 ui.add_space(16.0);
                 ui.horizontal_wrapped(|ui| {
                     if ui
@@ -1326,7 +1415,7 @@ impl Canna {
                     if self.games.is_empty() && !self.scanning {
                         ui.label(
                             RichText::new(
-                                "No installed Unity games found. Check your Steam location in Settings.",
+                                "No installed supported games found. Check your Steam location in Settings.",
                             )
                             .color(MUTED),
                         );
@@ -1472,7 +1561,7 @@ fn main() -> eframe::Result {
         let settings = Settings::load();
         let scan = steam::scan(&settings.steam_path);
         println!(
-            "Unity games: {} | Other Steam entries excluded: {}",
+            "Supported games: {} | Other Steam entries excluded: {}",
             scan.games.len(),
             scan.excluded
         );

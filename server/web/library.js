@@ -1,5 +1,5 @@
 'use strict';
-const gameNames={'1686940':'Bopl Battle','1557740':'ROUNDS','892970':'Valheim','220200':'Kerbal Space Program','255710':'Cities: Skylines','632360':'Risk of Rain 2'};
+const gameNames={'1686940':'Bopl Battle','1557740':'ROUNDS','550':'Left 4 Dead 2','500':'Left 4 Dead','892970':'Valheim','220200':'Kerbal Space Program','255710':'Cities: Skylines','632360':'Risk of Rain 2'};
 function libraryGameId(item) {return item.details?.game==='Minecraft'?'minecraft':String(item.app_id || item.game?.app_id || '');}
 function libraryGameName(item) {return item.details?.game || item.game?.name || gameNames[libraryGameId(item)] || `Steam game ${libraryGameId(item)}`;}
 let initialLibraryFilters=true;

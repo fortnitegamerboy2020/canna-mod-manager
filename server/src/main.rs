@@ -1245,7 +1245,7 @@ mod tests {
         .unwrap()
     }
     #[tokio::test]
-    async fn catalog_includes_unity_and_minecraft_but_requires_membership() {
+    async fn catalog_includes_unity_source_and_minecraft_but_requires_membership() {
         let (_dir, app) = fixture();
         let token = account(&app, "catalog-reader", false);
         {
@@ -1280,7 +1280,8 @@ mod tests {
         let text = page_text(response).await;
         let data: Value = serde_json::from_str(&text).unwrap();
         let games = data["games"].as_array().unwrap();
-        assert_eq!(games.len(), 2);
+        assert_eq!(games.len(), 5);
+        assert!(games.iter().any(|game|game["app_id"]==550 && game["framework"]=="source-vpk"));
         let mc = games.iter().find(|g| g["app_id"] == u32::MAX).unwrap();
         assert_eq!(mc["name"], "Minecraft");
         assert_eq!(mc["mods"][0]["content_type"], "shader");
@@ -1759,7 +1760,7 @@ mod tests {
             .await,
         )
         .await;
-        assert!(catalog["games"].as_array().unwrap().is_empty());
+        assert!(catalog["games"].as_array().unwrap().iter().all(|game| game["mods"].as_array().unwrap().is_empty()));
         assert_eq!(
             call(
                 app.clone(),

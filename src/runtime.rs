@@ -13,14 +13,14 @@ use std::{
     time::Duration,
 };
 
-fn client() -> Result<reqwest::blocking::Client> {
+pub(crate) fn client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .user_agent("Canna-Mod-Manager/0.1")
         .timeout(Duration::from_secs(60))
         .redirect(reqwest::redirect::Policy::none())
         .build()?)
 }
-fn settings(pack: &Modpack) -> Settings {
+pub(crate) fn settings(pack: &Modpack) -> Settings {
     Settings {
         owner: pack.repository.owner.clone(),
         repository: pack.repository.repository.clone(),
@@ -29,7 +29,7 @@ fn settings(pack: &Modpack) -> Settings {
         steam_path: String::new(),
     }
 }
-fn repo_path(pack: &Modpack, file: &str) -> String {
+pub(crate) fn repo_path(pack: &Modpack, file: &str) -> String {
     [
         pack.repository.catalog_folder.trim_matches('/'),
         &pack.game.folder,
@@ -40,7 +40,7 @@ fn repo_path(pack: &Modpack, file: &str) -> String {
     .collect::<Vec<_>>()
     .join("/")
 }
-fn no_links(path: &Path) -> Result<()> {
+pub(crate) fn no_links(path: &Path) -> Result<()> {
     for ancestor in path.ancestors() {
         if let Ok(metadata) = fs::symlink_metadata(ancestor) {
             #[cfg(windows)]
@@ -180,6 +180,9 @@ fn write_new(root: &Path, entries: &[(PathBuf, Vec<u8>)]) -> Result<()> {
     result
 }
 pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
+    if crate::model::source_addons(game.app_id).is_some() {
+        return crate::source_addons::setup(game);
+    }
     ensure_closed(game)?;
     if game.path.join("BepInEx/core/BepInEx.dll").is_file()
         && game.path.join("doorstop_config.ini").is_file()
@@ -221,6 +224,7 @@ pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
     }
     if entries.iter().any(|(p, _)| {
         !(p.starts_with("BepInEx")
+            || (game.app_id == 1557740 && p == Path::new("corlibs/mscorlib.dll"))
             || [
                 "winhttp.dll",
                 "doorstop_config.ini",
@@ -258,6 +262,12 @@ pub fn install_pack(
     progress: &dyn Fn(&str),
 ) -> Result<()> {
     pack.validate()?;
+    if pack.game.app_id != game.app_id {
+        bail!("Modpack belongs to a different game");
+    }
+    if crate::model::source_addons(game.app_id).is_some() {
+        return crate::source_addons::install(game, pack, token, progress);
+    }
     progress("Checking BepInEx…");
     setup(game, pack, token)?;
     let api = client()?;
@@ -411,11 +421,19 @@ pub fn set_mode(root: &Path, modded: bool) -> Result<()> {
 }
 pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::OwnedGame> {
     ensure_closed(game)?;
-    set_mode(&game.path, modded)?;
+    if crate::model::source_addons(game.app_id).is_some() {
+        crate::source_addons::set_mode(game, modded)?;
+    } else {
+        set_mode(&game.path, modded)?;
+    }
     let earliest = crate::owned_game::OwnedGame::now();
-    Command::new("explorer.exe")
-        .arg(format!("steam://rungameid/{}", game.app_id))
-        .spawn()?;
+    if crate::model::source_addons(game.app_id).is_some() && modded {
+        crate::steam::launch_practice(game.app_id)?;
+    } else {
+        Command::new("explorer.exe")
+            .arg(format!("steam://rungameid/{}", game.app_id))
+            .spawn()?;
+    }
     let waiting = std::time::Instant::now();
     while waiting.elapsed() < Duration::from_secs(45) {
         use std::os::windows::process::CommandExt;

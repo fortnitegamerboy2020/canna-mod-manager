@@ -57,9 +57,9 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.16 adds the new transparent Canna logo to the sidebar, window/taskbar icon and executable. Updates continue to come from cannamods.vip, with provider keys kept on the server.
+Canna 0.2.17 adds ROUNDS to the default catalog and Left 4 Dead / Left 4 Dead 2 VPK addon packs. Source packs install self-contained VPKs from local files or reviewed server ZIPs. Modded Source launches use -insecure -console for practice; vanilla disables Canna-managed addons. Unmanaged addons and custom Steam launch options remain unchanged. Native SourceMod/Metamod plugins and standalone speedrun tools are not supported by this installer. Live Left 4 Dead launches remain unverified.
 
-Community 0.3.18 adds live chat and CannaBot, private notifications and mod submissions, announcements, category deletion with discussion migration, and an isolated source review workspace with decompilation, ClamAV and Detect It Easy packer checks. Minecraft API approval remains pending.
+Community 0.3.30 keeps supported games visible in the catalog even before mods are published. The official ROUNDS BepInEx 5 loader is hosted on Canna. Updates continue to come from the server. Minecraft API approval remains pending.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

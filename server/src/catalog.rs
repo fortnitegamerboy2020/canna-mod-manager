@@ -25,12 +25,22 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
         .collect::<Result<Vec<_>, _>>()?;
     let names: Vec<String> = rows.iter().map(|r| r.2.clone()).collect();
     let mut games: std::collections::BTreeMap<u32, Value> = Default::default();
+    for (id, name, folder, framework) in [
+        (1686940, "Bopl Battle", "bopl-battle", "bepinex"),
+        (1557740, "ROUNDS", "rounds", "bepinex"),
+        (550, "Left 4 Dead 2", "left-4-dead-2", "source-vpk"),
+        (500, "Left 4 Dead", "left-4-dead", "source-vpk"),
+    ] {
+        games.insert(id, json!({"app_id":id,"name":name,"folder":folder,"framework":framework,"icon":if id==1686940 || id==1557740 {"icon.png"} else {""},"description":if framework=="source-vpk" {"VPK addon packs; modded launches use -insecure practice mode"} else {"Unity modpacks with BepInEx"},"mods":[],"mod_folder_status":"Server library ready"}));
+    }
     for (id, appid, name, version, description, hash) in rows {
         if security::approved(&db, &id).is_err() {
             continue;
         }
         let appid = if appid == 0 { u32::MAX } else { appid };
         let d = external::details(&db, &id)?;
+        // Loader distributions are installed through Framework, never as plugin DLLs.
+        if d["provider"] == "thunderstore" && name.starts_with("BepInExPack") { continue; }
         let folder = d["folder"]
             .as_str()
             .map(str::to_owned)
@@ -225,6 +235,7 @@ mod tests {
             .0;
         let bytes = b"PK\x03\x04fixture";
         external::store(&app,user,1686940,"Example","1.0","","fixture",&json!({"game":"Bopl Battle","folder":"bopl-battle","catalog_file":"bopl-battle/Mods/old.zip"}),bytes).await.unwrap();
+        external::store(&app,user,1557740,"BepInExPack_ROUNDS","5.4.1901","","loader-fixture",&json!({"provider":"thunderstore","game":"ROUNDS"}),bytes).await.unwrap();
         app.db
             .lock()
             .unwrap()
@@ -248,9 +259,12 @@ mod tests {
         )
         .await;
         assert_eq!(
-            catalog["games"][0]["mods"][0]["sha256"],
+            catalog["games"].as_array().unwrap().iter().find(|game| game["app_id"]==1686940).unwrap()["mods"][0]["sha256"],
             hex::encode(Sha256::digest(bytes))
         );
+        let games=catalog["games"].as_array().unwrap();
+        assert!(games.iter().any(|g|g["app_id"]==1557740 && g["mods"].as_array().unwrap().is_empty()));
+        assert!(games.iter().any(|g|g["app_id"]==550 && g["framework"]=="source-vpk"));
         let response = call(
             app.clone(),
             "GET",

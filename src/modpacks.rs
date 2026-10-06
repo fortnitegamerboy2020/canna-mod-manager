@@ -61,8 +61,8 @@ pub fn add_local(path: &Path) -> Result<ModInfo> {
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_lowercase();
-    if ext != "dll" && ext != "zip" {
-        bail!("Choose a plugin DLL or ZIP")
+    if ext != "dll" && ext != "zip" && ext != "vpk" {
+        bail!("Choose a plugin DLL, VPK addon or ZIP")
     }
     let mut bytes = Vec::new();
     std::fs::File::open(path)?
@@ -144,7 +144,7 @@ impl Modpack {
                 app_id: game.app_id,
                 name: game.name.clone(),
                 folder: game.folder.clone(),
-                framework: "bepinex".into(),
+                framework: crate::model::framework(game.app_id).into(),
             },
             repository,
             mods,
@@ -173,7 +173,7 @@ impl Modpack {
             || self.game.name.trim().is_empty()
             || self.game.name.len() > 200
             || !valid_path(&self.game.folder)
-            || self.game.framework != "bepinex"
+            || self.game.framework != crate::model::framework(self.game.app_id)
         {
             bail!("Invalid game or unsupported modding framework")
         }
@@ -194,6 +194,15 @@ impl Modpack {
         }
         let mut files = BTreeSet::new();
         for item in &self.mods {
+            let extension = item.file.to_ascii_lowercase();
+            if (self.game.framework == "source-vpk" && extension.ends_with(".dll"))
+                || (self.game.framework == "bepinex" && extension.ends_with(".vpk"))
+            {
+                bail!(
+                    "{} is not compatible with this game's mod framework",
+                    item.name
+                );
+            }
             if item.dependencies.len() > 32
                 || item
                     .dependencies
@@ -218,6 +227,7 @@ impl Modpack {
                     || ![
                         format!("{}.dll", item.sha256),
                         format!("{}.zip", item.sha256),
+                        format!("{}.vpk", item.sha256),
                     ]
                     .contains(&item.local_file))
             {
