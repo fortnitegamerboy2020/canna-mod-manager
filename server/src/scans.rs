@@ -68,7 +68,7 @@ fn mode(_path: &std::path::Path, _value: u32) -> std::io::Result<()> {
 }
 async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<()> {
     tokio::fs::create_dir(&job).await?;
-    mode(&job, 0o2770)?;
+    mode(&job, 0o770)?;
     let file = tokio::fs::File::open(app.files.join(format!("{id}.zip"))).await?;
     let mut output = tokio::fs::File::create(job.join("input.zip")).await?;
     mode(&job.join("input.zip"), 0o660)?;
