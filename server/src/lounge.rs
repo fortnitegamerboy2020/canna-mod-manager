@@ -49,6 +49,19 @@ pub async fn messages(
     rows.reverse();
     Ok(axum::Json(json!(rows)))
 }
+pub async fn history(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+) -> ApiResult<axum::Json<Value>> {
+    let (actor, _) = app.auth(&headers)?;
+    let db = app.db.lock().unwrap();
+    let mut stmt=db.prepare("SELECT body FROM chat_messages WHERE user_id=?1 AND bot=0 AND created>?2 ORDER BY id DESC LIMIT 50")?;
+    let mut rows = stmt
+        .query_map(params![actor, now() - 86400], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    rows.reverse();
+    Ok(axum::Json(json!(rows)))
+}
 #[derive(Deserialize)]
 pub struct Message {
     body: String,
@@ -206,6 +219,47 @@ pub async fn announce(
 }
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn history_returns_only_own_unexpired_sent_messages() {
+        let (_dir, app) = fixture();
+        let actor = account(&app, "history", false);
+        account(&app, "otherhistory", false);
+        {
+            let db = app.db.lock().unwrap();
+            for (user, body, bot, created) in [
+                (1, "mine", false, now()),
+                (2, "other", false, now()),
+                (1, "bot", true, now()),
+                (1, "expired", false, now() - 86401),
+            ] {
+                db.execute(
+                    "INSERT INTO chat_messages(user_id,body,bot,created) VALUES(?1,?2,?3,?4)",
+                    params![user, body, bot, created],
+                )
+                .unwrap();
+            }
+        }
+        assert_eq!(
+            call(app.clone(), "GET", "/api/v1/chat/history", json!({}), None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            value(
+                call(
+                    app,
+                    "GET",
+                    "/api/v1/chat/history?user_id=2",
+                    json!({}),
+                    Some(&actor)
+                )
+                .await
+            )
+            .await,
+            json!(["mine"])
+        );
+    }
     use super::*;
     use crate::tests::{account, call, fixture, value};
     #[tokio::test]

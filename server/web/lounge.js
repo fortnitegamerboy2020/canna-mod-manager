@@ -1,5 +1,5 @@
  'use strict';
-let loungeReady=false,announcementRevision=0;
+let loungeReady=false,announcementRevision=0,chatHistory=[],chatHistoryIndex=-1,chatDraft='';
 function loungeNode(tag,text,className){const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(className)n.className=className;return n;}
 function setupLounge(){
  if(loungeReady)return;loungeReady=true;
@@ -8,12 +8,14 @@ function setupLounge(){
  const summary=loungeNode('summary','Community live chat');summary.append(loungeNode('small','Messages expire after 24 hours'));
  const list=loungeNode('div',undefined,'chatmessages');list.id='chatmessages';list.setAttribute('aria-label','Recent chat messages');
  const form=loungeNode('form');form.id='chatform';const input=loungeNode('input');input.id='chatbody';input.maxLength=1000;input.required=true;input.placeholder='Say something to the community…';input.setAttribute('aria-label','Chat message');
+ input.addEventListener('keydown',event=>{if(event.isComposing||event.altKey||event.ctrlKey||event.metaKey||event.shiftKey||!['ArrowUp','ArrowDown'].includes(event.key)||!chatHistory.length)return;if(event.key==='ArrowUp'){if(chatHistoryIndex<0){chatDraft=input.value;chatHistoryIndex=chatHistory.length-1;}else chatHistoryIndex=Math.max(0,chatHistoryIndex-1);}else{if(chatHistoryIndex<0)return;chatHistoryIndex++;if(chatHistoryIndex>=chatHistory.length)chatHistoryIndex=-1;}event.preventDefault();input.value=chatHistoryIndex<0?chatDraft:chatHistory[chatHistoryIndex];});
+ input.addEventListener('input',()=>{if(chatHistoryIndex>=0){chatHistoryIndex=-1;chatDraft=input.value;}});
  const send=loungeNode('button','Send');send.className='primary';send.type='submit';const status=loungeNode('p','');status.id='chatstatus';status.setAttribute('role','status');
- form.append(input,send);form.addEventListener('submit',e=>{e.preventDefault();action(async()=>{send.disabled=true;try{await json('chat',{body:input.value});input.value='';status.textContent='';await loadChat(true);}catch(error){status.textContent=error.message;}finally{send.disabled=false;}});});
- const commands=loungeNode('div',undefined,'chatcommands');commands.append(loungeNode('small','CannaBot'));for(const command of ['/help','/fish','/daily','/balance','/collection','/coinflip','/badges']){const b=loungeNode('button',command);b.type='button';b.addEventListener('click',()=>{input.value=command;input.focus();});commands.append(b);}box.append(summary,list,commands,form,status);$('space').insertBefore(banner,$('space').children[1]);banner.after(box);
+ form.append(input,send);form.addEventListener('submit',e=>{e.preventDefault();action(async()=>{send.disabled=true;try{await json('chat',{body:input.value});input.value='';chatHistoryIndex=-1;chatDraft='';status.textContent='';await loadChat(true);}catch(error){status.textContent=error.message;}finally{send.disabled=false;}});});
+ const commands=loungeNode('div',undefined,'chatcommands');commands.append(loungeNode('small','CannaBot'));for(const command of ['/help','/fish','/daily','/balance','/collection','/coinflip','/badges']){const b=loungeNode('button',command);b.type='button';b.addEventListener('click',()=>{input.value=command;chatHistoryIndex=-1;chatDraft=command;input.focus();});commands.append(b);}box.append(summary,list,commands,form,status);$('space').insertBefore(banner,$('space').children[1]);banner.after(box);
 }
 async function loadChat(forceBottom=false){
- setupLounge();const me=await(await api('me')).json();$('kashbalance').textContent=(me.kash||0).toLocaleString()+' Kash';const rows=await(await api('chat')).json(),list=$('chatmessages');const bottom=forceBottom||list.scrollTop+list.clientHeight>=list.scrollHeight-32;
+ setupLounge();const me=await(await api('me')).json();$('kashbalance').textContent=(me.kash||0).toLocaleString()+' Kash';const rows=await(await api('chat')).json(),list=$('chatmessages');if(chatHistoryIndex<0)chatHistory=await(await api('chat/history')).json();const bottom=forceBottom||list.scrollTop+list.clientHeight>=list.scrollHeight-32;
  list.replaceChildren(...rows.filter(m=>m.created*1000>Date.now()-86400000).map(m=>{
    const row=loungeNode('div',undefined,'chatline');row.dataset.created=m.created;
    const who=loungeNode('button',m.bot?'CannaBot':m.username,'chatwho');who.type='button';if(!m.bot)who.addEventListener('click',()=>action(()=>openProfile(m.user_id)));else who.disabled=true;

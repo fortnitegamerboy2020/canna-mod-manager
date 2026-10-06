@@ -1,8 +1,22 @@
 use super::*;
 use rand::Rng;
+pub const MAX_KASH: i64 = 9_007_199_254_740_991;
+const WALLET_SCHEMA: &str = "CREATE TABLE IF NOT EXISTS bot_wallets(user_id INTEGER PRIMARY KEY REFERENCES users(id),balance INTEGER NOT NULL DEFAULT 0 CHECK(balance BETWEEN 0 AND 9007199254740991),earned INTEGER NOT NULL DEFAULT 0,daily INTEGER NOT NULL DEFAULT -1,last_fish INTEGER NOT NULL DEFAULT 0,last_flip INTEGER NOT NULL DEFAULT 0,fish_day INTEGER NOT NULL DEFAULT -1,fish_count INTEGER NOT NULL DEFAULT 0,badge TEXT NOT NULL DEFAULT 'none');";
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
-    db.execute_batch("CREATE TABLE IF NOT EXISTS bot_wallets(user_id INTEGER PRIMARY KEY REFERENCES users(id),balance INTEGER NOT NULL DEFAULT 0 CHECK(balance BETWEEN 0 AND 10000),earned INTEGER NOT NULL DEFAULT 0,daily INTEGER NOT NULL DEFAULT -1,last_fish INTEGER NOT NULL DEFAULT 0,last_flip INTEGER NOT NULL DEFAULT 0,fish_day INTEGER NOT NULL DEFAULT -1,fish_count INTEGER NOT NULL DEFAULT 0,badge TEXT NOT NULL DEFAULT 'none');
- CREATE TABLE IF NOT EXISTS bot_catches(user_id INTEGER NOT NULL REFERENCES users(id),species TEXT NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(user_id,species));")
+    db.execute_batch(WALLET_SCHEMA)?;
+    let schema: String = db.query_row(
+        "SELECT sql FROM sqlite_master WHERE name='bot_wallets'",
+        [],
+        |r| r.get(0),
+    )?;
+    if schema.contains("BETWEEN 0 AND 10000)") {
+        let tx = db.unchecked_transaction()?;
+        tx.execute_batch("ALTER TABLE bot_wallets RENAME TO bot_wallets_legacy;")?;
+        tx.execute_batch(WALLET_SCHEMA)?;
+        tx.execute_batch("INSERT INTO bot_wallets SELECT * FROM bot_wallets_legacy; DROP TABLE bot_wallets_legacy;")?;
+        tx.commit()?;
+    }
+    db.execute_batch("CREATE TABLE IF NOT EXISTS bot_catches(user_id INTEGER NOT NULL REFERENCES users(id),species TEXT NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(user_id,species));")
 }
 // Each flip draws independently from the OS CSPRNG; no history, account or stake weighting.
 fn coin_side() -> &'static str {
@@ -23,7 +37,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
         return Err(bad("CannaBot commands must be under 100 bytes"));
     }
     if command == "/help" {
-        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free Kash each UTC day; /balance; /collection; /coinflip heads|tails amount — wager 1–25 Kash (also /flip); /badges; /equip none|angler|emerald|legend. Kash cannot be bought, redeemed or transferred, and unlock chat badges only. Each coin flip is independently random with 50/50 odds. The wager game paying 2× your stake when you win, up to 20 flips/day.".into()));
+        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free Kash each UTC day; /balance; /collection; /coinflip heads|tails amount — wager Kash up to your balance (also /flip); /badges; /equip none|angler|emerald|legend. Kash cannot be bought, redeemed or transferred, and unlock chat badges only. Each coin flip is independently random with 50/50 odds. The wager game paying 2× your stake when you win, up to 20 flips/day.".into()));
     }
     db.execute(
         "INSERT OR IGNORE INTO bot_wallets(user_id) VALUES(?1)",
@@ -41,7 +55,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
                     "Daily Kash already claimed. Come back after 00:00 UTC.".into(),
                 ));
             }
-            let reward = 100.min(10000 - balance);
+            let reward = 100.min(MAX_KASH - balance);
             db.execute("UPDATE bot_wallets SET balance=balance+?1,earned=MIN(1000000,earned+?1),daily=?2 WHERE user_id=?3",params![reward,day,actor])?;
             db.execute(
                 "UPDATE notifications SET read=1 WHERE user_id=?1 AND dedup=?2",
@@ -72,7 +86,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
                 95..=98 => ("moon koi", 40),
                 _ => ("legendary Canna carp", 75),
             };
-            let reward = reward.min(10000 - balance);
+            let reward = reward.min(MAX_KASH - balance);
             db.execute("UPDATE bot_wallets SET balance=balance+?1,earned=MIN(1000000,earned+?1),last_fish=?2,fish_day=?3,fish_count=CASE WHEN fish_day=?3 THEN fish_count+1 ELSE 1 END WHERE user_id=?4",params![reward,now(),day,actor])?;
             db.execute("INSERT INTO bot_catches VALUES(?1,?2,1) ON CONFLICT(user_id,species) DO UPDATE SET count=MIN(1000000,count+1)",params![actor,species])?;
             format!(
@@ -125,7 +139,8 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
             format!("Equipped {} chat badge.", args[1])
         }
         "/coinflip" | "/flip" if args.len() != 3 => {
-            "Use /coinflip heads amount or /coinflip tails amount (1–25 Kash).".into()
+            "Use /coinflip heads amount or /coinflip tails amount (positive whole Kash amount)."
+                .into()
         }
         "/flip" | "/coinflip" if args.len() == 3 => {
             if !matches!(args[1], "heads" | "tails") {
@@ -133,13 +148,16 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
             }
             let stake: i64 = args[2]
                 .parse()
-                .map_err(|_| bad("Use a whole-number stake from 1 to 25"))?;
-            if !(1..=25).contains(&stake) || stake > balance {
-                return Err(bad("Stake 1–25 Kash, within your balance"));
+                .map_err(|_| bad("Use a positive whole-number Kash amount"))?;
+            if stake < 1 || stake > balance {
+                return Err(bad("Bet a positive amount up to your Kash balance"));
             }
-            if balance > 9975 {
+            if balance
+                .checked_add(stake)
+                .is_none_or(|payout| payout > MAX_KASH)
+            {
                 return Err(bad(
-                    "Your wallet is at its cap; fishing and daily rewards are capped at 10,000",
+                    "That payout exceeds supported integer precision; choose a smaller amount",
                 ));
             }
             if now() - last_flip < 5 {
@@ -183,6 +201,57 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn old_wallets_keep_balances_and_large_all_in_bets_work() {
+        let (_dir, app) = fixture();
+        account(&app, "bettor", false);
+        let db = app.db.lock().unwrap();
+        db.execute_batch("DROP TABLE bot_wallets; CREATE TABLE bot_wallets(user_id INTEGER PRIMARY KEY REFERENCES users(id),balance INTEGER NOT NULL DEFAULT 0 CHECK(balance BETWEEN 0 AND 10000),earned INTEGER NOT NULL DEFAULT 0,daily INTEGER NOT NULL DEFAULT -1,last_fish INTEGER NOT NULL DEFAULT 0,last_flip INTEGER NOT NULL DEFAULT 0,fish_day INTEGER NOT NULL DEFAULT -1,fish_count INTEGER NOT NULL DEFAULT 0,badge TEXT NOT NULL DEFAULT 'none');INSERT INTO bot_wallets(user_id,balance,earned,badge) VALUES(1,5000,1000,'emerald');").unwrap();
+        initialize(&db).unwrap();
+        initialize(&db).unwrap();
+        assert_eq!(
+            db.query_row("SELECT balance FROM bot_wallets WHERE user_id=1", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            5000
+        );
+        assert_eq!(
+            db.query_row("SELECT badge FROM bot_wallets WHERE user_id=1", [], |r| {
+                r.get::<_, String>(0)
+            })
+            .unwrap(),
+            "emerald"
+        );
+        db.execute("UPDATE bot_wallets SET balance=50000 WHERE user_id=1", [])
+            .unwrap();
+        assert!(run(&db, 1, "/coinflip heads 50001").is_err());
+        let reply = run(&db, 1, "/coinflip heads 50000").unwrap().unwrap();
+        let balance = db
+            .query_row("SELECT balance FROM bot_wallets WHERE user_id=1", [], |r| {
+                r.get::<_, i64>(0)
+            })
+            .unwrap();
+        assert_eq!(
+            balance,
+            if reply.contains("landed heads.") {
+                100000
+            } else {
+                0
+            }
+        );
+        db.execute(
+            "UPDATE bot_wallets SET balance=50000,daily=-1 WHERE user_id=1",
+            [],
+        )
+        .unwrap();
+        run(&db, 1, "/daily").unwrap();
+        assert_eq!(
+            db.query_row("SELECT balance FROM bot_wallets WHERE user_id=1", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            50100
+        );
+    }
     use super::*;
     use crate::tests::{account, call, fixture, value};
     #[test]

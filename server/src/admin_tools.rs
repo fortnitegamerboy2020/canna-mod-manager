@@ -49,6 +49,18 @@ mod wallet_tests {
             value(call(app.clone(), "GET", "/api/v1/me", json!({}), Some(&member)).await).await;
         assert_eq!(me["kash"], 200);
         assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                path,
+                json!({"balance":20000,"earned":500,"reason":"Large balance adjustment"}),
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
             app.db
                 .lock()
                 .unwrap()
@@ -58,7 +70,7 @@ mod wallet_tests {
                     |r| r.get::<_, i64>(0)
                 )
                 .unwrap(),
-            1
+            2
         );
     }
 }
@@ -91,12 +103,12 @@ pub async fn wallet_edit(
     if community::role(&app, actor)? != "owner" {
         return Err(ApiError(StatusCode::FORBIDDEN, "Owner permission required"));
     }
-    if !(0..=10000).contains(&input.balance)
+    if !(0..=cannabot::MAX_KASH).contains(&input.balance)
         || !(0..=1000000).contains(&input.earned)
         || !(5..=500).contains(&input.reason.trim().len())
     {
         return Err(bad(
-            "Balance must be 0–10000, earned 0–1000000; record a reason (5–500 bytes)",
+            "Balance must be a nonnegative safe integer, earned 0–1000000; record a reason (5–500 bytes)",
         ));
     }
     let mut db = app.db.lock().unwrap();

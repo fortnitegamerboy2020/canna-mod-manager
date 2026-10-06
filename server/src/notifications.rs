@@ -2,6 +2,7 @@ use super::*;
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS notifications(id INTEGER PRIMARY KEY AUTOINCREMENT,user_id INTEGER NOT NULL REFERENCES users(id),kind TEXT NOT NULL,body TEXT NOT NULL,link TEXT NOT NULL,created INTEGER NOT NULL,read INTEGER NOT NULL DEFAULT 0,dedup TEXT NOT NULL,UNIQUE(user_id,dedup));
  CREATE TABLE IF NOT EXISTS notification_meta(key TEXT PRIMARY KEY);
+ CREATE TABLE IF NOT EXISTS notification_dismissals(user_id INTEGER NOT NULL REFERENCES users(id),dedup TEXT NOT NULL,created INTEGER NOT NULL,PRIMARY KEY(user_id,dedup));
  CREATE INDEX IF NOT EXISTS notification_user ON notifications(user_id,id);
  CREATE TABLE IF NOT EXISTS mod_submissions(id TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),name TEXT NOT NULL,version TEXT NOT NULL,created INTEGER NOT NULL,status TEXT NOT NULL DEFAULT 'pending',reason TEXT NOT NULL DEFAULT '',resolved INTEGER);
  CREATE TRIGGER IF NOT EXISTS mod_submission_insert AFTER INSERT ON mods BEGIN INSERT OR IGNORE INTO mod_submissions(id,user_id,name,version,created) VALUES(NEW.id,NEW.user_id,NEW.name,NEW.version,strftime('%s','now')); END;
@@ -23,7 +24,7 @@ pub fn notify(
     link: &str,
     dedup: &str,
 ) -> rusqlite::Result<()> {
-    db.execute("INSERT OR IGNORE INTO notifications(user_id,kind,body,link,created,dedup) VALUES(?1,?2,?3,?4,?5,?6)",params![user,kind,body,link,now(),dedup])?;
+    db.execute("INSERT OR IGNORE INTO notifications(user_id,kind,body,link,created,dedup) SELECT ?1,?2,?3,?4,?5,?6 WHERE NOT EXISTS(SELECT 1 FROM notification_dismissals WHERE user_id=?1 AND dedup=?6)",params![user,kind,body,link,now(),dedup])?;
     db.execute("DELETE FROM notifications WHERE user_id=?1 AND id NOT IN (SELECT id FROM notifications WHERE user_id=?1 ORDER BY id DESC LIMIT 500)",[user])?;
     Ok(())
 }
@@ -84,6 +85,16 @@ pub async fn submissions(
     let mut stmt=db.prepare("SELECT s.id,s.name,s.version,s.status,s.reason,s.created,s.resolved,EXISTS(SELECT 1 FROM mods WHERE id=s.id),(SELECT status FROM mod_scans WHERE mod_id=s.id) FROM mod_submissions s WHERE s.user_id=?1 AND (s.resolved IS NULL OR s.resolved>?2) ORDER BY s.created DESC LIMIT 500")?;
     let rows=stmt.query_map(params![actor,now()-604800],|r|Ok(json!({"id":r.get::<_,String>(0)?,"name":r.get::<_,String>(1)?,"version":r.get::<_,String>(2)?,"status":r.get::<_,String>(3)?,"reason":r.get::<_,String>(4)?,"created":r.get::<_,i64>(5)?,"resolved":r.get::<_,Option<i64>>(6)?,"available":r.get::<_,bool>(7)?,"analysis":r.get::<_,Option<String>>(8)?})))?.collect::<Result<Vec<_>,_>>()?;
     Ok(axum::Json(json!(rows)))
+}
+pub async fn clear(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
+    let (actor, _) = app.auth(&headers)?;
+    let mut db = app.db.lock().unwrap();
+    let tx = db.transaction()?;
+    tx.execute("INSERT OR REPLACE INTO notification_dismissals(user_id,dedup,created) SELECT user_id,dedup,?1 FROM notifications WHERE user_id=?2",params![now(),actor])?;
+    let cleared = tx.execute("DELETE FROM notifications WHERE user_id=?1", [actor])?;
+    tx.commit()?;
+    app.live.hint("notifications");
+    Ok(axum::Json(json!({"ok":true,"cleared":cleared})))
 }
 #[derive(Deserialize)]
 pub struct Deny {
@@ -158,6 +169,10 @@ pub fn start(app: Shared) {
                     "DELETE FROM notifications WHERE created<=?1",
                     [now() - 30 * 86400],
                 )?;
+                db.execute(
+                    "DELETE FROM notification_dismissals WHERE created<=?1",
+                    [now() - 30 * 86400],
+                )?;
                 let mut stmt = db.prepare("SELECT user_id FROM bot_wallets WHERE daily<?1")?;
                 let ids = stmt
                     .query_map([now() / 86400], |r| r.get::<_, i64>(0))?
@@ -222,6 +237,99 @@ pub async fn replies(State(app): State<Shared>, request: Request, next: Next) ->
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[tokio::test]
+    async fn clearing_all_is_private_complete_and_does_not_resurrect_events() {
+        let (_dir, app) = fixture();
+        let first = account(&app, "first", false);
+        let second = account(&app, "second", false);
+        {
+            let db = app.db.lock().unwrap();
+            for n in 0..150 {
+                notify(
+                    &db,
+                    1,
+                    "reply",
+                    "Message",
+                    "/notifications",
+                    &format!("event:{n}"),
+                )
+                .unwrap();
+            }
+            notify(&db, 2, "reply", "Other member", "/notifications", "other").unwrap();
+            db.execute(
+                "UPDATE notifications SET read=1 WHERE user_id=1 AND id%2=0",
+                [],
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/notifications/clear",
+                json!({}),
+                None
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let result = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/notifications/clear",
+                json!({"user_id":2}),
+                Some(&first),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(result["cleared"], 150);
+        assert_eq!(
+            value(
+                call(
+                    app.clone(),
+                    "GET",
+                    "/api/v1/notifications",
+                    json!({}),
+                    Some(&first)
+                )
+                .await
+            )
+            .await,
+            json!([])
+        );
+        assert_eq!(
+            value(
+                call(
+                    app.clone(),
+                    "GET",
+                    "/api/v1/notifications",
+                    json!({}),
+                    Some(&second)
+                )
+                .await
+            )
+            .await
+            .as_array()
+            .unwrap()
+            .len(),
+            1
+        );
+        let db = app.db.lock().unwrap();
+        notify(&db, 1, "reply", "Old event", "/notifications", "event:0").unwrap();
+        notify(&db, 1, "reply", "New event", "/notifications", "new-event").unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM notifications WHERE user_id=1",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+    }
     #[tokio::test]
     async fn replies_and_submission_decisions_are_private_and_retained_seven_days() {
         let (_dir, app) = fixture();
