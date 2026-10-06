@@ -1,0 +1,19 @@
+# DNS for both names must point to the Droplet before HTTPS can be issued.
+cannamods.vip, api.cannamods.vip {
+    header {
+        X-Content-Type-Options nosniff
+        Referrer-Policy no-referrer
+        Permissions-Policy "camera=(), microphone=(), geolocation=()"
+        Strict-Transport-Security "max-age=31536000; includeSubDomains"
+        Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        Cache-Control "no-store"
+        -Server
+    }
+    request_body {
+        max_size 134217728
+    }
+    reverse_proxy 127.0.0.1:8787 {
+        header_up X-Forwarded-For {remote_host}
+        header_up -Forwarded
+    }
+}

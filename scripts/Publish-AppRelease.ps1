@@ -27,13 +27,14 @@ try {
     }
     $cannaCommit = Invoke-CannaApi "git/commits/$($cannaRef.object.sha)"
     # Explicit source allowlist. Credential files, game assemblies, caches and build output are excluded.
-    $cannaFiles = @('Cargo.toml', 'Cargo.lock', 'build.rs', 'build.ps1', '.gitignore', 'README.md', 'AGENTS.md')
-    foreach ($cannaFolder in @('src', 'scripts', 'examples', 'repository-template')) {
+    $cannaFiles = @('Cargo.toml', 'Cargo.lock', 'build.rs', 'build.ps1', '.gitignore', 'README.md', 'AGENTS.md', 'LICENSE', 'SECURITY.md')
+    foreach ($cannaFolder in @('src', 'scripts', 'examples', 'repository-template', 'server/src', 'server/web', 'server/deploy')) {
         $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -Recurse -File | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
     }
     foreach ($cannaFolder in @('mods/DrillThroughBall', 'mods/ProceduralMaps', 'mods/Anvil', 'mods/FamilyVisuals', 'mods/FamilyCatalog', 'mods/TimeStopTimer')) {
         $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -File | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
     }
+    $cannaFiles += @('server/Cargo.toml', 'server/Cargo.lock', 'server/README.md')
     $cannaEntries = @()
     foreach ($cannaFile in $cannaFiles) {
         $cannaBlob = Invoke-CannaApi 'git/blobs' 'POST' @{ content = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $cannaRoot $cannaFile))); encoding = 'base64' }

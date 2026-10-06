@@ -1,0 +1,35 @@
+[Unit]
+Description=Canna family accounts and sharing API
+After=network.target mnt-canna.mount
+Requires=mnt-canna.mount
+
+[Service]
+User=canna
+Group=canna
+ExecStart=/opt/canna/canna-server
+WorkingDirectory=/var/lib/canna
+Environment=CANNA_STATE=/var/lib/canna
+Environment=CANNA_UPLOADS=/mnt/canna/uploads
+LoadCredential=database.key:/etc/canna/keys/database.key
+LoadCredential=uploads.key:/etc/canna/keys/uploads.key
+LoadCredential=mail.key:/etc/canna/keys/mail.key
+UMask=0077
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+CapabilityBoundingSet=
+RestrictSUIDSGID=true
+ReadWritePaths=/var/lib/canna /mnt/canna/uploads /mnt/canna/modpacks
+LimitNOFILE=4096
+MemoryMax=512M
+TasksMax=128
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,8 @@
+[Unit]
+Description=Copy encrypted Canna data and volume onto primary disk for Droplet backups
+RequiresMountsFor=/mnt/canna
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/canna-backup
+UMask=0077
+Nice=10

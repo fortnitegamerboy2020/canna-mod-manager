@@ -1,0 +1,8 @@
+[Unit]
+Description=Daily Canna recovery copy
+[Timer]
+OnCalendar=*-*-* 09:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+[Install]
+WantedBy=timers.target

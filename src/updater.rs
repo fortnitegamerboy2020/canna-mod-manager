@@ -195,6 +195,15 @@ try {{
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    #[ignore = "Downloads and checks the published public server update, without applying it"]
+    fn live_server_update_has_verified_digest() {
+        let ready = super::check("0.1.0").unwrap().unwrap();
+        assert!(ready.file.exists());
+        assert!(super::check("999.0.0").unwrap().is_none());
+        std::fs::remove_file(ready.file).unwrap();
+    }
+
     use super::*;
     #[test]
     fn stable_versions_never_downgrade() {

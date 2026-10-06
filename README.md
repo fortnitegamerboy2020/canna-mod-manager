@@ -175,3 +175,10 @@ Account connection uses an authenticated dedicated `/connect` page. The desktop 
 Manage sessions under **My profile → Logged-in devices** on the website, or **Manage logged-in devices** in desktop Settings. Device names can be renamed; individual logout and logout-every-other-device are supported. The desktop checks access once a minute and clears a remotely revoked session. Active recently is based on server requests in the past two minutes; idle devices stay signed in.
 
 The website library has a prominent **Add mod from external site** button; the same button in desktop Discover opens that importer directly. Paste a provider project URL, choose a version and import into encrypted server storage and the mods database. Imports remain pending until reviewed. Dependency references are displayed for separate import; CurseForge needs its server-only API credential.
+
+
+## Open source and authentication
+
+Original Canna code is available under the MIT license; see LICENSE and SECURITY.md. Public source does not make the community public: the server checks every private request, device session and role. Each device has its own session. Logging out one device leaves other devices signed in; logging out other devices keeps the current one signed in. Password reset revokes existing sessions. A revoked device must sign in again.
+
+The desktop and server source can be reviewed without production keys. To run your own server, generate your own protected credentials and use your own domain. Do not copy production databases, backups, private content or user sessions into a fork. Game artwork, logos, third-party packages and dependencies retain their own rights and licenses.
