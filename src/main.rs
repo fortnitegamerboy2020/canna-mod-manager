@@ -1377,7 +1377,7 @@ impl Canna {
                             if ui.button("+ Create modpack").clicked() { self.pack_ui.start_new(&info,self.active_source.as_ref()); self.modpacks_page=true; }
                             if self.owned_games.contains_key(&game.app_id) && ui.button("Stop instance").clicked() { self.stop_game(game.app_id); }
                             if ui.button("Launch vanilla").clicked() { self.queue_game_launch(&game, &info, false); }
-                            if ui.button(if model::source_addons(game.app_id).is_some() { "Launch practice (-insecure)" } else { "Launch modded" }).clicked() { self.queue_game_launch(&game, &info, true); }
+                            if ui.button("Launch modded").clicked() { self.queue_game_launch(&game, &info, true); }
                         });
                         ui.add_space(16.0); ui.heading("Family mods");
                         if info.mods.is_empty() { ui.label("No mods published for this game yet. You can still create a pack and import local mods."); }

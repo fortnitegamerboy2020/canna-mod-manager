@@ -458,14 +458,7 @@ impl PackUi {
                     self.runtime_requests
                         .push_back(RuntimeAction::Stop(pack.game.app_id));
                 }
-                if ui
-                    .button(if crate::model::source_addons(pack.game.app_id).is_some() {
-                        "Launch practice (-insecure)"
-                    } else {
-                        "Launch modded"
-                    })
-                    .clicked()
-                {
+                if ui.button("Launch modded").clicked() {
                     self.runtime_requests
                         .push_back(RuntimeAction::Launch(pack.clone(), true));
                 }
@@ -1234,14 +1227,7 @@ fn pack_menu(
     ui.separator();
     for (label, next) in [
         ("Apply modpack", Action::Install(pack.clone())),
-        (
-            if crate::model::source_addons(pack.game.app_id).is_some() {
-                "Launch practice (-insecure)"
-            } else {
-                "Launch modded"
-            },
-            Action::Launch(pack.clone(), true),
-        ),
+        ("Launch modded", Action::Launch(pack.clone(), true)),
         ("Launch vanilla", Action::Launch(pack.clone(), false)),
     ] {
         if ui.add_enabled(!busy, egui::Button::new(label)).clicked() {

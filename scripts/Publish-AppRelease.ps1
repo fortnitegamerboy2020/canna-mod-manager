@@ -58,9 +58,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.21 adds managed native L4D2 server plugins alongside VPK addons. Auto-Hop activates automatically on locally hosted -insecure maps without console commands or enabling sv_cheats. Canna manages the DLL, generated plugin registration and VPK together and disables them for vanilla launch, preserving unrelated addons.
-
-Local automatic activation and hold-to-hop were verified with sv_cheats 0. Physical controller input and multiplayer prediction with a second player remain unverified. Community 0.3.37 includes updated setup instructions. Updates continue to come from cannamods.vip.
+Canna 0.2.22 uses Launch modded consistently in the Library, modpack view and modpack actions. Modded Source games continue to launch with -insecure.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(
