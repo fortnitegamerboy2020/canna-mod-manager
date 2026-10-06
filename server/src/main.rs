@@ -24,6 +24,8 @@ use zeroize::Zeroizing;
 mod admin_tools;
 mod cannabot;
 mod catalog;
+mod mod_updates;
+mod source_packages;
 mod community;
 mod crypto;
 mod curseforge;
@@ -154,6 +156,7 @@ impl App {
         external::initialize(&db)?;
         support::initialize(&db)?;
         catalog::initialize(&db)?;
+        mod_updates::initialize(&db)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS mod_reviews(mod_id TEXT PRIMARY KEY REFERENCES mods(id) ON DELETE CASCADE, approved INTEGER NOT NULL DEFAULT 0);")?;
         scans::initialize(&db)?;
         notifications::initialize(&db)?;
@@ -588,7 +591,7 @@ async fn upload(
 async fn mods(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
     app.auth(&headers)?;
     let db = app.db.lock().unwrap();
-    let mut stmt = db.prepare("SELECT m.id,m.app_id,m.name,m.version,m.description,m.sha256,m.size,u.username FROM mods m JOIN users u ON m.user_id=u.id WHERE NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') ORDER BY m.name")?;
+    let mut stmt = db.prepare("SELECT m.id,m.app_id,m.name,m.version,m.description,m.sha256,m.size,u.username FROM mods m JOIN users u ON m.user_id=u.id WHERE NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') ORDER BY m.rowid DESC")?;
     let entries = stmt.query_map([], |r|Ok(json!({"id":r.get::<_,String>(0)?,"app_id":r.get::<_,u32>(1)?,"name":r.get::<_,String>(2)?,"version":r.get::<_,String>(3)?,"description":r.get::<_,String>(4)?,"sha256":r.get::<_,String>(5)?,"size":r.get::<_,i64>(6)?,"author":r.get::<_,String>(7)?})))?.collect::<Result<Vec<_>,_>>()?;
     let mut entries: Vec<Value> = entries
         .into_iter()
@@ -606,6 +609,11 @@ async fn mods(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::
             m
         })
         .collect();
+    // Keep a working approved release visible while an update awaits analysis.
+    entries.sort_by_key(|m|m["review_status"]!="approved");
+    let mut seen=std::collections::HashSet::new();
+    entries.retain(|m|catalog::project_key(&m["details"]).is_none_or(|key|seen.insert(key)));
+    entries.sort_by(|a,b|a["name"].as_str().cmp(&b["name"].as_str()));
     entries.extend(catalog::recommendations());
     Ok(axum::Json(json!(entries)))
 }
@@ -934,6 +942,8 @@ fn router(app: Shared) -> Router {
         .route("/review/mods/{id}", get(scans::page))
         .route("/review.js", get(review_script))
         .route("/api/v1/mods/{id}/analysis", get(scans::report).post(scans::analyze))
+        .route("/api/v1/mods/updates/check", post(mod_updates::request))
+        .route("/api/v1/mods/updates/status", get(mod_updates::status))
         .route("/api/v1/mods/{id}/analysis/{finding}", post(scans::decision))
         .route("/robots.txt", get(|| async { ([("content-type","text/plain; charset=utf-8")], "User-agent: *\nDisallow: /api/\nDisallow: /connect\nDisallow: /support\nDisallow: /packs/\nDisallow: /forums\nDisallow: /mods\nDisallow: /submissions\nDisallow: /notifications\nDisallow: /members\nDisallow: /admin\nSitemap: https://cannamods.vip/sitemap.xml\n") }))
         .route("/sitemap.xml", get(|| async { ([("content-type","application/xml; charset=utf-8")], r#"<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://cannamods.vip/</loc></url><url><loc>https://cannamods.vip/help</loc></url></urlset>"#) }))
@@ -1150,6 +1160,15 @@ async fn main() -> anyhow::Result<()> {
         catalog::audit(&app).await?;
         return Ok(());
     }
+    if std::env::args().any(|a| a == "--rescan-curated-source") {
+        let db=app.db.lock().unwrap();
+        let count=db.execute("DELETE FROM mod_scans WHERE mod_id IN (SELECT mod_id FROM mod_details WHERE origin LIKE 'github:originalgrego/L4D2-Practice-Script:%' OR origin LIKE 'github:jpobzy/L4dAutoConfig:%' OR origin LIKE 'github:jpobzy/L4dRemovedMainMenuMusic:%')",[])?;
+        println!("Queued {count} curated Source packages for reanalysis");return Ok(());
+    }
+    if std::env::args().any(|a| a == "--catalog-status") {
+        let db=app.db.lock().unwrap();let mut stmt=db.prepare("SELECT m.name,m.version,COALESCE(s.status,'pending'),COALESCE(s.report,'{}') FROM mods m LEFT JOIN mod_scans s ON s.mod_id=m.id ORDER BY m.name")?;
+        for row in stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))? {let (name,version,status,raw)=row?;let report:Value=serde_json::from_str(&raw).unwrap_or_default();println!("{}",json!({"name":name,"version":version,"status":status,"source_files":report["files"].as_array().map_or(0,Vec::len),"findings":report["findings"]}));}return Ok(());
+    }
     if std::env::args().any(|a| a == "--check-storage") {
         let integrity: String =
             app.db
@@ -1175,6 +1194,7 @@ async fn main() -> anyhow::Result<()> {
     lounge::start_cleanup(app.clone());
     scans::start(app.clone());
     notifications::start(app.clone());
+    mod_updates::start(app.clone());
     axum::serve(
         listener,
         router(app).into_make_service_with_connect_info::<std::net::SocketAddr>(),
@@ -1761,7 +1781,7 @@ mod tests {
             .await,
         )
         .await;
-        assert!(catalog["games"].as_array().unwrap().iter().all(|game| game["mods"].as_array().unwrap().is_empty()));
+        assert!(catalog["games"].as_array().unwrap().iter().all(|game| game["mods"].as_array().unwrap().iter().all(|item|item["provenance"]["external_only"]==true)));
         assert_eq!(
             call(
                 app.clone(),

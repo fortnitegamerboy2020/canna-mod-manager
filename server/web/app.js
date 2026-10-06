@@ -78,6 +78,7 @@ async function loadLibrary() {
     libraryItems[kind]=items;
   }
   renderLibrary();
+  if(typeof loadUpdateStatus==='function')await loadUpdateStatus();
 }
 async function refresh() {
   currentUser=await (await api('me')).json();

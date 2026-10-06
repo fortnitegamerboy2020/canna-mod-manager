@@ -190,7 +190,7 @@ checksum = "fc652a48c352aef3ea3aed32080501cf3ef6ed5da78602a020c991775b0aff04"
 
 [[package]]
 name = "canna-server"
-version = "0.3.32"
+version = "0.3.33"
 dependencies = [
  "aead",
  "anyhow",
@@ -198,6 +198,7 @@ dependencies = [
  "async-stream",
  "axum",
  "chacha20poly1305",
+ "crc32fast",
  "futures-util",
  "hex",
  "httpdate",

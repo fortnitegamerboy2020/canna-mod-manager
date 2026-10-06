@@ -92,7 +92,7 @@ fn link(raw: &str) -> ApiResult<(String, Vec<String>)> {
         "Use a mod project link from thunderstore.io, modrinth.com or curseforge.com",
     ))
 }
-fn client() -> ApiResult<reqwest::Client> {
+pub(crate) fn client() -> ApiResult<reqwest::Client> {
     reqwest::Client::builder()
         .user_agent("Canna/0.3.7 (https://cannamods.vip)")
         .redirect(reqwest::redirect::Policy::none())
@@ -170,7 +170,7 @@ async fn cf_pages(url: &str) -> ApiResult<Vec<Value>> {
     }
     Ok(output)
 }
-async fn metadata(url: &str, cf: bool) -> ApiResult<Value> {
+pub(crate) async fn metadata(url: &str, cf: bool) -> ApiResult<Value> {
     let mut response = if cf {
         curseforge::get(url).await?
     } else {
@@ -494,6 +494,25 @@ pub async fn import(
         .upload_gate
         .try_acquire()
         .map_err(|_| bad("Another import is in progress"))?;
+    import_background(&app,user,input).await.map(axum::Json)
+}
+pub async fn refresh_existing(app:&App,user:i64,id:&str)->ApiResult<Option<String>> {
+    let (data,origin)={let db=app.db.lock().unwrap();(details(&db,id)?,db.query_row("SELECT origin FROM mod_details WHERE mod_id=?1",[id],|r|r.get::<_,String>(0))?)};
+    if data["provider"]=="github" {return crate::source_packages::refresh(app,user,&data,&origin).await;}
+    let (loader,game_version)=update_profile(&data);
+    let mut input=Link {url:data["source_url"].as_str().unwrap_or_default().into(),version:String::new(),game_version,loader,include_optional:false};
+    let (project,release)=selection(&input).await?;
+    if origin==format!("{}:{}:{}",project.provider,project.id,release.id) {return Ok(None);}
+    input.version=release.id;
+    let result=import_background(app,user,input).await?;
+    Ok(Some(result["id"].as_str().ok_or_else(||bad("Update import failed"))?.into()))
+}
+pub fn update_profile(d:&Value)->(String,String) {
+    let field=|name:&str,array:&str|d["update_profile"][name].as_str().or_else(||d[array].as_array().and_then(|a|a.first()).and_then(Value::as_str)).unwrap_or_default().to_owned();
+    let loader=field("loader","loaders");let mut version=field("game_version","game_versions");
+    if version=="Check author compatibility notes"{version.clear();}(loader,version)
+}
+pub async fn import_background(app: &App,user:i64,input:Link)->ApiResult<Value> {
     let (root, nodes, edges, order) = dependency_graph(input).await?;
     let mut ids = std::collections::BTreeMap::<String, String>::new();
     let mut imported = 0;
@@ -532,9 +551,7 @@ pub async fn import(
     }
     let approved = security::approved(&app.db.lock().unwrap(), id).is_ok();
     let dependencies_added = imported - i32::from(!root_existing);
-    Ok(axum::Json(
-        json!({"id":id,"existing":root_existing,"approved":approved,"dependencies_added":dependencies_added,"dependency_count":ids.len().saturating_sub(1)}),
-    ))
+    Ok(json!({"id":id,"existing":root_existing,"approved":approved,"dependencies_added":dependencies_added,"dependency_count":ids.len().saturating_sub(1)}))
 }
 async fn import_one(
     app: &App,
@@ -623,6 +640,8 @@ async fn import_one(
     let mut details = serde_json::to_value(project).unwrap();
     details.as_object_mut().unwrap().remove("versions");
     details["filename"] = json!(safe_filename(&release.filename));
+    details["release_id"] = json!(release.id);
+    details["update_profile"]=json!({"loader":input.loader,"game_version":input.game_version});
     details["loaders"] = json!(release.loaders);
     details["game_versions"] = json!(release.game_versions);
     details["dependencies"] = release.dependencies.clone();

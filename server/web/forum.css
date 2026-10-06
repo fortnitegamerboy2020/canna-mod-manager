@@ -125,3 +125,4 @@ button,a,summary{-webkit-tap-highlight-color:transparent}button,summary{touch-ac
 
 
 .modart{width:96px;height:96px;object-fit:contain;flex-shrink:0}.entry>div:first-of-type{min-width:0;flex:1}.moddescription{white-space:pre-wrap;overflow-wrap:anywhere}.entry details{margin:8px 0}@media(max-width:600px){.modart{width:72px;height:72px}}
+.cannaleaf{display:inline-block;width:26px;height:28px;vertical-align:middle;clip-path:polygon(50% 98%,46% 72%,20% 80%,30% 62%,3% 52%,25% 48%,9% 27%,35% 41%,29% 4%,46% 36%,50% 0%,54% 36%,71% 4%,65% 41%,91% 27%,75% 48%,97% 52%,70% 62%,80% 80%,54% 72%,54% 98%)}.leaf-angler{background:repeating-linear-gradient(45deg,#b0efbd 0 3px,#268853 3px 7px)}.leaf-emerald{background:repeating-conic-gradient(from 15deg at 50% 75%,#54dc82 0deg 12deg,#1a7146 12deg 24deg)}.leaf-legend{background:radial-gradient(circle,#ddadee 0 24%,transparent 26%) 0 0/8px 8px,#763b8c}

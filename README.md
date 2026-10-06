@@ -202,3 +202,7 @@ Supported Steam games remain visible before installation. Missing games show dim
 ## Attributed Source catalog (0.2.19)
 
 Nine starter listings cover Left 4 Dead and Left 4 Dead 2. Three licensed GitHub source packages install through Canna; six official Workshop subscriptions are opened on Steam. Author links, provided original artwork and descriptions are retained. Workshop subscriptions are separate from Canna-managed modpacks. Licensed source and its license are preserved inside each packaged VPK. Canna Leaf skins replace the robot home feed with botanical color patterns. Live Left 4 Dead launches remain unverified.
+
+## External mod updates
+
+Community 0.3.33 checks supported external projects one at a time, at least 30 seconds apart, daily or following a member request. Mods & modpacks → Check mod updates has one persistent 120-second cooldown shared by all members. New compatible versions import required dependencies and pass through scan/review before replacing the discoverable release. Old pinned files remain downloadable; existing packs require explicit entry updates. Steam maintains Workshop subscriptions. API credentials remain server-side.

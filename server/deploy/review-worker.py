@@ -4,7 +4,7 @@ import hashlib,json,os,re,shutil,signal,stat,subprocess,time,zipfile,struct,math
 from collections import Counter
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
-VERSION='canna-static-3'
+VERSION='canna-static-4'
 RULES=[
  ('network','Network access',r'https?://|\b(?:HttpClient|WebClient|UnityWebRequest|Socket|TcpClient|UdpClient|URLConnection|requests\.(?:get|post)|fetch\s*\()','review'),
  ('identity','Device or account information',r'GetPhysicalAddress|NetworkInterface|Environment\.(?:MachineName|UserName)|GetHostAddresses|GetHostName|System\.getProperty\s*\(\s*"(?:user|os)\.|getenv\s*\(|Environment\.GetEnvironmentVariable','review'),
@@ -15,8 +15,38 @@ RULES=[
  ('native','Native calls, memory access or injection',r'DllImport|LibraryImport|VirtualAlloc|WriteProcessMemory|CreateRemoteThread|GetProcAddress|LoadLibrary|Unsafe\.|sun\.misc\.Unsafe','review'),
  ('dynamic','Dynamic code or encoded payloads',r'Assembly\.Load|Activator\.CreateInstance|FromBase64String|eval\s*\(|defineClass|Invoke-Expression|DownloadString','review')]
 RULES=[(a,b,re.compile(c,re.I),d) for a,b,c,d in RULES]
-TEXT={'.cs','.java','.rs','.js','.ts','.lua','.py','.cpp','.c','.h','.hpp','.shader','.sh','.ps1','.json','.xml','.toml','.yml','.yaml','.txt','.md','.properties','.cfg','.ini'}
+TEXT={'.cs','.java','.rs','.js','.ts','.lua','.nut','.py','.cpp','.c','.h','.hpp','.shader','.sh','.ps1','.json','.xml','.toml','.yml','.yaml','.txt','.md','.properties','.cfg','.ini','.res'}
 class Limit(Exception):pass
+
+def unpack_vpk(source,destination,max_bytes=256*1024*1024,max_files=2000):
+ if destination.exists():raise Limit('VPK extraction path collision')
+ destination.mkdir(parents=True)
+ data=source.read_bytes()
+ if len(data)<12 or data[:4]!=b'\x34\x12\xaa\x55':raise Limit('Invalid VPK')
+ version,tree_size=struct.unpack_from('<II',data,4);header={1:12,2:28}.get(version)
+ if not header or not tree_size or header+tree_size>len(data):raise Limit('Invalid VPK directory')
+ tree=data[header:header+tree_size];pos=0;files=[];seen=set();total=0
+ def text():
+  nonlocal pos
+  end=tree.find(b'\0',pos)
+  if end<0:raise Limit('Unterminated VPK path')
+  value=tree[pos:end].decode('utf-8');pos=end+1;return value
+ while extension:=text():
+  while directory:=text():
+   while filename:=text():
+    if pos+18>len(tree):raise Limit('Truncated VPK entry')
+    crc,preload,index,offset,length,end=struct.unpack_from('<IHHIIH',tree,pos);pos+=18
+    if index!=0x7fff or end!=0xffff or pos+preload>len(tree) or offset+length>len(data)-header-tree_size:raise Limit('Split or truncated VPK')
+    name=(directory+'/' if directory!=' ' else '')+filename+('.'+extension if extension!=' ' else '')
+    parts=PurePosixPath(name)
+    if name.startswith('/') or any(p in ('..','.','') for p in name.split('/')) or any(c in name for c in ('\\',':','\0')) or name.casefold() in seen:raise Limit('Unsafe VPK path')
+    seen.add(name.casefold());total+=preload+length
+    if len(seen)>max_files or total>max_bytes or preload+length>32*1024*1024:raise Limit('VPK extraction limit')
+    content=tree[pos:pos+preload]+data[header+tree_size+offset:header+tree_size+offset+length];pos+=preload
+    import zlib
+    if zlib.crc32(content)!=crc:raise Limit('VPK checksum mismatch')
+    target=destination.joinpath(*parts.parts);target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(content);files.append(target)
+ return files
 
 def packing_evidence(data):
  findings=[]
@@ -68,13 +98,15 @@ def analyze(job):
   nonlocal total_text
   if len(report['files'])>=500 or total_text+path.stat().st_size>8*1024*1024 or path.stat().st_size>1024*1024:
    finding('coverage','Source preview limit reached',name,severity='high');return
-  try:text=path.read_text(encoding='utf-8')
+  try:
+   raw=path.read_bytes();text=raw.decode('utf-16' if raw.startswith((b'\xff\xfe',b'\xfe\xff')) else 'utf-8-sig')
   except (UnicodeError,OSError):finding('coverage','Text file could not be decoded',name);return
   if '\0' in text:finding('coverage','Binary content in text file',name);return
   total_text+=len(text.encode());report['files'].append({'name':name,'text':text,'kind':kind})
   # Documentation and package metadata are displayed but do not execute behavior.
-  if path.suffix.lower() in ('.md','.xml') or path.name.lower()=='manifest.json':return
+  if path.suffix.lower()=='.md' or path.name.lower() in ('manifest.json','addoninfo.txt','license'):return
   for line_no,line in enumerate(text.splitlines(),1):
+   if line.lstrip().startswith(('//','#',';')):continue
    for rule,title,pattern,severity in RULES:
     if pattern.search(line):finding(rule,title,name,line_no,line.strip(),severity)
  def extract(source,destination,prefix,depth=0):
@@ -100,6 +132,20 @@ def analyze(job):
    return list(destination.rglob('*'))
  try:
   paths=extract(archive,work/'archive','archive/')
+  expanded_total=sum(p.stat().st_size for p in paths if p.is_file());expanded_count=sum(p.is_file() for p in paths)
+  inspected_vpks=set()
+  cursor=0;depths={p:0 for p in paths}
+  while cursor<len(paths):
+   packed=paths[cursor];cursor+=1
+   if packed.is_file() and packed.suffix.lower()=='.vpk':
+    if depths[packed]>=3:raise Limit('Nested VPK depth exceeds analysis limits')
+    expanded=unpack_vpk(packed,packed.with_suffix('.vpk-source'),256*1024*1024-expanded_total,2000-expanded_count)
+    inspected_vpks.add(packed)
+    expanded_total+=sum(p.stat().st_size for p in expanded);expanded_count+=len(expanded)
+    if expanded_total>256*1024*1024 or expanded_count>2000:raise Limit('Combined VPK expansion exceeds analysis limits')
+    paths.extend(expanded)
+    depths.update({p:depths[packed]+1 for p in expanded})
+    for p in expanded:report['inventory'].append({'name':'archive/'+p.relative_to(work/'archive').as_posix(),'size':p.stat().st_size,'kind':'vpk-content'})
   binaries=0
   root_java=any(p.is_file() and p.suffix.lower()=='.class' for p in paths)
   if root_java:
@@ -113,6 +159,7 @@ def analyze(job):
   for path in paths:
    if not path.is_file():continue
    name='archive/'+path.relative_to(work/'archive').as_posix();ext=path.suffix.lower()
+   if ext=='.vpk' and path not in inspected_vpks:finding('coverage','Nested VPK is not inspected',name,severity='high')
    with path.open('rb') as inp:signature=inp.read(4)
    pe=signature[:2]==b'MZ'
    if pe:
@@ -127,7 +174,7 @@ def analyze(job):
         finding('packer-signature','Detect It Easy packing / protection finding',name,evidence=value.get('string',str(value)),severity='high')
     except (Limit,OSError,ValueError):finding('coverage','Packer signature scanner failed or timed out',name,severity='high');report['engines']['detect-it-easy']={'status':'error','version':'3.21'}
 
-   if ext in TEXT:add_text(path,name,'uploaded')
+   if ext in TEXT or path.name.lower()=='license':add_text(path,name,'uploaded')
    elif root_java and ext=='.class':continue
    elif pe or ext in ('.dll','.exe','.jar','.class'):
     binaries+=1
@@ -143,7 +190,7 @@ def analyze(job):
      if not generated:finding('coverage','No source reconstructed from binary',name,severity='high')
      for p in generated:add_text(p,'decompiled/'+name+'/'+p.relative_to(out).as_posix(),'decompiled')
     except (Limit,OSError):finding('coverage','Decompiler unavailable or time limit reached',name,severity='high')
-   elif ext not in ('.png','.jpg','.jpeg','.webp','.gif','.ogg','.wav','.mp3','.ttf','.otf'):
+   elif ext not in ('.vpk','.png','.jpg','.jpeg','.webp','.gif','.ogg','.wav','.mp3','.ttf','.otf'):
     finding('coverage','File format not inspected as source',name)
   try:
    code,log=command(['/usr/bin/clamscan','--no-summary','--infected','--max-filesize=32M','--max-scansize=256M','--max-files=2000','--max-recursion=8','--alert-exceeds-max=yes','--alert-encrypted=yes',str(archive)],100)

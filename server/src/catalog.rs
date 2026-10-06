@@ -13,7 +13,7 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
     app.auth(&headers)?;
     let db = app.db.lock().unwrap();
     let mut stmt =
-        db.prepare("SELECT id,app_id,name,version,description,sha256 FROM mods WHERE NOT EXISTS(SELECT 1 FROM mod_reviews WHERE mod_id=mods.id AND approved=0) ORDER BY name")?;
+        db.prepare("SELECT id,app_id,name,version,description,sha256 FROM mods WHERE NOT EXISTS(SELECT 1 FROM mod_reviews WHERE mod_id=mods.id AND approved=0) ORDER BY rowid DESC")?;
     let rows = stmt
         .query_map([], |r| {
             Ok((
@@ -36,12 +36,14 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
     ] {
         games.insert(id, json!({"app_id":id,"name":name,"folder":folder,"framework":framework,"icon":if id==1686940 || id==1557740 {"icon.png"} else {""},"description":if framework=="source-vpk" {"VPK addon packs; modded launches use -insecure practice mode"} else {"Unity modpacks with BepInEx"},"mods":[],"mod_folder_status":"Server library ready"}));
     }
+    let mut latest=std::collections::HashSet::new();
     for (id, appid, name, version, description, hash) in rows {
         if security::approved(&db, &id).is_err() {
             continue;
         }
         let appid = if appid == 0 { u32::MAX } else { appid };
         let d = external::details(&db, &id)?;
+        if let Some(key)=project_key(&d) {if !latest.insert(key){continue;}}
         // Loader distributions are installed through Framework, never as plugin DLLs.
         if d["provider"] == "thunderstore" && name.starts_with("BepInExPack") { continue; }
         let folder = d["folder"]
@@ -101,6 +103,12 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
     Ok(axum::Json(
         json!({"games":games.into_values().collect::<Vec<_>>()}),
     ))
+}
+pub fn project_key(d:&Value)->Option<String> {
+    let url=d["source_url"].as_str()?;
+    if !matches!(d["provider"].as_str(),Some("github"|"thunderstore"|"modrinth"|"curseforge")){return None;}
+    let (loader,version)=external::update_profile(d);
+    Some(format!("{}|{}|{}",url,loader,version))
 }
 pub async fn file(
     State(app): State<Shared>,
@@ -230,6 +238,19 @@ pub async fn audit(app: &App) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[tokio::test]
+    async fn updates_keep_previous_download_until_new_scan_is_approved() {
+        let (_dir,app)=fixture();let token=account(&app,"update-owner",true);
+        let d=json!({"provider":"modrinth","source_url":"https://modrinth.com/mod/fixture","game":"Minecraft","loaders":["fabric"],"game_versions":["1.21.1"]});
+        let old=external::store(&app,1,0,"Fixture","1","","modrinth:fixture:1",&d,b"PK\x03\x04old").await.unwrap();
+        let new=external::store(&app,1,0,"Fixture","2","","modrinth:fixture:2",&d,b"PK\x03\x04new").await.unwrap();
+        app.db.lock().unwrap().execute("INSERT INTO mod_scans VALUES(?1,'hash','queued','{}',0)",[&new]).unwrap();
+        let read=|v:Value|v["games"].as_array().unwrap().iter().find(|g|g["name"]=="Minecraft").unwrap()["mods"][0]["version"].clone();
+        assert_eq!(read(value(call(app.clone(),"GET","/api/v1/catalog",Value::Null,Some(&token)).await).await),"1");
+        app.db.lock().unwrap().execute("UPDATE mod_scans SET status='complete',report='{\"findings\":[]}' WHERE mod_id=?1",[&new]).unwrap();
+        assert_eq!(read(value(call(app.clone(),"GET","/api/v1/catalog",Value::Null,Some(&token)).await).await),"2");
+        assert_eq!(call(app.clone(),"GET",&format!("/api/v1/mods/{old}"),Value::Null,Some(&token)).await.status(),StatusCode::OK);
+    }
     #[test]
     fn workshop_recommendations_preserve_credit_and_are_not_hosted_downloads() {
         let entries=recommendations();

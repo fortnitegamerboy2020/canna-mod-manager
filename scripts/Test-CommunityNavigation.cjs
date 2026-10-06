@@ -16,8 +16,9 @@ async function fixture(path){
  const get=id=>{assert(nodes.has(id),'Missing page element '+id);return nodes.get(id);};
  const location={origin:'https://cannamods.vip',pathname:path,search:'',assign(url){navigation.push(url);},replace(url){navigation.push(url);}};
  const doc={createElement:node,createTextNode:t=>Object.assign(node(),{textContent:t}),getElementById:id=>nodes.get(id),addEventListener(){},querySelectorAll:q=>q==='.admintabs button'?all.filter(n=>n.dataset.tab):all.filter(n=>n.id?.startsWith('admin-')),body:node(),head:node()};
- let ctx;doc.head.append=n=>{if(n.src==='/admin.js'){vm.runInContext(fs.readFileSync('server/web/admin.js','utf8'),ctx);n.onload();}};
+ let ctx,updateRetry=0;doc.head.append=n=>{if(n.src==='/admin.js'){vm.runInContext(fs.readFileSync('server/web/admin.js','utf8'),ctx);n.onload();}};
  function data(p){
+  if(p==='mods/updates/status')return {retry_at:updateRetry,checks:[]};if(p==='mods/updates/check'){updateRetry=Math.floor(Date.now()/1000)+120;return {queued:true,retry_at:updateRetry};}
   if(p.includes("?page=")){const rows=data(p.split("?")[0]);return {items:rows,total:rows.length,page:1,page_size:50};}
   if(p==='chat/history')return ['first sent','/daily'];if(p==='chat')return [{id:1,user_id:1,username:'Owner',role:'owner',body:'first sent',created:Date.now()/1000,bot:false},{id:2,user_id:2,username:'Other',role:'member',body:'other sent',created:Date.now()/1000,bot:false},{id:3,user_id:1,username:'Owner',role:'owner',body:'/daily',created:Date.now()/1000,bot:false},{id:4,user_id:1,username:'Owner',role:'owner',body:'bot reply',created:Date.now()/1000,bot:true}];if(p==='me')return user;if(p==='sections')return {revision:1,sections:[section]};
   if(p.startsWith('topics?'))return [topic];if(p==='topics/thread-one')return {...topic,posts:[]};
@@ -60,5 +61,6 @@ async function fixture(path){
  await vm.runInContext('loadChat()',home.ctx);const input=home.get('chatbody');input.value='current draft';const key=k=>input.events.keydown({key:k,preventDefault(){}});key('ArrowUp');assert.equal(input.value,'/daily');key('ArrowUp');assert.equal(input.value,'first sent');key('ArrowUp');assert.equal(input.value,'first sent');key('ArrowDown');assert.equal(input.value,'/daily');key('ArrowDown');assert.equal(input.value,'current draft');
  const alerts=await fixture('/notifications');alerts.ctx.cannaConfirm=async()=>false;await alerts.get('clearnotifications').events.click();assert(!alerts.requests.includes('/api/v1/notifications/clear'));alerts.ctx.cannaConfirm=async()=>true;await alerts.get('clearnotifications').events.click();assert(alerts.requests.includes('/api/v1/notifications/clear'));
  const compose=await fixture('/forums/new');assert.equal(compose.get('newtopic').hidden,false);
+ const updates=await fixture('/mods');await vm.runInContext('checkUpdates.events.click()',updates.ctx);assert(updates.requests.includes('/api/v1/mods/updates/check'));assert.equal(vm.runInContext('checkUpdates.disabled',updates.ctx),true);assert(vm.runInContext('updateStatus.textContent',updates.ctx).includes('Queued'));
  console.log('All website scripts parse; shared-script startup, every top-bar tab, dedicated sections/discussions/composer, category filtering and back navigation passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

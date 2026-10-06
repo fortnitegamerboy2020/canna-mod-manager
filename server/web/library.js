@@ -1,4 +1,19 @@
 'use strict';
+const updateControls=document.createElement('div');updateControls.className='row';
+const checkUpdates=document.createElement('button');checkUpdates.type='button';checkUpdates.textContent='Check mod updates';
+const updateStatus=document.createElement('span');updateStatus.setAttribute('role','status');
+const updateLog=document.createElement('details');const updateSummary=document.createElement('summary');updateSummary.textContent='Recent update checks';const updateEntries=document.createElement('div');updateLog.append(updateSummary,updateEntries);
+updateControls.append(checkUpdates,updateStatus);$('openexternalimport').after(updateControls,updateLog);
+let updateRetryAt=0;
+function updateCooldown(){const seconds=Math.max(0,Math.ceil(updateRetryAt-Date.now()/1000));checkUpdates.disabled=seconds>0;checkUpdates.textContent=seconds?`Check mod updates (${seconds}s)`:'Check mod updates';}
+async function loadUpdateStatus(){
+ const status=await(await api('mods/updates/status')).json();updateRetryAt=status.retry_at;updateCooldown();updateEntries.replaceChildren();
+ for(const check of status.checks){const line=document.createElement('p');const item=libraryItems.mods.find(m=>m.id===check.mod_id);line.textContent=`${item?.name||check.mod_id}: ${check.detail} · ${new Date(check.checked*1000).toLocaleString()}`;updateEntries.append(line);}
+ if(!status.checks.length)updateEntries.textContent='No update checks yet.';
+}
+checkUpdates.addEventListener('click',()=>action(async()=>{checkUpdates.disabled=true;try{const result=await json('mods/updates/check',{});updateRetryAt=result.retry_at;updateStatus.textContent='Queued. Projects are checked gradually; new files are scanned before publication.';}finally{await loadUpdateStatus();}}));
+setInterval(()=>{if(!$('libraryview').hidden)updateCooldown();},1000);
+setInterval(()=>{if(currentUser&&!$('libraryview').hidden)loadUpdateStatus().catch(()=>{});},30000);
 const gameNames={'1686940':'Bopl Battle','1557740':'ROUNDS','550':'Left 4 Dead 2','500':'Left 4 Dead','892970':'Valheim','220200':'Kerbal Space Program','255710':'Cities: Skylines','632360':'Risk of Rain 2'};
 function libraryGameId(item) {return item.details?.game==='Minecraft'?'minecraft':String(item.app_id || item.game?.app_id || '');}
 function libraryGameName(item) {return item.details?.game || item.game?.name || gameNames[libraryGameId(item)] || `Steam game ${libraryGameId(item)}`;}

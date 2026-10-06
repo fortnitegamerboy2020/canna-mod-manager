@@ -21,3 +21,19 @@ start=64+24+224;sample[start:start+8]=b'changed\0';struct.pack_into('<IIII',samp
 findings=w.packing_evidence(sample);assert any(f[0]=='packer-heuristic' and 'entropy' in f[2] for f in findings);assert any('Writable' in f[1] for f in findings)
 assert any(f[0]=='packer-marker' for f in w.packing_evidence(b'MZ'+b'UPX!'))
 print('Known packing markers and unknown high-entropy/RWX PE structure passed.')
+
+# Self-contained VPK fixtures verify extraction, CRC and path boundaries.
+import zlib
+def vpk(name='fixture',directory='cfg',content=b'echo original'):
+ tree=b'cfg\0'+directory.encode()+b'\0'+name.encode()+b'\0'+struct.pack('<IHHIIH',zlib.crc32(content),0,0x7fff,0,len(content),0xffff)+b'\0\0\0'
+ return struct.pack('<III',0x55aa1234,1,len(tree))+tree+content
+with tempfile.TemporaryDirectory() as tmp:
+ root=Path(tmp);packed=root/'addon.vpk';packed.write_bytes(vpk());out=root/'expanded'
+ files=w.unpack_vpk(packed,out);assert files[0].read_bytes()==b'echo original'
+ for raw in [vpk(directory='../escape'),vpk()[:-1]]:
+  packed.write_bytes(raw)
+  try:w.unpack_vpk(packed,root/('bad'+str(len(raw))));raise AssertionError('Unsafe VPK accepted')
+  except w.Limit:pass
+ try:w.unpack_vpk(packed,out);raise AssertionError('Existing output collision accepted')
+ except w.Limit:pass
+print('VPK source extraction, traversal, truncation and output collisions passed.')

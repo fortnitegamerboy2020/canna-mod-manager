@@ -114,7 +114,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
             }
         }
         "/badges" if args.len() == 1 => format!(
-            "Chat badges (total earned Kash): Angler 200{} · Emerald 500{} · Legend 1500{}. /equip angler|emerald|legend|none.",
+            "Leaf skins (total earned Kash): Mint Stripes 200{} (/equip angler) · Emerald Veins 500{} (/equip emerald) · Amethyst Spots 1500{} (/equip legend). /equip none removes your skin.",
             if earned >= 200 { " — unlocked" } else { "" },
             if earned >= 500 { " — unlocked" } else { "" },
             if earned >= 1500 { " — unlocked" } else { "" }

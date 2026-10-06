@@ -1,10 +1,11 @@
 [package]
 name = "canna-server"
-version = "0.3.32"
+version = "0.3.33"
 edition = "2024"
 
 [dependencies]
 httpdate = "1"
+crc32fast = "1"
 anyhow = "1"
 argon2 = "0.5"
 axum = "0.8"

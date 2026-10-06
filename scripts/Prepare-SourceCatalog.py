@@ -71,14 +71,17 @@ for repo, commit, appid, mode in [
         for name,data in source.items():
             if not name.startswith('.') and name not in ['README.md','LICENSE']:
                 files[name]=data
-    packed=vpk(files)
+    original_vpk=source.get('removedmainlobbymusic.vpk')
+    packed=original_vpk or vpk(files)
     target=OUT/(repo.split('/')[1]+'.zip')
     with zipfile.ZipFile(target,'w',zipfile.ZIP_DEFLATED) as result:
         result.writestr('addon.vpk',packed)
+        if original_vpk:
+            for name,data in source.items():result.writestr('canna-source/'+name,data)
         result.writestr('LICENSE',source['LICENSE'])
         result.writestr('README.md',source['README.md']+f'\n\nCanna packaging: unchanged source from https://github.com/{repo}/tree/{commit}. All source files are also inside addon.vpk at canna-source/.\n'.encode())
     details={'provider':'github','source_url':'https://github.com/'+repo,'authors':repo.split('/')[0],'author_links':[{'name':repo.split('/')[0],'url':'https://github.com/'+repo.split('/')[0]}],'game':'Left 4 Dead 2' if appid==550 else 'Left 4 Dead','license':info['license']['spdx_id'],'commit':commit,'content_type':'mod','dependencies':[],'install_notes':'Start a local versus map and enter exec l4d2_practice in the console. This changes practice keybinds.' if mode=='practice' else 'Read the original README for configuration and compatibility. Configuration addons may change keybinds and interface settings.'}
-    manifest.append({'app_id':appid,'name':info['name'],'version':commit[:12],'description':info['description'],'origin':'github:'+repo+':'+commit,'local_file':target.name,'sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'details':details})
+    manifest.append({'app_id':appid,'name':info['name'],'version':commit[:12]+('.2' if original_vpk else ''),'description':info['description'],'origin':'github:'+repo+':'+commit+(':vpk2' if original_vpk else ''),'local_file':target.name,'sha256':hashlib.sha256(target.read_bytes()).hexdigest(),'details':details})
 (ROOT/'server/web/source-recommendations.json').write_text(json.dumps(recommendations,ensure_ascii=False,indent=2),encoding='utf-8')
 (OUT/'catalog-import.json').write_text(json.dumps(manifest,ensure_ascii=False,indent=2),encoding='utf-8')
 (OUT/'assets-import.json').write_text('[]',encoding='utf-8')

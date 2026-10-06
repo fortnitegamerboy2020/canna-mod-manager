@@ -20,7 +20,7 @@ async function loadChat(forceBottom=false){
    const row=loungeNode('div',undefined,'chatline');row.dataset.created=m.created;
    const who=loungeNode('button',m.bot?'CannaBot':m.username,'chatwho');who.type='button';if(!m.bot)who.addEventListener('click',()=>action(()=>openProfile(m.user_id)));else who.disabled=true;
    const time=loungeNode('time',new Date(m.created*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));time.dateTime=new Date(m.created*1000).toISOString();
-   row.append(time,who);if(!m.bot && m.badge && m.badge!=='none')row.append(loungeNode('small',({angler:'🎣 Angler',emerald:'◆ Emerald',legend:'★ Legend'})[m.badge]||'','chatbadge'));row.append(loungeNode('span',m.body,'chattext'));
+   row.append(time,who);if(!m.bot && ['angler','emerald','legend'].includes(m.badge)){const badge=loungeNode('small',undefined,'chatbadge');const label=({angler:'Mint Stripes',emerald:'Emerald Veins',legend:'Amethyst Spots'})[m.badge];badge.title=label;badge.setAttribute('aria-label',label+' leaf skin');badge.append(loungeNode('span',undefined,'cannaleaf leaf-'+m.badge));row.append(badge);}row.append(loungeNode('span',m.body,'chattext'));
    if(currentUser?.admin || m.user_id===currentUser?.id){const remove=loungeNode('button','×','chatdelete');remove.type='button';remove.setAttribute('aria-label',`Delete ${m.username}'s message`);remove.addEventListener('click',()=>action(async()=>{if(!await cannaConfirm('Delete this chat message?'))return;await api(`chat/${m.id}`,{method:'DELETE'});await loadChat();}));row.append(remove);}return row;
  }));if(!list.children.length)list.append(loungeNode('p','No messages yet. Start a conversation.','sidehint'));if(bottom)list.scrollTop=list.scrollHeight;
 }
