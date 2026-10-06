@@ -363,8 +363,19 @@ async fn me(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Js
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
     let role = community::role(&app, id)?;
+    let kash: i64 = app
+        .db
+        .lock()
+        .unwrap()
+        .query_row(
+            "SELECT balance FROM bot_wallets WHERE user_id=?1",
+            [id],
+            |r| r.get(0),
+        )
+        .optional()?
+        .unwrap_or(0);
     Ok(axum::Json(
-        json!({"id":id,"username":name,"admin":admin,"role":role,"invites_remaining":remaining,"can_invite":role!="admin" && (role=="owner" || remaining>0),"can_publish_guides":role!="member"}),
+        json!({"id":id,"username":name,"kash":kash,"admin":admin,"role":role,"invites_remaining":remaining,"can_invite":role!="admin" && (role=="owner" || remaining>0),"can_publish_guides":role!="member"}),
     ))
 }
 async fn invite(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
@@ -576,7 +587,7 @@ async fn upload(
 async fn mods(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
     app.auth(&headers)?;
     let db = app.db.lock().unwrap();
-    let mut stmt = db.prepare("SELECT m.id,m.app_id,m.name,m.version,m.description,m.sha256,m.size,u.username FROM mods m JOIN users u ON m.user_id=u.id ORDER BY m.name")?;
+    let mut stmt = db.prepare("SELECT m.id,m.app_id,m.name,m.version,m.description,m.sha256,m.size,u.username FROM mods m JOIN users u ON m.user_id=u.id WHERE NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') ORDER BY m.name")?;
     let entries = stmt.query_map([], |r|Ok(json!({"id":r.get::<_,String>(0)?,"app_id":r.get::<_,u32>(1)?,"name":r.get::<_,String>(2)?,"version":r.get::<_,String>(3)?,"description":r.get::<_,String>(4)?,"sha256":r.get::<_,String>(5)?,"size":r.get::<_,i64>(6)?,"author":r.get::<_,String>(7)?})))?.collect::<Result<Vec<_>,_>>()?;
     let entries: Vec<Value> = entries
         .into_iter()
@@ -1006,6 +1017,8 @@ fn router(app: Shared) -> Router {
             post(community::transfer_owner),
         )
         .route("/api/v1/admin/audit", get(community::audit))
+        .route("/api/v1/admin/wallets", get(admin_tools::wallets))
+        .route("/api/v1/admin/wallets/{id}", post(admin_tools::wallet_edit))
         .route("/api/v1/mods/{id}/source", get(community::source))
         .route(
             "/api/v1/topics",

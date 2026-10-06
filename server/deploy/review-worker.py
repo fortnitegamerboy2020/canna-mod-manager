@@ -4,10 +4,10 @@ import hashlib,json,os,re,shutil,signal,stat,subprocess,time,zipfile,struct,math
 from collections import Counter
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
-VERSION='canna-static-2'
+VERSION='canna-static-3'
 RULES=[
  ('network','Network access',r'https?://|\b(?:HttpClient|WebClient|UnityWebRequest|Socket|TcpClient|UdpClient|URLConnection|requests\.(?:get|post)|fetch\s*\()','review'),
- ('identity','Device or account information',r'GetPhysicalAddress|NetworkInterface|MachineName|UserName|GetHostAddresses|GetHostName|System\.getProperty\s*\(\s*"(?:user|os)\.|getenv\s*\(|Environment\.GetEnvironmentVariable','review'),
+ ('identity','Device or account information',r'GetPhysicalAddress|NetworkInterface|Environment\.(?:MachineName|UserName)|GetHostAddresses|GetHostName|System\.getProperty\s*\(\s*"(?:user|os)\.|getenv\s*\(|Environment\.GetEnvironmentVariable','review'),
  ('sensitive-files','Sensitive credential or browser paths',r'Login Data|Local State|Cookies|\.ssh|wallet\.dat|key4\.db|logins\.json|discord.{0,30}token|CryptUnprotectData|ProtectedData\.Unprotect','high'),
  ('filesystem','File system access',r'File\.(?:Read|Write|Delete|Move|Copy|Open)|Directory\.(?:Delete|GetFiles|Enumerate|Create)|FileStream|Files\.(?:read|write|delete)|FileInputStream|FileOutputStream|open\s*\(','review'),
  ('commands','Starting processes or shell commands',r'Process\.Start|ProcessStartInfo|Runtime\.getRuntime|ProcessBuilder|os\.system|subprocess\.|powershell|cmd\.exe|/bin/(?:sh|bash)','high'),
@@ -72,6 +72,8 @@ def analyze(job):
   except (UnicodeError,OSError):finding('coverage','Text file could not be decoded',name);return
   if '\0' in text:finding('coverage','Binary content in text file',name);return
   total_text+=len(text.encode());report['files'].append({'name':name,'text':text,'kind':kind})
+  # Documentation and package metadata are displayed but do not execute behavior.
+  if path.suffix.lower() in ('.md','.xml') or path.name.lower()=='manifest.json':return
   for line_no,line in enumerate(text.splitlines(),1):
    for rule,title,pattern,severity in RULES:
     if pattern.search(line):finding(rule,title,name,line_no,line.strip(),severity)

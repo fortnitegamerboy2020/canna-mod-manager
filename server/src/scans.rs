@@ -124,9 +124,7 @@ async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<(
                 "UPDATE mod_scans SET status='complete',report=?1 WHERE mod_id=?2 AND hash=?3",
                 params![text, id, hash],
             )?;
-            if report["findings"].as_array().is_some_and(|f| !f.is_empty()) {
-                tx.execute("INSERT INTO mod_reviews VALUES(?1,0) ON CONFLICT(mod_id) DO UPDATE SET approved=0",[&id])?;
-            }
+            apply_policy(&tx, &id, &report)?;
             let approved: bool = tx.query_row(
                 "SELECT NOT EXISTS(SELECT 1 FROM mod_reviews WHERE mod_id=?1 AND approved=0)",
                 [&id],
@@ -145,6 +143,80 @@ async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<(
         }
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
+}
+fn apply_policy(db: &Connection, id: &str, report: &Value) -> ApiResult<()> {
+    let (actor, name): (i64, String) =
+        db.query_row("SELECT user_id,name FROM mods WHERE id=?1", [id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })?;
+    let findings = report["findings"]
+        .as_array()
+        .ok_or(bad("Invalid findings"))?;
+    let blocked: Vec<_> = findings
+        .iter()
+        .filter(|f| {
+            f["rule"]
+                .as_str()
+                .is_some_and(|rule| rule.starts_with("packer-") || rule == "signature")
+        })
+        .collect();
+    let (action, reason) = if !blocked.is_empty() {
+        let reason = format!(
+            "Rejected by scan policy: {}",
+            blocked
+                .iter()
+                .take(8)
+                .map(|f| format!(
+                    "{}: {} ({})",
+                    f["title"].as_str().unwrap_or("Detection"),
+                    f["evidence"].as_str().unwrap_or(""),
+                    f["file"].as_str().unwrap_or("archive")
+                ))
+                .collect::<Vec<_>>()
+                .join("; ")
+        );
+        db.execute(
+            "UPDATE mod_scans SET status='rejected' WHERE mod_id=?1",
+            [id],
+        )?;
+        db.execute(
+            "UPDATE mod_submissions SET status='denied',reason=?1,resolved=?2 WHERE id=?3",
+            params![reason, now(), id],
+        )?;
+        notifications::notify(
+            db,
+            actor,
+            "mod-denied",
+            &format!("Your mod {name} was denied: {reason}"),
+            "/submissions",
+            &format!("scan-denied:{id}"),
+        )?;
+        ("auto-deny-mod", reason)
+    } else if findings.is_empty() {
+        (
+            "auto-approve-mod",
+            "Completed scan with no findings".to_owned(),
+        )
+    } else {
+        (
+            "scan-needs-review",
+            format!("{} findings require review", findings.len()),
+        )
+    };
+    db.execute("INSERT INTO mod_reviews VALUES(?1,?2) ON CONFLICT(mod_id) DO UPDATE SET approved=excluded.approved",params![id,action=="auto-approve-mod"])?;
+    db.execute(
+        "INSERT INTO audit(actor,action,target,created) VALUES(?1,?2,?3,?4)",
+        params![
+            actor,
+            action,
+            json!({"mod":id,"name":name,"reason":reason,"automatic":true}).to_string(),
+            now()
+        ],
+    )?;
+    if action == "auto-approve-mod" {
+        notifications::accepted(db, id)?;
+    }
+    Ok(())
 }
 async fn queue(app: Shared, id: String, force: bool) -> ApiResult<()> {
     let root = std::env::var("CANNA_REVIEW_JOBS")
@@ -175,6 +247,7 @@ async fn queue(app: Shared, id: String, force: bool) -> ApiResult<()> {
             ));
         }
         db.execute("INSERT INTO mod_scans VALUES(?1,?2,'queued','{}',?3) ON CONFLICT(mod_id) DO UPDATE SET hash=excluded.hash,status='queued',report='{}',started=excluded.started",params![id,hash,now()])?;
+        db.execute("INSERT INTO audit(actor,action,target,created) SELECT user_id,'scan-started',?1,?2 FROM mods WHERE id=?3",params![json!({"mod":id,"automatic":true}).to_string(),now(),id])?;
         hash
     };
     let job = PathBuf::from(root).join(Uuid::new_v4().to_string());
@@ -184,6 +257,7 @@ async fn queue(app: Shared, id: String, force: bool) -> ApiResult<()> {
             .is_err()
         {
             let _=app.db.lock().unwrap().execute("UPDATE mod_scans SET status='failed',report=?1 WHERE mod_id=?2",params![json!({"status":"failed","error":"Analysis unavailable, interrupted or over limits. Run again; it has not passed inspection.","files":[],"findings":[]}).to_string(),id]);
+            let _=app.db.lock().unwrap().execute("INSERT INTO audit(actor,action,target,created) SELECT user_id,'scan-failed',?1,?2 FROM mods WHERE id=?3",params![json!({"mod":id,"reason":"Analysis unavailable, interrupted or over limits","automatic":true}).to_string(),now(),id]);
         }
         let _ = tokio::fs::remove_dir_all(job).await;
     });
@@ -323,6 +397,64 @@ pub async fn decision(
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[test]
+    fn scan_policy_auto_approves_reviews_or_quarantines() {
+        let (_dir, app) = fixture();
+        account(&app, "submitter", false);
+        let db = app.db.lock().unwrap();
+        for (id, findings, expected) in [
+            ("clean", json!([]), "accepted"),
+            ("review", json!([{"rule":"network"}]), "pending"),
+            (
+                "packed",
+                json!([{"rule":"packer-heuristic","title":"Possible packing","evidence":"entropy","file":"a.dll"}]),
+                "denied",
+            ),
+            ("malware", json!([{"rule":"signature"}]), "denied"),
+        ] {
+            db.execute(
+                "INSERT INTO mods VALUES(?1,1,1686940,?1,'1','','hash',1)",
+                [id],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO mod_scans VALUES(?1,'hash','complete','{}',0)",
+                [id],
+            )
+            .unwrap();
+            apply_policy(&db, id, &json!({"findings":findings})).unwrap();
+            let status: String = db
+                .query_row(
+                    "SELECT status FROM mod_submissions WHERE id=?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(status, expected);
+            let approved: bool = db
+                .query_row(
+                    "SELECT approved FROM mod_reviews WHERE mod_id=?1",
+                    [id],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(approved, expected == "accepted");
+            let status: String = db
+                .query_row("SELECT status FROM mod_scans WHERE mod_id=?1", [id], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(
+                status,
+                if expected == "denied" {
+                    "rejected"
+                } else {
+                    "complete"
+                }
+            );
+        }
+        assert_eq!(db.query_row("SELECT COUNT(*) FROM audit WHERE action IN ('auto-approve-mod','auto-deny-mod','scan-needs-review')",[],|r|r.get::<_,i64>(0)).unwrap(),4);
+    }
     #[test]
     fn interrupted_jobs_retry_without_erasing_completed_reviews() {
         let db = Connection::open_in_memory().unwrap();

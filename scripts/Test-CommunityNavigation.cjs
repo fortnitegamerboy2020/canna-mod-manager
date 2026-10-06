@@ -9,7 +9,7 @@ async function fixture(path){
   Object.defineProperty(n,'id',{set(v){this._id=v;nodes.set(v,this);},get(){return this._id;}});all.push(n);return n;
  }
  for(const m of html.matchAll(/<([a-z]+)[^>]*\bid="([^\"]+)"[^>]*>/g)){const n=node(m[1]);n.id=m[2];n.hidden=/\bhidden\b/.test(m[0]);}
- const user={id:1,username:'Owner',role:'owner',admin:true,can_invite:true,can_publish_guides:true,invites_remaining:1};
+ const user={id:1,username:'Owner',kash:321,role:'owner',admin:true,can_invite:true,can_publish_guides:true,invites_remaining:1};
  const section={id:'help',name:'Modding help',description:'Help with mods',active:true,vip_only:false};
  const topic={id:'thread-one',title:'A discussion',category:'help',app_id:1686940,posts:1,author:'Owner',updated:1,locked:false,pinned:false};
  const profile={...user,rank:'Noob',points:0,avatar:false,status:'',bio:'',ratings_count:0,posts_count:1,comments:[]};
@@ -21,7 +21,7 @@ async function fixture(path){
   if(p==='me')return user;if(p==='sections')return {revision:1,sections:[section]};
   if(p.startsWith('topics?'))return [topic];if(p==='topics/thread-one')return {...topic,posts:[]};
   if(p==='profiles')return [profile];if(p==='profiles/1')return profile;
-  if(p==='admin/overview')return {storage_bytes:0,version:'fixture'};
+  if(p==='admin/wallets')return [{id:1,username:'Owner',balance:321,earned:500}];if(p==='admin/overview')return {storage_bytes:0,version:'fixture'};
   if(p==='announcement')return {revision:0,active:false,body:''};return [];
  }
  ctx=vm.createContext({document:doc,window:{addEventListener(){},open(){}},location,sessionStorage:{removeItem(){}},navigator:{},console,structuredClone,URLSearchParams,Headers,Date,setTimeout:()=>0,setInterval:()=>0,clearInterval(){},clearTimeout(){},Option:function(text,value){return Object.assign(node('option'),{textContent:text,value});},fetch:async(url)=>{requests.push(url);return {ok:true,json:async()=>data(url.replace('/api/v1/',''))};}});
@@ -39,6 +39,7 @@ async function fixture(path){
  await section.get('topics').children[0].children[0].children[0].events.click();assert.equal(section.navigation.at(-1),'/forums/topics/thread-one');
  const thread=await fixture('/forums/topics/thread-one');assert.equal(thread.get('thread').hidden,false);assert.equal(thread.get('discussionlist').hidden,true);await thread.get('closethread').events.click();assert.equal(thread.navigation.at(-1),'/forums/sections/help');
  for(const [path,id] of [['/mods','libraryview'],['/submissions','submissionsview'],['/notifications','notificationsview'],['/members','profilesview'],['/members/1','profilesview'],['/admin','moderation']]){const page=await fixture(path);assert.equal(page.get(id).hidden,false,path);assert.equal(page.navigation.length,0,'Unexpected redirect '+path);}
+ const admin=await fixture('/admin');assert.equal(admin.get('kashbalance').textContent,'321 Kash');await vm.runInContext("selectAdminTab('logs')",admin.ctx);assert(admin.requests.includes('/api/v1/admin/audit'));await vm.runInContext("selectAdminTab('economy')",admin.ctx);assert(admin.requests.includes('/api/v1/admin/wallets'));assert.equal(admin.get('walletlist').children.length,1);
  const compose=await fixture('/forums/new');assert.equal(compose.get('newtopic').hidden,false);
  console.log('All website scripts parse; shared-script startup, every top-bar tab, dedicated sections/discussions/composer, category filtering and back navigation passed.');
 })().catch(error=>{console.error(error);process.exitCode=1;});

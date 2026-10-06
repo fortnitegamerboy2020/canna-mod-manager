@@ -156,7 +156,7 @@ pub async fn transfer_owner(
     Ok(axum::Json(json!({"ok":true})))
 }
 pub async fn audit(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
-    owner(&app, &headers)?;
+    moderator(&app, &headers)?;
     let db = app.db.lock().unwrap();
     let mut stmt=db.prepare("SELECT a.id,u.username,a.action,a.target,a.created FROM audit a JOIN users u ON u.id=a.actor ORDER BY a.id DESC LIMIT 200")?;
     let items=stmt.query_map([],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"actor":r.get::<_,String>(1)?,"action":r.get::<_,String>(2)?,"target":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;

@@ -23,7 +23,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
         return Err(bad("CannaBot commands must be under 100 bytes"));
     }
     if command == "/help" {
-        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free coins each UTC day; /balance; /collection; /coinflip — random heads or tails; /coinflip heads|tails 1–25 (also /flip); /badges; /equip none|angler|emerald|legend. Coins are pretend, cannot be bought or transferred, and unlock chat badges only. Each coin flip is independently random with 50/50 odds. The wager game paying 2× your stake when you win, up to 20 flips/day.".into()));
+        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free Kash each UTC day; /balance; /collection; /coinflip heads|tails amount — wager 1–25 Kash (also /flip); /badges; /equip none|angler|emerald|legend. Kash cannot be bought, redeemed or transferred, and unlock chat badges only. Each coin flip is independently random with 50/50 odds. The wager game paying 2× your stake when you win, up to 20 flips/day.".into()));
     }
     db.execute(
         "INSERT OR IGNORE INTO bot_wallets(user_id) VALUES(?1)",
@@ -33,12 +33,12 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
     let day = now() / 86400;
     let answer = match command {
         "/balance" if args.len() == 1 => format!(
-            "You have {balance} pretend coins · {earned} total earned. /daily and /fish earn coins; /badges shows cosmetic unlocks."
+            "You have {balance} Kash · {earned} total earned. /daily and /fish earn Kash; /badges shows cosmetic unlocks."
         ),
         "/daily" if args.len() == 1 => {
             if daily == day {
                 return Ok(Some(
-                    "Daily coins already claimed. Come back after 00:00 UTC.".into(),
+                    "Daily Kash already claimed. Come back after 00:00 UTC.".into(),
                 ));
             }
             let reward = 100.min(10000 - balance);
@@ -48,7 +48,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
                 params![actor, format!("daily:{day}")],
             )?;
             format!(
-                "Daily reward: {reward} pretend coins. Balance: {}.",
+                "Daily reward: {reward} Kash. Balance: {}.",
                 balance + reward
             )
         }
@@ -76,7 +76,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
             db.execute("UPDATE bot_wallets SET balance=balance+?1,earned=MIN(1000000,earned+?1),last_fish=?2,fish_day=?3,fish_count=CASE WHEN fish_day=?3 THEN fish_count+1 ELSE 1 END WHERE user_id=?4",params![reward,now(),day,actor])?;
             db.execute("INSERT INTO bot_catches VALUES(?1,?2,1) ON CONFLICT(user_id,species) DO UPDATE SET count=MIN(1000000,count+1)",params![actor,species])?;
             format!(
-                "You caught a {species}! +{reward} pretend coins · Balance {}. Your collection keeps the catch.",
+                "You caught a {species}! +{reward} Kash · Balance {}. Your collection keeps the catch.",
                 balance + reward
             )
         }
@@ -100,7 +100,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
             }
         }
         "/badges" if args.len() == 1 => format!(
-            "Chat badges (total earned coins, no purchase needed): Angler 200{} · Emerald 500{} · Legend 1500{}. /equip angler|emerald|legend|none. These do not grant roles or permissions.",
+            "Chat badges (total earned Kash): Angler 200{} · Emerald 500{} · Legend 1500{}. /equip angler|emerald|legend|none.",
             if earned >= 200 { " — unlocked" } else { "" },
             if earned >= 500 { " — unlocked" } else { "" },
             if earned >= 1500 { " — unlocked" } else { "" }
@@ -115,7 +115,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
             };
             if earned < needed {
                 return Err(bad(
-                    "That badge is still locked; earn more coins with /daily or /fish",
+                    "That badge is still locked; earn more Kash with /daily or /fish",
                 ));
             }
             db.execute(
@@ -124,10 +124,9 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
             )?;
             format!("Equipped {} chat badge.", args[1])
         }
-        "/coinflip" if args.len() == 1 => format!(
-            "The coin landed {}. (Independent 50/50 odds; no wager)",
-            coin_side()
-        ),
+        "/coinflip" | "/flip" if args.len() != 3 => {
+            "Use /coinflip heads amount or /coinflip tails amount (1–25 Kash).".into()
+        }
         "/flip" | "/coinflip" if args.len() == 3 => {
             if !matches!(args[1], "heads" | "tails") {
                 return Err(bad("Use /coinflip heads 10 or /coinflip tails 10"));
@@ -136,7 +135,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
                 .parse()
                 .map_err(|_| bad("Use a whole-number stake from 1 to 25"))?;
             if !(1..=25).contains(&stake) || stake > balance {
-                return Err(bad("Stake 1–25 coins, within your balance"));
+                return Err(bad("Stake 1–25 Kash, within your balance"));
             }
             if balance > 9975 {
                 return Err(bad(
@@ -173,7 +172,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
                 [actor],
             )?;
             format!(
-                "The coin landed {side}. You {} {stake} pretend coins. Balance: {}. (50/50 odds)",
+                "The coin landed {side}. You {} {stake} Kash. Balance: {}. (50/50 odds)",
                 if change > 0 { "won" } else { "lost" },
                 balance + change
             )
@@ -194,7 +193,7 @@ mod tests {
         run(&db, 1, "/daily").unwrap();
         for _ in 0..20 {
             let answer = run(&db, 1, "/coinflip").unwrap().unwrap();
-            assert!(answer.contains("landed heads.") || answer.contains("landed tails."));
+            assert!(answer.contains("Use /coinflip heads amount"));
         }
         let balance: i64 = db
             .query_row("SELECT balance FROM bot_wallets WHERE user_id=1", [], |r| {

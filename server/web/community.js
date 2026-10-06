@@ -189,12 +189,7 @@ async function loadAdmin() {
     row.dataset.search=member.username.toLowerCase();row.append(info,tools); return row;
   }));
   filterAdminMembers();
-  $('ownerlog').hidden = currentUser.role !== 'owner';
-  if (currentUser.role === 'owner') {
-    const events = await (await api('admin/audit')).json();
-    $('auditlog').replaceChildren(...events.map(event => { const row = document.createElement('p'); row.textContent = `${new Date(event.created*1000).toLocaleString()} · ${event.actor} · ${event.action} · ${event.target}`; return row; }));
-    if (!events.length) $('auditlog').textContent = 'No moderation actions yet.';
-  }
+  await loadAdminLogs();
 }
 function viewSource(id) { window.open(`/review/mods/${encodeURIComponent(id)}`,'_blank','noopener'); }
 

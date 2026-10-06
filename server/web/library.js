@@ -55,7 +55,7 @@ $('externalversion').addEventListener('change',externalVersionInfo);
 $('externaladd').addEventListener('click',async()=>{
   if(!externalProject || externalLink!==$('externalurl').value) return;
   $('externaladd').disabled=true;$('externalstatus').textContent='Downloading, verifying and saving the mod…';
-  try {const result=await json('mods/external/import',{url:externalLink,version:$('externalversion').value,game_version:$('libraryversion').value.trim(),loader:$('libraryloader').value,include_optional:$('externaloptional').checked});await loadLibrary();$('externalstatus').textContent=`${result.existing?'Mod already in library.':'Mod imported.'} ${result.dependencies_added||0} dependencies added (${result.dependency_count||0} linked). ${result.approved?'Published and ready to download.':'Awaiting review in Admin panel → Mod reviews.'}`;}
+  try {const result=await json('mods/external/import',{url:externalLink,version:$('externalversion').value,game_version:$('libraryversion').value.trim(),loader:$('libraryloader').value,include_optional:$('externaloptional').checked});await loadLibrary();$('externalstatus').textContent=`${result.existing?'Mod already in library.':'Mod imported.'} ${result.dependencies_added||0} dependencies added (${result.dependency_count||0} linked). ${result.approved?'Published and ready to download.':'Automatic analysis is running; findings may require review. Check My submissions.'}`;}
   catch(e) {$('externalstatus').textContent=e.message;}finally {$('externaladd').disabled=false;}
 });
 let bridge,bridgeTimer,bridgeBusy=false;

@@ -167,7 +167,7 @@ pub fn start(app: Shared) {
                         &db,
                         user,
                         "daily-ready",
-                        "Your daily 100 pretend coins are ready. Type /daily in CannaBot chat.",
+                        "Your daily 100 Kash are ready. Type /daily in CannaBot chat.",
                         "#chat",
                         &format!("daily:{}", now() / 86400),
                     )?;

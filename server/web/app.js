@@ -74,7 +74,7 @@ async function refresh() {
   $('admin').hidden=currentUser.role!=='owner';$('adminnav').hidden=!currentUser.admin;
   $('newinvite').disabled=!currentUser.can_invite;
   $('allowance').textContent=currentUser.role==='owner'?'Create individual invites or an invite wave. New members get one friend invite.':currentUser.role==='admin'?'Admins cannot issue invites. The Owner manages invitation waves.':`${currentUser.invites_remaining} friend invitation remaining. Each code works once and expires after seven days.`;
-  $('rolebadge').textContent=currentUser.role.toUpperCase();$('welcome').textContent=currentUser.username;$('sideusername').textContent=currentUser.username;$('siderole').textContent=`${currentUser.role.toUpperCase()} · Canna community`;
+  $('rolebadge').textContent=currentUser.role.toUpperCase();$('welcome').textContent=currentUser.username;$('kashbalance').textContent=(currentUser.kash||0).toLocaleString()+' Kash';$('sideusername').textContent=currentUser.username;$('siderole').textContent=`${currentUser.role.toUpperCase()} · Canna community`;
   await loadLibrary();if(!$('forumview').hidden) await loadTopics();if(!$('moderation').hidden && currentUser.admin) await loadAdmin();updateNavigation();
   if(!communityPageReady){communityPageReady=true;await openCommunityPage();}
   if(externalLanding){externalLanding=false;await showView("libraryview",true);openExternalImport();}
@@ -96,7 +96,7 @@ $('newwave').addEventListener('click',()=>inviteAction('newwave',async()=>{
 $('revokewave').addEventListener('click',()=>action(async()=>{const result=await(await api(`invite-waves/${$('waveid').value}`,{method:'DELETE'})).json();$('inviteout').value='';$('revokewave').disabled=true;message(`${result.revoked} unused invitations revoked. Existing accounts remain active.`);}));
 $('upload').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
   const file=$('modfile').files[0];if(!file||file.size>128*1024*1024)throw new Error('Choose a ZIP no larger than 128 MiB.');
-  const query=new URLSearchParams({app_id:$('game').value,name:$('modname').value,version:$('version').value,description:$('description').value});message('Uploading mod…');const result=await(await api(`mods?${query}`,{method:'POST',headers:{'Content-Type':'application/zip'},body:file})).json();$('upload').reset();await refresh();message(result.review_status==='approved'?'Mod uploaded and published.':'Mod uploaded. Awaiting review in Admin panel → Mod reviews.');
+  const query=new URLSearchParams({app_id:$('game').value,name:$('modname').value,version:$('version').value,description:$('description').value});message('Uploading mod…');const result=await(await api(`mods?${query}`,{method:'POST',headers:{'Content-Type':'application/zip'},body:file})).json();$('upload').reset();await refresh();message(result.review_status==='approved'?'Mod uploaded and published.':'Mod uploaded. Automatic analysis is running; check My submissions for the decision.');
 });});
 $('share').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
   const file=$('packfile').files[0];if(!file||file.size>2*1024*1024)throw new Error('Choose a Canna modpack export no larger than 2 MiB.');const result=await json('packs',JSON.parse(await file.text()));await refresh();message(`Share link: ${result.url}`);

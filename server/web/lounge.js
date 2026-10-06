@@ -13,7 +13,7 @@ function setupLounge(){
  const commands=loungeNode('div',undefined,'chatcommands');commands.append(loungeNode('small','CannaBot'));for(const command of ['/help','/fish','/daily','/balance','/collection','/coinflip','/badges']){const b=loungeNode('button',command);b.type='button';b.addEventListener('click',()=>{input.value=command;input.focus();});commands.append(b);}box.append(summary,list,commands,form,status);$('space').insertBefore(banner,$('space').children[1]);banner.after(box);
 }
 async function loadChat(forceBottom=false){
- setupLounge();const rows=await(await api('chat')).json(),list=$('chatmessages');const bottom=forceBottom||list.scrollTop+list.clientHeight>=list.scrollHeight-32;
+ setupLounge();const me=await(await api('me')).json();$('kashbalance').textContent=(me.kash||0).toLocaleString()+' Kash';const rows=await(await api('chat')).json(),list=$('chatmessages');const bottom=forceBottom||list.scrollTop+list.clientHeight>=list.scrollHeight-32;
  list.replaceChildren(...rows.filter(m=>m.created*1000>Date.now()-86400000).map(m=>{
    const row=loungeNode('div',undefined,'chatline');row.dataset.created=m.created;
    const who=loungeNode('button',m.bot?'CannaBot':m.username,'chatwho');who.type='button';if(!m.bot)who.addEventListener('click',()=>action(()=>openProfile(m.user_id)));else who.disabled=true;
