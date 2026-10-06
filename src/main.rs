@@ -522,13 +522,34 @@ impl Canna {
         self.settings_open = open;
     }
     fn art(&self, ui: &mut egui::Ui, id: u32, size: egui::Vec2) {
-        if let Some(t) = self
-            .repository_textures
-            .get(&id)
-            .or_else(|| self.textures.get(&id))
-        {
+        let texture = if id == u32::MAX {
+            Some(self.chrome.minecraft_banner())
+        } else {
+            self.repository_textures
+                .get(&id)
+                .or_else(|| self.textures.get(&id))
+        };
+        if let Some(t) = texture {
+            let src = t.size_vec2();
+            let ratio = size.x / size.y;
+            let source_ratio = src.x / src.y;
+            let uv = if source_ratio > ratio {
+                let width = ratio / source_ratio;
+                egui::Rect::from_min_max(
+                    egui::pos2((1.0 - width) * 0.5, 0.0),
+                    egui::pos2((1.0 + width) * 0.5, 1.0),
+                )
+            } else {
+                let height = source_ratio / ratio;
+                egui::Rect::from_min_max(
+                    egui::pos2(0.0, (1.0 - height) * 0.5),
+                    egui::pos2(1.0, (1.0 + height) * 0.5),
+                )
+            };
             ui.add(
                 egui::Image::new(t)
+                    .uv(uv)
+                    .maintain_aspect_ratio(false)
                     .fit_to_exact_size(size)
                     .corner_radius(ui_helpers::SURFACE_RADIUS),
             );
@@ -635,11 +656,7 @@ impl Canna {
                         .inner_margin(18)
                         .show(ui, |ui| {
                             ui.horizontal(|ui| {
-                                if game.app_id == u32::MAX {
-                                    self.chrome.nav(ui, 5, "Minecraft", false);
-                                } else {
-                                    self.art(ui, game.app_id, egui::vec2(96.0, 54.0));
-                                }
+                                self.art(ui, game.app_id, egui::vec2(96.0, 54.0));
                                 if ui
                                     .button(egui::RichText::new(&game.name).size(22.0))
                                     .clicked()
@@ -1276,7 +1293,7 @@ impl Canna {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     egui::Frame::new().fill(Color32::from_rgb(29,39,33)).corner_radius(ui_helpers::SURFACE_RADIUS).inner_margin(18).show(ui,|ui| {
                         ui.horizontal(|ui| {
-                            self.chrome.nav(ui,5,"Minecraft",false); ui.vertical(|ui| {ui.heading("Minecraft");ui.label("Java Edition · managed instances");});
+                            self.art(ui,u32::MAX,egui::vec2(68.0,76.0)); ui.vertical(|ui| {ui.heading("Minecraft");ui.label("Java Edition · managed instances");});
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center),|ui| {
                                 if ui.button("View").clicked(){self.minecraft_page=true;self.minecraft.open=false;}
                                 if ui.button("Create instance").clicked(){self.minecraft.creating=true;}

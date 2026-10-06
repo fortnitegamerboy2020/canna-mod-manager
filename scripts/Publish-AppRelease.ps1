@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.9', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.10', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -40,19 +40,17 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: Game-first Discover, library and skins browsing"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: Minecraft artwork and consistent card cropping"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Discover now starts with game cards. Game selection survives switching pages; click Discover again while already browsing it or use the supplied back icon to return home. Missing account connection is shown with a direct website approval button and catalog refresh.
+Minecraft uses the supplied 1920 x 1080 banner for its library and Discover cards, with centered cover cropping and the same rounded frame treatment as other games. Game library artwork now consistently fills its frame rather than leaving unused space.
 
-The server catalog now includes Minecraft content. Minecraft Discover has Mods, Shaders, Resource packs and Data packs tabs; content downloads use the existing website download flow. Minecraft instance creation lives on the first library card. Microsoft application ID is bundled and saved overrides are ignored. Full Minecraft login and launching still require verification/application approval.
+The updated grass-block sidebar icon retains its original colors, is trimmed to its visible bounds and is downsampled for efficient display.
 
-Sidebar order: Library, Modpacks, Discover, Console, Minecraft, Skins, Downloads, Settings. Website is enlarged at the bottom. Sidebar and status bar have square corners, readable status text and header warning/error icons.
+Minecraft API application has been submitted and approval is pending. This artwork update does not claim verified Minecraft login or launching.
 
-Skins now starts with a family-friendly home of original Canna robot designs. Scroll loads more home designs or additional external search pages; duplicate results stop repeated-page loading. External search has a title filter, not a guarantee that third-party images are moderated.
-
-Validation: Desktop tests and strict Clippy passed; native Library, Discover and Skins previews were inspected. Server authentication and catalog inclusion are tested separately. No complete Minecraft login or game launch is claimed.
+Validation: Desktop tests and strict Clippy passed; the native library and Discover layouts were visually inspected.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

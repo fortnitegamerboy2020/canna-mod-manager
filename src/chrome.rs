@@ -3,6 +3,7 @@ use eframe::egui::{self, Color32};
 pub const CANVAS: Color32 = Color32::from_rgb(18, 24, 22);
 pub struct Chrome {
     icons: [egui::TextureHandle; 11],
+    minecraft_banner: egui::TextureHandle,
 }
 impl Chrome {
     pub fn new(ctx: &egui::Context) -> Self {
@@ -34,8 +35,10 @@ impl Chrome {
                 .to_rgba8();
             // The supplied icons are black alpha masks. Render their original
             // outlines in a light tint so they remain readable on dark surfaces.
-            for pixel in image.pixels_mut() {
-                pixel.0[..3].fill(255);
+            if name != "minecraft" {
+                for pixel in image.pixels_mut() {
+                    pixel.0[..3].fill(255);
+                }
             }
             let bounds = image
                 .enumerate_pixels()
@@ -49,6 +52,11 @@ impl Chrome {
             if let Some((l, t, r, b)) = bounds {
                 image = image::imageops::crop_imm(&image, l, t, r - l + 1, b - t + 1).to_image();
             }
+            if image.width() > 256 || image.height() > 256 {
+                image = image::DynamicImage::ImageRgba8(image)
+                    .resize(256, 256, image::imageops::FilterType::Lanczos3)
+                    .to_rgba8();
+            }
             ctx.load_texture(
                 name,
                 egui::ColorImage::from_rgba_unmultiplied(
@@ -58,7 +66,24 @@ impl Chrome {
                 egui::TextureOptions::LINEAR,
             )
         });
-        Self { icons }
+        let banner = image::load_from_memory(include_bytes!("assets/minecraft-banner.png"))
+            .expect("Bundled Minecraft banner")
+            .to_rgba8();
+        let minecraft_banner = ctx.load_texture(
+            "minecraft-banner",
+            egui::ColorImage::from_rgba_unmultiplied(
+                [banner.width() as usize, banner.height() as usize],
+                banner.as_raw(),
+            ),
+            egui::TextureOptions::LINEAR,
+        );
+        Self {
+            icons,
+            minecraft_banner,
+        }
+    }
+    pub fn minecraft_banner(&self) -> &egui::TextureHandle {
+        &self.minecraft_banner
     }
     pub fn nav(
         &self,
@@ -67,7 +92,9 @@ impl Chrome {
         label: &str,
         selected: bool,
     ) -> egui::Response {
-        let tint = if selected {
+        let tint = if index == 5 {
+            Color32::WHITE
+        } else if selected {
             super::GREEN
         } else {
             Color32::from_rgb(193, 210, 198)
