@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.13', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.14', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -40,15 +40,15 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: persistent sessions and logged-in devices"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: visible external mod import"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Sessions now remain signed in until logout or revocation. Settings links to logged-in devices with names, activity, rename, logout-one and logout-other controls. Desktop connections report the PC name and check revocation in the background.
+Discover now has an Add mod from external site button that opens the website importer directly. The website library also has a prominent importer button.
 
-Existing valid sessions migrate; expired sessions remain expired. Password resets and bans still revoke access. Minecraft API approval remains pending.
+Paste a Thunderstore or Modrinth project link to choose a version, download it into encrypted server storage, and create the database entry. Imports require administrator approval; dependencies are listed separately. CurseForge requires a configured server API key.
 
-Validation: Desktop tests and strict Clippy; server device privacy, persistent session, migration, revocation and trust cleanup tests.
+Minecraft API approval remains pending. Desktop tests and strict Clippy pass; live provider imports are checked in isolated storage.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

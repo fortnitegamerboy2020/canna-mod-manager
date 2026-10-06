@@ -631,6 +631,16 @@ impl Canna {
         {
             self.sync(ui.ctx());
         }
+        if ui.button("Add mod from external site").clicked() {
+            let game = if self.discover.game == u32::MAX {
+                "minecraft".into()
+            } else {
+                self.discover.game.to_string()
+            };
+            ui.ctx().open_url(egui::OpenUrl::new_tab(format!(
+                "https://cannamods.vip/?import=1&game={game}"
+            )));
+        }
         if self.discover.game == 0 {
             ui.heading("Discover games");
             ui.label("Choose a game to browse its mods.");
