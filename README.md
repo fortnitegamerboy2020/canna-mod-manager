@@ -45,7 +45,7 @@ bopl-battle/
     your-mod.zip
 ```
 
-Open **Repository settings**, select **Connect through website**, and sign in at `https://cannamods.vip/connect`. Choose **Connect Canna app** on the website. The short-lived, single-use link gives the desktop its own session, stored encrypted with Windows DPAPI. The app must have been started once to register its `canna://` links.
+Open **Settings** and choose **Sign in & connect account**. Enter the six-character code on the dedicated website verification page. The desktop session is stored encrypted with Windows DPAPI and remains signed in until logout or revocation.
 
 The desktop reads `/api/v1/catalog` and `/api/v1/catalog/file` from Canna. Legacy modpack file paths remain available as server aliases; Bopl artwork, BepInEx and catalog archives have been migrated. The mod GitHub token is no longer embedded in desktop builds. Keep `canna-mod-manager` for application releases and updates.
 
@@ -171,3 +171,5 @@ Sidebar order is Library, Modpacks, Discover, Console, Minecraft, Skins, Downloa
 Skins opens friendly, original Canna robot designs. Home and external searches load additional results as the scroll reaches the end. External results are deduplicated; repeated/end pages stop loading. The title filter is not image moderation and cannot guarantee external search results are safe. Home does not fetch unreviewed external uploads.
 
 Account connection uses an authenticated dedicated `/connect` page. The desktop copies an independent six-character code to the clipboard; typing or pasting it verifies automatically. Codes expire after five minutes and five wrong submissions permanently lock that request with a `pairing-bruteforce-blocked` audit event. Client and account rate limits restrict repeated guesses. Codes are hashed in the encrypted database and excluded from page URLs; native proof and single-use session claiming remain required. Legacy code-less account ticket creation is disabled.
+
+Manage sessions under **My profile → Logged-in devices** on the website, or **Manage logged-in devices** in desktop Settings. Device names can be renamed; individual logout and logout-every-other-device are supported. The desktop checks access once a minute and clears a remotely revoked session. Active recently is based on server requests in the past two minutes; idle devices stay signed in.

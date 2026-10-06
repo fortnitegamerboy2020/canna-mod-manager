@@ -363,6 +363,8 @@ pub fn instance(ticket: Option<String>) -> Option<Receiver<String>> {
 }
 pub struct Website {
     pairing: Option<Receiver<PairEvent>>,
+    heartbeat: Option<Receiver<(String, bool)>>,
+    last_heartbeat: std::time::Instant,
     pair_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub account_status: String,
     tickets: Option<Receiver<String>>,
@@ -378,6 +380,8 @@ impl Default for Website {
     fn default() -> Self {
         Self {
             pairing: None,
+            heartbeat: None,
+            last_heartbeat: std::time::Instant::now() - Duration::from_secs(61),
             pair_cancel: Default::default(),
             account_status: String::new(),
             tickets: None,
@@ -421,6 +425,42 @@ impl Website {
     }
     pub fn update(&mut self, ctx: &egui::Context) -> bool {
         let mut paired = false;
+        if let Some(rx) = &self.heartbeat
+            && let Ok((raw, revoked)) = rx.try_recv()
+        {
+            self.heartbeat = None;
+            if revoked && session() == raw {
+                crate::credentials::remove("canna-session");
+                self.account_status =
+                    "This device was signed out. Connect again to continue.".into();
+                paired = true;
+            }
+        }
+        if self.heartbeat.is_none() && self.last_heartbeat.elapsed() >= Duration::from_secs(60) {
+            self.last_heartbeat = std::time::Instant::now();
+            let raw = session();
+            if !raw.is_empty() {
+                let (tx, rx) = mpsc::channel();
+                self.heartbeat = Some(rx);
+                let ctx = ctx.clone();
+                std::thread::spawn(move || {
+                    let revoked = reqwest::blocking::Client::builder()
+                        .timeout(Duration::from_secs(10))
+                        .build()
+                        .ok()
+                        .and_then(|c| {
+                            c.get("https://cannamods.vip/api/v1/me")
+                                .bearer_auth(&raw)
+                                .send()
+                                .ok()
+                        })
+                        .is_some_and(|r| r.status() == reqwest::StatusCode::UNAUTHORIZED);
+                    let _ = tx.send((raw, revoked));
+                    ctx.request_repaint();
+                });
+            }
+        }
+        ctx.request_repaint_after(Duration::from_secs(30));
         let mut finished = false;
         if let Some(rx) = &self.pairing {
             while let Ok(event) = rx.try_recv() {
@@ -673,7 +713,11 @@ fn pair_account(
         anyhow::ensure!(bytes.len() <= 8192, "Invalid account connection response");
         Ok(serde_json::from_slice(&bytes)?)
     };
-    let started = call("start", serde_json::json!({}))?;
+    let device = std::env::var("COMPUTERNAME").unwrap_or_else(|_| "Windows PC".into());
+    let started = call(
+        "start",
+        serde_json::json!({"name":device.chars().filter(|c|!c.is_control()).take(60).collect::<String>()}),
+    )?;
     let request = started["request"]
         .as_str()
         .context("Connection request missing")?;

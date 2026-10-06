@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.12', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.13', [switch]$SourceOnly)
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -40,17 +40,15 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: dedicated connection verification and brute-force protection"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: persistent sessions and logged-in devices"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Account connection now opens its own verification page. Canna shows and copies an independent six-character code; typing or pasting it verifies automatically.
+Sessions now remain signed in until logout or revocation. Settings links to logged-in devices with names, activity, rename, logout-one and logout-other controls. Desktop connections report the PC name and check revocation in the background.
 
-Server verification expires after five minutes, locks a request after five incorrect codes, records suspected brute-force attempts, and limits requests by client and account. Legacy code-less approval is disabled.
+Existing valid sessions migrate; expired sessions remain expired. Password resets and bans still revoke access. Minecraft API approval remains pending.
 
-Minecraft API approval remains pending.
-
-Validation: Desktop tests and strict Clippy, browser-independent typing/paste checks, and backend code, expiry, replay and lockout tests.
+Validation: Desktop tests and strict Clippy; server device privacy, persistent session, migration, revocation and trust cleanup tests.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

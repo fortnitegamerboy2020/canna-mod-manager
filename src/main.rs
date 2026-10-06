@@ -480,7 +480,7 @@ impl Canna {
                 ui.label(if self.token.is_empty() {
                     "Not connected"
                 } else {
-                    "Account connected · sessions last 12 hours"
+                    "Account connected · signed in until you log out"
                 });
                 if ui
                     .add_enabled(
@@ -490,6 +490,9 @@ impl Canna {
                     .clicked()
                 {
                     self.website.start_sign_in();
+                }
+                if !self.token.is_empty() && ui.button("Manage logged-in devices").clicked() {
+                    ctx.open_url(egui::OpenUrl::new_tab("https://cannamods.vip/?devices=1"));
                 }
                 if !self.website.account_status.is_empty() {
                     ui.label(&self.website.account_status);
