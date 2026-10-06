@@ -35,15 +35,17 @@ async function fixture(path){
 }
 (async()=>{
  const library=await fixture('/mods');
- const example=JSON.parse(fs.readFileSync('server/web/source-recommendations.json','utf8'))[0];
+ const example={id:'fixture-mod',name:'Fixture mod',version:'1.0',description:'A visible original description',author:'Author',details:{game:'Minecraft',provider:'modrinth',icon_data:'fixture',author_links:[{name:'Author',url:'https://modrinth.com/user/Author'}],game_versions:['1.21.1'],loaders:['Fabric'],dependencies:['Fabric API']}};
+ assert.deepEqual(JSON.parse(fs.readFileSync('server/web/source-recommendations.json','utf8')),[]);
  library.ctx.curatedExample=example;
  const row=vm.runInContext("entry(curatedExample,'mods')",library.ctx);
  function descendants(n){return [n,...(n.children||[]).flatMap(c=>typeof c==='object'?descendants(c):[])];}
  const cells=descendants(row);
  assert(cells.some(n=>n.tag==='img'&&n.src.startsWith('data:image/')));
  assert(cells.some(n=>n.tag==='a'&&n.href===example.details.author_links[0].url));
- assert(cells.some(n=>n.textContent==='Subscribe on Steam Workshop'));
- assert(!cells.some(n=>n.textContent==='Delete'||n.textContent==='View source'||n.textContent==='Download'));
+ assert(!cells.some(n=>n.textContent==='Original description'||n.textContent==='Subscribe on Steam Workshop'));
+ cells.find(n=>n.textContent==='Show more').events.click();
+ const dialog=library.ctx.document.body.children.at(-1);assert.equal(dialog.open,true);const detailCells=descendants(dialog);assert(detailCells.some(n=>n.textContent==='Minecraft versions: 1.21.1'));assert(detailCells.some(n=>n.textContent==='Loaders: Fabric'));assert(detailCells.some(n=>n.textContent===example.description));
  assert(cells.some(n=>n.textContent===example.description));
  assert(html.includes('#space[data-booting]{display:none}'));
  const directory=await fixture('/members');assert(directory.requests.includes('/api/v1/profiles?page=1&search='));assert(!directory.requests.includes('/api/v1/packs'));

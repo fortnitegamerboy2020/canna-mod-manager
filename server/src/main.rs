@@ -1159,6 +1159,11 @@ async fn main() -> anyhow::Result<()> {
         catalog::audit(&app).await?;
         return Ok(());
     }
+    if std::env::args().any(|a| a == "--rescan-uncertain-denials") {
+        let count=scans::requeue_uncertain_denials(&mut app.db.lock().unwrap())?;
+        println!("Queued {count} uncertain packing denials for corrected analysis");
+        return Ok(());
+    }
     if std::env::args().any(|a| a == "--rescan-curated-source") {
         let db=app.db.lock().unwrap();
         let count=db.execute("DELETE FROM mod_scans WHERE mod_id IN (SELECT mod_id FROM mod_details WHERE origin LIKE 'github:originalgrego/L4D2-Practice-Script:%' OR origin LIKE 'github:jpobzy/L4dAutoConfig:%' OR origin LIKE 'github:jpobzy/L4dRemovedMainMenuMusic:%')",[])?;

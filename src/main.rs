@@ -1564,6 +1564,8 @@ impl eframe::App for Canna {
         self.skins.update(ctx);
         self.render(ctx);
         self.minecraft.ui(ctx);
+        self.pack_ui.mod_details_window(ctx);
+        self.pack_ui.mod_details_window(ctx);
         if self.minecraft.discover_requested {
             self.minecraft.discover_requested = false;
             self.minecraft_page = false;

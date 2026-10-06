@@ -58,11 +58,11 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.19 adds an attributed Left 4 Dead starter catalog, author profile and original-project links, original Workshop artwork, and botanical Canna Leaf Minecraft skins with different color patterns.
+Canna 0.2.20 displays mod descriptions directly, with Show more opening the full description, author/source credits, dependencies and available Minecraft loader/version compatibility.
 
-Three licensed Source packages install through Canna. Six official Workshop listings open their original subscription pages and list required addons; Steam manages these subscriptions separately from Canna modpacks. Left 4 Dead modded launches use -insecure. Native SourceMod/Metamod tools and live Left 4 Dead launches remain unverified.
+Workshop recommendations have been removed. Existing licensed Source practice/configuration packages remain available; controller-specific bhop behavior has not been verified in a running game. Modded Source launches retain -insecure.
 
-Community 0.3.32 includes the starter catalog, original descriptions and author links. New Thunderstore, Modrinth and CurseForge imports retain provider artwork and author profile metadata. Updates continue to come from cannamods.vip.
+Community 0.3.35 corrects MPRESS substring false positives and separates uncertain packing/protection heuristics from confirmed signatures. Uncertain findings require review, confirmed packing/malware signatures are denied, and manually uploaded mods always require staff approval. Updates continue to come from cannamods.vip.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

@@ -160,6 +160,25 @@ async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<(
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     }
 }
+pub fn requeue_uncertain_denials(db: &mut Connection) -> anyhow::Result<usize> {
+    let tx=db.transaction()?;
+    let rows=tx.prepare("SELECT s.mod_id,m.user_id,s.report FROM mod_scans s JOIN mods m ON m.id=s.mod_id JOIN mod_submissions sub ON sub.id=m.id WHERE s.status='rejected' AND sub.reason LIKE 'Rejected by scan policy:%' AND json_extract(s.report,'$.version')='canna-static-4'")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?)))?.collect::<Result<Vec<_>,_>>()?;
+    let mut count=0;
+    for (id,actor,raw) in rows {
+        let report:Value=serde_json::from_str(&raw)?;
+        let uncertain=report["findings"].as_array().is_some_and(|findings|findings.iter().any(|f| f["rule"]=="packer-heuristic" || (f["rule"]=="packer-marker" && f["evidence"]=="MPRESS") || (f["rule"]=="packer-signature" && f["evidence"].as_str().is_some_and(|e|e.contains("(Heur)")))));
+        if !uncertain {continue;}
+        // Reanalysis grants no download approval, even for an owner import.
+        tx.execute("DELETE FROM mod_scans WHERE mod_id=?1",[&id])?;
+        tx.execute("UPDATE mod_reviews SET approved=0 WHERE mod_id=?1",[&id])?;
+        tx.execute("UPDATE mod_submissions SET status='pending',reason='Scanner correction: reanalysis required; uncertain packing evidence is reviewed by staff',resolved=NULL WHERE id=?1",[&id])?;
+        tx.execute("INSERT INTO audit(actor,action,target,created) VALUES(?1,'scanner-correction-requeue',?2,?3)",params![actor,id,now()])?;
+        notifications::notify(&tx,actor,"mod-review","Your mod was returned to review for corrected packing analysis.","/submissions",&format!("scanner-correction-5:{id}"))?;
+        count+=1;
+    }
+    tx.commit()?;
+    Ok(count)
+}
 fn apply_policy(db: &Connection, id: &str, report: &Value) -> ApiResult<()> {
     let (actor, name): (i64, String) =
         db.query_row("SELECT user_id,name FROM mods WHERE id=?1", [id], |r| {
@@ -418,16 +437,33 @@ mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
     #[test]
+    fn corrected_scanner_requeues_only_automatic_uncertain_denials() {
+        let (_dir,app)=fixture();account(&app,"scanner-submit",false);
+        let mut db=app.db.lock().unwrap();
+        for (id,reason,evidence) in [("uncertain","Rejected by scan policy: Generic","(Heur)Packer: Generic"),("confirmed","Rejected by scan policy: UPX","Packer: UPX"),("staff","Staff denied this upload","(Heur)Packer: Generic")] {
+            db.execute("INSERT INTO mods VALUES(?1,1,1686940,?1,'1','','hash',1)",[id]).unwrap();
+            db.execute("INSERT INTO mod_reviews VALUES(?1,0)",[id]).unwrap();
+            db.execute("INSERT INTO mod_submissions(id,user_id,name,version,status,reason,created,resolved) VALUES(?1,1,?1,'1','denied',?2,0,1) ON CONFLICT(id) DO UPDATE SET status='denied',reason=excluded.reason,resolved=1",params![id,reason]).unwrap();
+            let report=json!({"version":"canna-static-4","findings":[{"rule":"packer-signature","evidence":evidence}]});
+            db.execute("INSERT INTO mod_scans VALUES(?1,'hash','rejected',?2,0)",params![id,report.to_string()]).unwrap();
+        }
+        assert_eq!(requeue_uncertain_denials(&mut db).unwrap(),1);
+        assert_eq!(requeue_uncertain_denials(&mut db).unwrap(),0);
+        assert_eq!(db.query_row("SELECT count(*) FROM mod_scans",[],|r|r.get::<_,i64>(0)).unwrap(),2);
+        assert_eq!(db.query_row("SELECT status FROM mod_submissions WHERE id='uncertain'",[],|r|r.get::<_,String>(0)).unwrap(),"pending");
+        assert!(security::approved(&db,"uncertain").is_err());
+    }
+    #[test]
     fn scan_policy_auto_approves_reviews_or_quarantines() {
         let (_dir, app) = fixture();
         account(&app, "submitter", false);
         let db = app.db.lock().unwrap();
         for (id, findings, expected) in [
             ("clean", json!([]), "accepted"),
-            ("review", json!([{"rule":"network"}]), "pending"),
+            ("review", json!([{"rule":"packing-review","evidence":"(Heur)Packer: Generic"}]), "pending"),
             (
                 "packed",
-                json!([{"rule":"packer-heuristic","title":"Possible packing","evidence":"entropy","file":"a.dll"}]),
+                json!([{"rule":"packer-signature","title":"UPX","evidence":"UPX signature","file":"a.dll"}]),
                 "denied",
             ),
             ("malware", json!([{"rule":"signature"}]), "denied"),

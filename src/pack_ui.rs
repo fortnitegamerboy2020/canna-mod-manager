@@ -37,6 +37,7 @@ pub struct PackUi {
     detail_tab: u8,
     content_query: String,
     deleted: Option<std::path::PathBuf>,
+    mod_details: Option<crate::model::ModInfo>,
 }
 pub enum RuntimeAction {
     Stop(u32),
@@ -145,7 +146,9 @@ impl PackUi {
                         });
                         ui.label(RichText::new(&game.name).color(GREEN));
                         crate::ui_helpers::mod_credits(ui,item);
-                        ui.collapsing("Original description",|ui|{ui.label(&item.description);});
+                        let preview: String = item.description.chars().take(240).collect();
+                        ui.label(format!("{}{}",preview,if item.description.chars().count()>240 {"…"}else{""}));
+                        if ui.button("Show more").clicked(){self.mod_details=Some(item.clone());}
                         if item.provenance["external_only"]==true {
                             ui.label("Official-site download. Steam manages Workshop subscriptions separately from Canna modpacks.");
                             if let Some(url)=item.provenance["source_url"].as_str(){ui.hyperlink_to("Subscribe on Steam Workshop",url);}
@@ -281,6 +284,50 @@ impl PackUi {
     pub fn open_first_pack(&mut self) {
         self.selected = self.packs.first().map(|pack| pack.id.clone());
     }
+    pub fn mod_details_window(&mut self, ctx: &egui::Context) {
+        let Some(item) = self.mod_details.clone() else {
+            return;
+        };
+        let mut open = true;
+        egui::Window::new(&item.name)
+            .id(egui::Id::new("mod-details-popup"))
+            .open(&mut open)
+            .default_width(700.0)
+            .resizable(true)
+            .show(ctx, |ui| {
+                egui::ScrollArea::vertical()
+                    .max_height(550.0)
+                    .show(ui, |ui| {
+                        ui.label(format!("Version {}", item.version));
+                        crate::ui_helpers::mod_credits(ui, &item);
+                        ui.label(&item.description);
+                        for (label, key) in [
+                            ("Minecraft versions", "game_versions"),
+                            ("Loaders", "loaders"),
+                        ] {
+                            if let Some(values) = item.provenance[key].as_array() {
+                                let values =
+                                    values.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>();
+                                if !values.is_empty() {
+                                    ui.label(format!("{label}: {}", values.join(", ")));
+                                }
+                            }
+                        }
+                        if !item.dependencies.is_empty() {
+                            ui.label(format!(
+                                "Required dependencies: {}",
+                                item.dependencies.join(", ")
+                            ));
+                        }
+                        if let Some(notes) = item.provenance["install_notes"].as_str() {
+                            ui.label(notes);
+                        }
+                    });
+            });
+        if !open {
+            self.mod_details = None;
+        }
+    }
     pub fn new() -> Self {
         let (packs, warnings) = crate::modpacks::load_all();
         let mut groups = crate::modpacks::load_groups();
@@ -312,6 +359,7 @@ impl PackUi {
             detail_tab: 0,
             content_query: String::new(),
             deleted: None,
+            mod_details: None,
         }
     }
     pub fn start_new(&mut self, game: &GameInfo, source: Option<&Source>) {

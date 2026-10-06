@@ -32,6 +32,21 @@ async function download(path, filename) {
   const link = document.createElement('a'); link.href = url; link.download = filename; link.click();
   setTimeout(() => URL.revokeObjectURL(url), 30000);
 }
+function openModDetails(item) {
+  const dialog=document.createElement('dialog');dialog.className='moddetaildialog';
+  const close=document.createElement('button');close.textContent='Close';close.addEventListener('click',()=>dialog.close());
+  const title=document.createElement('h2');title.textContent=item.name;
+  const meta=document.createElement('p');meta.textContent=`${item.version || 'Modpack'} · ${libraryGameName(item)} · ${item.details?.authors || item.author || ''}`;
+  const description=document.createElement('p');description.className='moddescription';description.textContent=item.description || 'No description provided.';
+  dialog.append(close,title,meta,description);
+  for(const [label,key] of [['Minecraft versions','game_versions'],['Loaders','loaders'],['Required dependencies','dependencies']]) {
+    const values=item.details?.[key];if(values?.length){const line=document.createElement('p');line.textContent=label+': '+values.join(', ');dialog.append(line);}
+  }
+  if(item.details?.install_notes){const notes=document.createElement('p');notes.textContent=item.details.install_notes;dialog.append(notes);}
+  for(const author of item.details?.author_links || []) {if(!/^https:\/\//.test(author.url))continue;const link=document.createElement('a');link.href=author.url;link.textContent=author.name;link.target='_blank';link.rel='noopener noreferrer';dialog.append(link,document.createTextNode(' '));}
+  if(/^https:\/\//.test(item.details?.source_url || '')){const source=document.createElement('p'),link=document.createElement('a');link.href=item.details.source_url;link.textContent='Original project';link.target='_blank';link.rel='noopener noreferrer';source.append(link);dialog.append(source);}
+  dialog.addEventListener('close',()=>dialog.remove(),{once:true});document.body.append(dialog);dialog.showModal();
+}
 function entry(item, kind) {
   const row = document.createElement('div'); row.className = 'entry';
   const info = document.createElement('div');
@@ -42,7 +57,8 @@ function entry(item, kind) {
   const detail = document.createElement('p'); detail.textContent = `${item.version || 'Modpack'} · ${libraryGameName(item)} · ${item.details?.authors || item.author}`;
   info.append(title, detail);
   if(item.details?.author_links?.length) {const authors=document.createElement('p');authors.append('By ');for(const author of item.details.author_links){const link=document.createElement('a');link.textContent=author.name;link.href=author.url;link.target='_blank';link.rel='noopener noreferrer';authors.append(link,' ');}info.append(authors);}
-  if(item.description) { const expand=document.createElement('details'),heading=document.createElement('summary'),description=document.createElement('p');heading.textContent='Original description'; description.className='moddescription'; description.textContent=item.description;expand.append(heading,description);info.append(expand); }
+  if(item.description) {const description=document.createElement('p');description.className='moddescription modpreview';description.textContent=item.description;info.append(description);}
+  const more=document.createElement('button');more.textContent='Show more';more.addEventListener('click',()=>openModDetails(item));info.append(more);
   if(item.details?.dependencies?.length) {const deps=document.createElement('p');deps.textContent='Required: '+item.details.dependencies.join(', ');info.append(deps);}
   if(item.details?.install_notes){const notes=document.createElement('p');notes.textContent=item.details.install_notes;info.append(notes);}
   if(item.details?.source_url) {const source=document.createElement('a');source.textContent='Original project · '+(item.details.provider || 'Family catalog');source.href=item.details.source_url;source.target='_blank';source.rel='noopener noreferrer';info.append(source);}

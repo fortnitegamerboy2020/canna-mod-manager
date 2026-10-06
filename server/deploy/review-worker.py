@@ -4,7 +4,7 @@ import hashlib,json,os,re,shutil,signal,stat,subprocess,time,zipfile,struct,math
 from collections import Counter
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
-VERSION='canna-static-4'
+VERSION='canna-static-5'
 RULES=[
  ('network','Network access',r'https?://|\b(?:HttpClient|WebClient|UnityWebRequest|Socket|TcpClient|UdpClient|URLConnection|requests\.(?:get|post)|fetch\s*\()','review'),
  ('identity','Device or account information',r'GetPhysicalAddress|NetworkInterface|Environment\.(?:MachineName|UserName)|GetHostAddresses|GetHostName|System\.getProperty\s*\(\s*"(?:user|os)\.|getenv\s*\(|Environment\.GetEnvironmentVariable','review'),
@@ -51,7 +51,8 @@ def unpack_vpk(source,destination,max_bytes=256*1024*1024,max_files=2000):
 def packing_evidence(data):
  findings=[]
  for marker in [b'UPX!',b'.vmp0',b'.vmp1',b'VMProtect',b'Themida',b'.aspack',b'MPRESS',b'ConfusedByAttribute',b'Dotfuscator',b'Eazfuscator',b'Obfuscar',b'Enigma Protector']:
-  if marker.lower() in data.lower():findings.append(('packer-marker','Possible packer or obfuscator marker',marker.decode()))
+  # A standalone signature, not the MPRESS substring in Compression/Compressed.
+  if (marker==b'UPX!' and marker in data) or re.search(rb'(?<![A-Za-z0-9_])'+re.escape(marker)+rb'(?![A-Za-z0-9_])',data,re.I):findings.append(('packer-marker','Packer or obfuscator signature marker',marker.decode()))
  if not data.startswith(b'MZ') or len(data)<64:return findings
  try:
   header=struct.unpack_from('<I',data,60)[0]
@@ -64,11 +65,18 @@ def packing_evidence(data):
    virtual,rva,size,offset=struct.unpack_from('<IIII',data,start+8);flags=struct.unpack_from('<I',data,start+36)[0]
    raw=data[offset:offset+min(size,65536)];counts=Counter(raw);entropy=-sum((v/len(raw))*math.log2(v/len(raw)) for v in counts.values()) if raw else 0
    executable=bool(flags&0x20000000);writable=bool(flags&0x80000000)
-   if executable and len(raw)>4096 and entropy>7.2:findings.append(('packer-heuristic','Possible packed executable section',f'{name}: entropy {entropy:.2f}/8, executable; compression or encryption is possible, not proven'))
-   if executable and writable:findings.append(('packer-heuristic','Writable and executable section',f'{name}: RWX permissions may indicate unpacking, self-modifying code or a legitimate runtime'))
-   if executable and rva<=entry<rva+max(size,virtual) and virtual>max(size*4,65536):findings.append(('packer-heuristic','Unusual entry-point section layout',f'{name}: entry point in expanded executable section, raw {size} bytes, virtual {virtual} bytes'))
+   if executable and len(raw)>4096 and entropy>7.2:findings.append(('packing-review','Possible packed executable section',f'{name}: entropy {entropy:.2f}/8, executable; compression or encryption is possible, not proven'))
+   if executable and writable:findings.append(('packing-review','Writable and executable section',f'{name}: RWX permissions may indicate unpacking, self-modifying code or a legitimate runtime'))
+   if executable and rva<=entry<rva+max(size,virtual) and virtual>max(size*4,65536):findings.append(('packing-review','Unusual entry-point section layout',f'{name}: entry point in expanded executable section, raw {size} bytes, virtual {virtual} bytes'))
  except (struct.error,ValueError):pass
  return findings
+
+def die_packing_finding(value):
+ evidence=value.get('string','')
+ if value.get('type','').lower() not in ('packer','protector','obfuscator') and not re.search(r'pack|protect|obfuscat|virtualiz',evidence,re.I):return None
+ # DiE explicitly marks uncertain detections. Keep them visible for review.
+ heuristic=bool(re.search(r'\(Heur\)|\bGeneric\b|\bAnti analysis\b',evidence,re.I))
+ return ('packing-review' if heuristic else 'packer-signature','Detect It Easy heuristic requiring review' if heuristic else 'Detect It Easy packing / protection signature',evidence or str(value))
 
 def analyze(job):
  report={'version':VERSION,'files':[],'inventory':[],'findings':[],'engines':{},'note':'Static analysis cannot prove a mod safe. Decompiled code is reconstructed, not the original project. Mods are never launched.'}
@@ -170,8 +178,9 @@ def analyze(job):
      detection=json.loads(log);report['engines']['detect-it-easy']={'status':'complete','version':'3.21','heuristics':True}
      for group in detection.get('detects',[]):
       for value in group.get('values',[]):
-       if value.get('type','').lower() in ('packer','protector','obfuscator') or re.search('pack|protect|obfuscat|virtualiz',value.get('string',''),re.I):
-        finding('packer-signature','Detect It Easy packing / protection finding',name,evidence=value.get('string',str(value)),severity='high')
+       detected=die_packing_finding(value)
+       if detected:
+        rule,title,evidence=detected;finding(rule,title,name,evidence=evidence,severity='high')
     except (Limit,OSError,ValueError):finding('coverage','Packer signature scanner failed or timed out',name,severity='high');report['engines']['detect-it-easy']={'status':'error','version':'3.21'}
 
    if ext in TEXT or path.name.lower()=='license':add_text(path,name,'uploaded')

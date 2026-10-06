@@ -1,6 +1,6 @@
-"""Prepare attributed Source recommendations and licensed, self-contained VPKs.
+"""Prepare licensed, self-contained Source VPKs.
 
-No Workshop addon binaries are mirrored. Their official listings handle subscriptions.
+Workshop recommendations are intentionally excluded.
 Licensed GitHub source is pinned and preserved inside its VPK alongside the license.
 """
 import base64, hashlib, html, io, json, re, struct, urllib.request, zipfile, zlib
@@ -33,25 +33,6 @@ def vpk(files):
     return struct.pack('<III',0x55aa1234,1,len(tree))+tree+payload
 
 recommendations=[]
-workshop=json.loads((ROOT/'target/source-workshop.json').read_text(encoding='utf-8-sig'))
-for item in workshop:
-    if item['result'] != 1: continue
-    profile='https://steamcommunity.com/profiles/'+item['creator']
-    author=ET.fromstring(fetch(profile+'/?xml=1')).findtext('steamID')
-    assert author
-    ident='workshop-'+item['publishedfileid']
-    description=re.sub(r'\[/?(?:url(?:=[^\]]*)?|b|i|u|h[1-6]|list|\*)\]','',item['description'])
-    page=fetch('https://steamcommunity.com/sharedfiles/filedetails/?id='+item['publishedfileid']).decode('utf-8')
-    authors=[{'name':html.unescape(re.sub('<[^>]+>','',name)).strip(),'url':url} for url,name in re.findall(r'class="friendBlockLinkOverlay" href="([^"]+)".*?class="friendBlockContent">\s*(.*?)<br',page,re.S)]
-    assert authors
-    author=', '.join(a['name'] for a in authors)
-    dependencies=[html.unescape(re.sub('<[^>]+>','',name)).strip() for name in re.findall(r'class="requiredItem">(.*?)</div>',page,re.S)]
-    recommendations.append({'id':ident,'app_id':550,'name':item['title'],'version':'Workshop','description':description,'author':author,'review_status':'external','details':{'provider':'steam-workshop','game':'Left 4 Dead 2','authors':author,'author_links':[{'name':author,'url':profile}],'source_url':'https://steamcommunity.com/sharedfiles/filedetails/?id='+item['publishedfileid'],'icon_url':item['preview_url'],'external_only':True,'dependencies':dependencies,'content_type':'mod'}})
-    recommendations[-1]['details']['author_links']=authors
-    art=fetch(item['preview_url'])
-    assert len(art)<4*1024*1024
-    recommendations[-1]['details']['icon_data']=base64.b64encode(art).decode()
-
 manifest=[]
 for repo, commit, appid, mode in [
     ('originalgrego/L4D2-Practice-Script','ad238202a6367848b538fa181171f1c03d6021e1',550,'practice'),

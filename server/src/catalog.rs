@@ -252,18 +252,8 @@ mod tests {
         assert_eq!(call(app.clone(),"GET",&format!("/api/v1/mods/{old}"),Value::Null,Some(&token)).await.status(),StatusCode::OK);
     }
     #[test]
-    fn workshop_recommendations_preserve_credit_and_are_not_hosted_downloads() {
-        let entries=recommendations();
-        assert_eq!(entries.len(),6);
-        for item in &entries {
-            assert_eq!(item["app_id"],550);
-            assert_eq!(item["details"]["external_only"],true);
-            assert!(item["details"]["author_links"][0]["url"].as_str().unwrap().starts_with("https://steamcommunity.com/"));
-            assert!(!item["details"]["icon_data"].as_str().unwrap().is_empty());
-            assert!(!item["description"].as_str().unwrap().is_empty());
-        }
-        let bots=entries.iter().find(|m|m["name"]=="Left 4 Bots 2").unwrap();
-        assert_eq!(bots["details"]["dependencies"],json!(["Left 4 Lib","NavFixes"]));
+    fn workshop_recommendations_are_removed() {
+        assert!(recommendations().is_empty());
     }
     #[tokio::test]
     async fn catalog_and_legacy_file_aliases_require_auth_and_preserve_pins() {
