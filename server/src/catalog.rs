@@ -26,6 +26,9 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
     let names: Vec<String> = rows.iter().map(|r| r.2.clone()).collect();
     let mut games: std::collections::BTreeMap<u32, Value> = Default::default();
     for (id, appid, name, version, description, hash) in rows {
+        if security::approved(&db, &id).is_err() {
+            continue;
+        }
         let appid = if appid == 0 { u32::MAX } else { appid };
         let d = external::details(&db, &id)?;
         let folder = d["folder"]
@@ -45,22 +48,36 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
             }
         });
         let game=games.entry(appid).or_insert_with(||json!({"app_id":appid,"name":game_name,"folder":folder,"description":"Canna community catalog","icon":"icon.png","mod_folder_status":"Server library ready","mods":[]}));
-        let deps: Vec<String> = d["dependencies"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|v| v.as_str())
-            .filter_map(|dep| {
-                if dep.starts_with("BepInEx-") {
-                    return None;
-                }
-                if names.iter().any(|n| n == dep) {
-                    return Some(dep.to_owned());
-                }
-                let candidate = dep.split('-').nth(1).unwrap_or(dep);
-                Some(candidate.to_owned())
-            })
-            .collect();
+        let deps: Vec<String> = if let Some(ids) = d["dependency_ids"].as_array() {
+            ids.iter()
+                .filter_map(Value::as_str)
+                .map(|id| {
+                    db.query_row("SELECT name FROM mods WHERE id=?1", [id], |r| {
+                        r.get::<_, String>(0)
+                    })
+                })
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter(|name: &String| !name.starts_with("BepInExPack"))
+                .collect()
+        } else {
+            d["dependencies"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str())
+                .filter_map(|dep| {
+                    if dep.starts_with("BepInEx-") {
+                        return None;
+                    }
+                    if names.iter().any(|n| n == dep) {
+                        return Some(dep.to_owned());
+                    }
+                    let candidate = dep.split('-').nth(1).unwrap_or(dep);
+                    Some(candidate.to_owned())
+                })
+                .collect()
+        };
         game["mods"].as_array_mut().unwrap().push(json!({"enabled":true,"content_type":d["project_type"].as_str().or(d["content_type"].as_str()).unwrap_or("mod"),"name":name,"version":version,"description":description,"file":format!("Mods/{id}.zip"),"sha256":hash,"dependencies":deps}));
     }
     Ok(axum::Json(

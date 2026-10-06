@@ -31,7 +31,7 @@ impl Limits {
         Ok(())
     }
 }
-fn client(request: &Request) -> String {
+pub(crate) fn client(request: &Request) -> String {
     let peer = request
         .extensions()
         .get::<ConnectInfo<SocketAddr>>()
@@ -86,9 +86,18 @@ pub async fn protect(State(app): State<Shared>, request: Request, next: Next) ->
             return error.into_response();
         }
     }
+    let support = request.uri().path().starts_with("/api/v1/support/");
     let session = auth_token(request.headers()).map(str::to_owned);
     let authenticated = session.is_some() && app.auth(request.headers()).is_ok();
     let mut response = next.run(request).await;
+    if support {
+        response
+            .headers_mut()
+            .insert("cache-control", "no-store".parse().unwrap());
+        response
+            .headers_mut()
+            .insert("x-robots-tag", "noindex".parse().unwrap());
+    }
     if authenticated
         && let Some(raw) = session
         && !response.headers().contains_key("set-cookie")
@@ -137,16 +146,31 @@ pub fn content_quota(db: &Connection, user: i64) -> ApiResult<()> {
     Ok(())
 }
 pub fn approved(db: &Connection, id: &str) -> ApiResult<()> {
-    let pending: bool = db.query_row(
-        "SELECT EXISTS(SELECT 1 FROM mod_reviews WHERE mod_id=?1 AND approved=0)",
-        [id],
-        |r| r.get(0),
-    )?;
-    if pending {
-        return Err(ApiError(
-            StatusCode::FORBIDDEN,
-            "This mod is awaiting administrator review",
-        ));
+    let mut pending = vec![id.to_owned()];
+    let mut seen = std::collections::BTreeSet::new();
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id.clone()) {
+            continue;
+        }
+        if seen.len() > 128 {
+            return Err(bad("Dependency graph exceeds 128 projects"));
+        }
+        let review:Option<bool>=db.query_row("SELECT NOT EXISTS(SELECT 1 FROM mod_reviews WHERE mod_id=m.id AND approved=0) FROM mods m WHERE id=?1",[&id],|r|r.get(0)).optional()?;
+        if review != Some(true) {
+            return Err(ApiError(
+                StatusCode::FORBIDDEN,
+                "This mod or an imported dependency is awaiting review or unavailable",
+            ));
+        }
+        let data = external::details(db, &id)?;
+        for dep in data["dependency_ids"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            pending.push(dep.to_owned());
+        }
     }
     Ok(())
 }
@@ -164,17 +188,45 @@ pub async fn approve(
     }
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction()?;
-    if tx.execute(
-        "UPDATE mod_reviews SET approved=1 WHERE mod_id=?1 AND approved=0",
-        [&id],
-    )? != 1
-    {
+    let mut pending = vec![id.clone()];
+    let mut seen = std::collections::BTreeSet::new();
+    let mut approved = 0;
+    while let Some(mod_id) = pending.pop() {
+        if !seen.insert(mod_id.clone()) {
+            continue;
+        }
+        if seen.len() > 128 {
+            return Err(bad("Dependency review exceeds 128 projects"));
+        }
+        let exists: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM mods WHERE id=?1)",
+            [&mod_id],
+            |r| r.get(0),
+        )?;
+        if !exists {
+            return Err(bad("Imported dependency is missing from the library"));
+        }
+        let data = external::details(&tx, &mod_id)?;
+        for dep in data["dependency_ids"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+        {
+            pending.push(dep.to_owned());
+        }
+        approved += tx.execute(
+            "UPDATE mod_reviews SET approved=1 WHERE mod_id=?1 AND approved=0",
+            [&mod_id],
+        )?;
+        tx.execute(
+            "INSERT INTO audit(actor,action,target,created) VALUES(?1,'approve-mod',?2,?3)",
+            params![actor, mod_id, now()],
+        )?;
+    }
+    if approved == 0 {
         return Err(bad("No pending mod review found"));
     }
-    tx.execute(
-        "INSERT INTO audit(actor,action,target,created) VALUES(?1,'approve-mod',?2,?3)",
-        params![actor, id, now()],
-    )?;
     tx.commit()?;
     Ok(axum::Json(json!({"ok":true})))
 }

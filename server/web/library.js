@@ -50,12 +50,12 @@ $('externalform').addEventListener('submit',async event=>{
   } catch(e) {$('externalstatus').textContent=e.message;}
   finally {$('externalpreview').disabled=false;}
 });
-function externalVersionInfo() {const v=externalProject?.versions.find(v=>v.id===$('externalversion').value);const count=Array.isArray(v?.dependencies)?v.dependencies.length:0;$('externaldependencies').textContent=count?`${count} dependency references. Dependencies are listed by the provider and must be added separately.`:'No dependency references listed by the provider.';}
+function externalVersionInfo() {const v=externalProject?.versions.find(v=>v.id===$('externalversion').value);const count=Array.isArray(v?.dependencies)?v.dependencies.length:0;$('externaldependencies').textContent=count?`${count} dependency references. Required dependencies and their dependencies are imported automatically. Optional dependencies can be included below.`:'No dependency references listed by the provider.';}
 $('externalversion').addEventListener('change',externalVersionInfo);
 $('externaladd').addEventListener('click',async()=>{
   if(!externalProject || externalLink!==$('externalurl').value) return;
   $('externaladd').disabled=true;$('externalstatus').textContent='Downloading, verifying and saving the mod…';
-  try {const result=await json('mods/external/import',{url:externalLink,version:$('externalversion').value});await loadLibrary();$('externalstatus').textContent=result.existing?'This version is already in the library.':'Mod imported. An administrator must approve it before downloads are enabled.';}
+  try {const result=await json('mods/external/import',{url:externalLink,version:$('externalversion').value,game_version:$('libraryversion').value.trim(),loader:$('libraryloader').value,include_optional:$('externaloptional').checked});await loadLibrary();$('externalstatus').textContent=`${result.existing?'Mod already in library.':'Mod imported.'} ${result.dependencies_added||0} dependencies added (${result.dependency_count||0} linked). ${result.approved?'Published and ready to download.':'Awaiting review in Admin panel → Mod reviews.'}`;}
   catch(e) {$('externalstatus').textContent=e.message;}finally {$('externaladd').disabled=false;}
 });
 let bridge,bridgeTimer,bridgeBusy=false;

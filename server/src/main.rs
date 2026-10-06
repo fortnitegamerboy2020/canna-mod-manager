@@ -21,6 +21,7 @@ use std::{
 };
 use tokio::sync::Semaphore;
 use zeroize::Zeroizing;
+mod admin_tools;
 mod catalog;
 mod community;
 mod crypto;
@@ -33,6 +34,7 @@ mod live;
 mod profiles;
 mod sections;
 mod security;
+mod support;
 mod twofactor;
 mod updates;
 use uuid::Uuid;
@@ -143,6 +145,7 @@ impl App {
             CREATE TABLE IF NOT EXISTS posts(id TEXT PRIMARY KEY, topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, created INTEGER NOT NULL);")?;
         sections::initialize(&db)?;
         external::initialize(&db)?;
+        support::initialize(&db)?;
         catalog::initialize(&db)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS mod_reviews(mod_id TEXT PRIMARY KEY REFERENCES mods(id) ON DELETE CASCADE, approved INTEGER NOT NULL DEFAULT 0);")?;
         handoff::initialize(&db)?;
@@ -544,7 +547,14 @@ async fn upload(
                 size as i64
             ],
         )?;
-        tx.execute("INSERT INTO mod_reviews(mod_id) VALUES(?1)", [&id])?;
+        let approved: bool =
+            tx.query_row("SELECT role='owner' FROM users WHERE id=?1", [owner], |r| {
+                r.get(0)
+            })?;
+        tx.execute(
+            "INSERT INTO mod_reviews(mod_id,approved) VALUES(?1,?2)",
+            params![id, approved],
+        )?;
         tx.commit()
     })();
     if let Err(error) = inserted {
@@ -552,7 +562,7 @@ async fn upload(
         return Err(error.into());
     }
     Ok(axum::Json(
-        json!({"id":id,"sha256":hash,"size":size,"review_status":"pending"}),
+        json!({"id":id,"sha256":hash,"size":size,"review_status":if security::approved(&app.db.lock().unwrap(),&id).is_ok(){"approved"}else{"pending"}}),
     ))
 }
 async fn mods(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
@@ -784,6 +794,15 @@ async fn app_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/app.js")))
 }
+async fn admin_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
+    if !app.auth(&headers)?.1 {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            "Administrator permission required",
+        ));
+    }
+    Ok(asset(include_str!("../web/admin.js")))
+}
 async fn community_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/community.js")))
@@ -839,6 +858,21 @@ fn router(app: Shared) -> Router {
         .route("/live.js", get(live_script))
         .route("/library.js", get(library_script))
         .route("/api/v1/events", get(live::events))
+        .route("/api/v1/admin/overview", get(admin_tools::overview))
+        .route("/api/v1/admin/mod-reviews", get(admin_tools::reviews))
+        .route("/api/v1/admin/users/{id}/sessions", post(admin_tools::revoke_sessions))
+        .route("/admin.js", get(admin_script))
+        .route("/robots.txt", get(|| async { ([("content-type","text/plain; charset=utf-8")], "User-agent: *\nDisallow: /api/\nDisallow: /connect\nDisallow: /support\nDisallow: /packs/\nSitemap: https://cannamods.vip/sitemap.xml\n") }))
+        .route("/sitemap.xml", get(|| async { ([("content-type","application/xml; charset=utf-8")], r#"<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://cannamods.vip/</loc></url><url><loc>https://cannamods.vip/help</loc></url></urlset>"#) }))
+        .route("/support", get(|| async { ([("cache-control","no-store")],Html(include_str!("../web/support.html"))) }))
+        .route("/support.js", get(|| async { asset(include_str!("../web/support.js")) }))
+        .route("/api/v1/support/challenge", post(support::challenge))
+        .route("/api/v1/support/tickets", post(support::create).get(support::mine).layer(DefaultBodyLimit::max(64*1024)))
+        .route("/api/v1/support/tickets/{id}", get(support::read))
+        .route("/api/v1/support/tickets/{id}/reply", post(support::reply).layer(DefaultBodyLimit::max(64*1024)))
+        .route("/api/v1/admin/tickets", get(support::queue))
+        .route("/api/v1/admin/tickets/{id}", axum::routing::delete(support::delete))
+        .route("/api/v1/admin/tickets/{id}/status", post(support::status))
         .route("/updates/latest", get(updates::latest))
         .route("/updates/{version}", get(updates::binary))
         .route(

@@ -1,0 +1,4 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict'),{webcrypto,createHash}=require('node:crypto');
+const source=fs.readFileSync('server/web/support.js','utf8');const code=source.slice(source.indexOf('async function prepareProof'),source.indexOf('function resetProof'));
+const seed='a'.repeat(64);const ctx=vm.createContext({supportApi:async()=>({seed,difficulty:3}),TextEncoder,crypto:webcrypto,Date,setTimeout,proofAt:0});
+(async()=>{vm.runInContext(code,ctx);const proof=await vm.runInContext('prepareProof()',ctx);assert.equal(proof.seed,seed);assert.ok(createHash('sha256').update(seed+':'+proof.nonce).digest('hex').startsWith('000'));assert.ok(ctx.proofAt>0);console.log('Browser proof-of-work matches server verification.');})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -4,11 +4,17 @@ use reqwest::Url;
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS mod_details(mod_id TEXT PRIMARY KEY REFERENCES mods(id) ON DELETE CASCADE,origin TEXT UNIQUE NOT NULL,data TEXT NOT NULL);")
 }
-#[derive(Deserialize)]
+#[derive(Clone, Deserialize)]
 pub struct Link {
     pub url: String,
     #[serde(default)]
     pub version: String,
+    #[serde(default)]
+    pub game_version: String,
+    #[serde(default)]
+    pub loader: String,
+    #[serde(default)]
+    pub include_optional: bool,
 }
 #[derive(Clone, serde::Serialize, Deserialize)]
 pub struct Release {
@@ -25,7 +31,7 @@ pub struct Release {
     #[serde(skip_serializing)]
     pub algorithm: String,
 }
-#[derive(serde::Serialize)]
+#[derive(Clone, serde::Serialize)]
 pub struct Project {
     pub provider: String,
     pub id: String,
@@ -323,7 +329,14 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
             id,
             name: text(&project, "title"),
             description: text(&project, "description"),
-            source_url: format!("https://modrinth.com/{}/{}", parts[0], parts[1]),
+            source_url: format!(
+                "https://modrinth.com/{}/{}",
+                project["project_type"]
+                    .as_str()
+                    .filter(|v| ["mod", "resourcepack", "shader", "datapack"].contains(v))
+                    .unwrap_or(&parts[0]),
+                parts[1]
+            ),
             game: "Minecraft".into(),
             authors,
             license: text(&project["license"], "id"),
@@ -331,7 +344,6 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .take(80)
                 .filter_map(|v| {
                     let files = v["files"].as_array()?;
                     let f = files
@@ -472,15 +484,66 @@ pub async fn import(
         .upload_gate
         .try_acquire()
         .map_err(|_| bad("Another import is in progress"))?;
-    let project = resolve(&input.url).await?;
-    let release = project
-        .versions
-        .iter()
-        .find(|v| v.id == input.version)
-        .ok_or_else(|| bad("Choose a version from the preview"))?;
+    let (root, nodes, edges, order) = dependency_graph(input).await?;
+    let mut ids = std::collections::BTreeMap::<String, String>::new();
+    let mut imported = 0;
+    let mut root_existing = false;
+    for origin in order {
+        let (input, project, release) = &nodes[&origin];
+        let deps: Vec<String> = edges
+            .get(&origin)
+            .into_iter()
+            .flatten()
+            .filter_map(|key| ids.get(key).cloned())
+            .collect();
+        let (id, existing) = import_one(&app, user, input, project, release, &deps).await?;
+        if !existing {
+            imported += 1;
+        }
+        if origin == root {
+            root_existing = existing;
+        }
+        ids.insert(origin, id);
+    }
+    let id = &ids[&root];
+    if community::role(&app, user)? == "owner" {
+        let mut db = app.db.lock().unwrap();
+        let tx = db.transaction()?;
+        for id in ids.values() {
+            if tx.execute(
+                "UPDATE mod_reviews SET approved=1 WHERE mod_id=?1 AND approved=0",
+                [id],
+            )? == 1
+            {
+                tx.execute("INSERT INTO audit(actor,action,target,created) VALUES(?1,'owner-publish-mod',?2,?3)",params![user,id,now()])?;
+            }
+        }
+        tx.commit()?;
+    }
+    let approved = security::approved(&app.db.lock().unwrap(), id).is_ok();
+    let dependencies_added = imported - i32::from(!root_existing);
+    Ok(axum::Json(
+        json!({"id":id,"existing":root_existing,"approved":approved,"dependencies_added":dependencies_added,"dependency_count":ids.len().saturating_sub(1)}),
+    ))
+}
+async fn import_one(
+    app: &App,
+    user: i64,
+    input: &Link,
+    project: &Project,
+    release: &Release,
+    deps: &[String],
+) -> ApiResult<(String, bool)> {
     let origin = format!("{}:{}:{}", project.provider, project.id, release.id);
-    if let Some(id) = existing(&app, &origin)? {
-        return Ok(axum::Json(json!({"id":id,"existing":true})));
+    if let Some(id) = existing(app, &origin)? {
+        let db = app.db.lock().unwrap();
+        let mut data = details(&db, &id)?;
+        data["dependency_ids"] = json!(deps);
+        db.execute(
+            "UPDATE mod_details SET data=?1 WHERE mod_id=?2",
+            params![data.to_string(), id],
+        )?;
+        return Ok((id, true));
     }
     let download = if project.provider == "curseforge" && release.download.is_empty() {
         let result = metadata(
@@ -547,14 +610,15 @@ pub async fn import(
     if project.provider != "thunderstore" && !actual.eq_ignore_ascii_case(&release.hash) {
         return Err(bad("Provider file checksum mismatch"));
     }
-    let mut details = serde_json::to_value(&project).unwrap();
+    let mut details = serde_json::to_value(project).unwrap();
     details.as_object_mut().unwrap().remove("versions");
     details["filename"] = json!(safe_filename(&release.filename));
     details["loaders"] = json!(release.loaders);
     details["game_versions"] = json!(release.game_versions);
     details["dependencies"] = release.dependencies.clone();
+    details["dependency_ids"] = json!(deps);
     details["content_type"] = json!(if project.provider == "modrinth" {
-        parts_type(&input.url)
+        parts_type(&project.source_url)
     } else if project.provider == "curseforge" {
         let (_, p) = link(&input.url)?;
         cf_content_type(&p[1]).unwrap_or("mod").to_owned()
@@ -571,7 +635,7 @@ pub async fn import(
     )
     .ok_or_else(|| bad("Unsupported Steam/Unity game"))?;
     let id = store(
-        &app,
+        app,
         user,
         game,
         &project.name,
@@ -582,7 +646,275 @@ pub async fn import(
         &bytes,
     )
     .await?;
-    Ok(axum::Json(json!({"id":id,"existing":false})))
+    Ok((id, false))
+}
+fn version_valid(s: &str) -> bool {
+    !s.is_empty()
+        && s.len() <= 100
+        && s.bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+}
+type ImportNodes = std::collections::BTreeMap<String, (Link, Project, Release)>;
+type ImportEdges = std::collections::BTreeMap<String, Vec<String>>;
+fn compatible(v: &Release, input: &Link) -> bool {
+    (input.game_version.is_empty() || v.game_versions.contains(&input.game_version))
+        && (input.loader.is_empty()
+            || v.loaders.is_empty()
+            || v.loaders
+                .iter()
+                .any(|l| l.eq_ignore_ascii_case(&input.loader)))
+}
+fn mr_file(v: &Value) -> Option<Release> {
+    let files = v["files"].as_array()?;
+    let f = files
+        .iter()
+        .find(|f| f["primary"] == true)
+        .or_else(|| files.first())?;
+    Some(Release {
+        id: text(v, "id"),
+        name: text(v, "version_number"),
+        filename: text(f, "filename"),
+        loaders: strings(&v["loaders"]),
+        game_versions: strings(&v["game_versions"]),
+        dependencies: v["dependencies"].clone(),
+        download: text(f, "url"),
+        hash: text(&f["hashes"], "sha512"),
+        algorithm: "sha512".into(),
+    })
+}
+async fn selection(input: &Link) -> ApiResult<(Project, Release)> {
+    let mut project = resolve(&input.url).await?;
+    if !input.version.is_empty() && !project.versions.iter().any(|v| v.id == input.version) {
+        if !version_valid(&input.version) {
+            return Err(bad("Invalid dependency version"));
+        }
+        let version = if project.provider == "modrinth" {
+            let data = metadata(
+                &format!("https://api.modrinth.com/v2/version/{}", input.version),
+                false,
+            )
+            .await?;
+            if data["project_id"] != project.id {
+                return Err(bad("Dependency version belongs to another project"));
+            }
+            mr_file(&data).ok_or_else(|| bad("Dependency file is unavailable"))?
+        } else if project.provider == "thunderstore" {
+            let (_, parts) = link(&input.url)?;
+            let data = metadata(
+                &format!(
+                    "https://thunderstore.io/api/experimental/package/{}/{}/{}/",
+                    parts[3], parts[4], input.version
+                ),
+                false,
+            )
+            .await?;
+            if data["is_active"] != true {
+                return Err(bad("Required dependency is unavailable"));
+            }
+            Release {
+                id: input.version.clone(),
+                name: input.version.clone(),
+                filename: format!("{}-{}.zip", project.name, input.version),
+                loaders: vec![],
+                game_versions: vec![],
+                dependencies: data["dependencies"].clone(),
+                download: text(&data, "download_url"),
+                hash: String::new(),
+                algorithm: String::new(),
+            }
+        } else {
+            let data = metadata(
+                &format!(
+                    "https://api.curseforge.com/v1/mods/{}/files/{}",
+                    project.id, input.version
+                ),
+                true,
+            )
+            .await?;
+            cf_release(&data["data"])
+                .ok_or_else(|| bad("Required dependency file is unavailable"))?
+        };
+        project.versions.push(version);
+    }
+    let release = project
+        .versions
+        .iter()
+        .find(|v| {
+            (input.version.is_empty() || v.id == input.version)
+                && (project.provider == "thunderstore" || compatible(v, input))
+        })
+        .cloned()
+        .ok_or_else(|| bad("No dependency file matches this Minecraft version and loader"))?;
+    Ok((project, release))
+}
+async fn dependency_links(
+    project: &Project,
+    release: &Release,
+    input: &Link,
+) -> ApiResult<Vec<Link>> {
+    let mut links = Vec::new();
+    for dep in release.dependencies.as_array().into_iter().flatten() {
+        let (url, version) = match project.provider.as_str() {
+            "thunderstore" => {
+                let dep = dep
+                    .as_str()
+                    .ok_or_else(|| bad("Invalid Thunderstore dependency"))?;
+                let parts: Vec<&str> = dep.split('-').collect();
+                if parts.len() != 3
+                    || !slug(parts[0])
+                    || !slug(parts[1])
+                    || !version_valid(parts[2])
+                {
+                    return Err(bad("Invalid Thunderstore dependency"));
+                }
+                let (_, root) = link(&input.url)?;
+                (
+                    format!(
+                        "https://thunderstore.io/c/{}/p/{}/{}/",
+                        root[1], parts[0], parts[1]
+                    ),
+                    parts[2].to_owned(),
+                )
+            }
+            "modrinth" => {
+                let kind = dep["dependency_type"].as_str().unwrap_or("");
+                if kind != "required" && !(input.include_optional && kind == "optional") {
+                    continue;
+                }
+                let version = text(dep, "version_id");
+                let mut id = text(dep, "project_id");
+                if id.is_empty() && !version.is_empty() {
+                    if !slug(&version) {
+                        return Err(bad("Invalid dependency version"));
+                    }
+                    id = text(
+                        &metadata(
+                            &format!("https://api.modrinth.com/v2/version/{version}"),
+                            false,
+                        )
+                        .await?,
+                        "project_id",
+                    );
+                }
+                if !slug(&id) {
+                    return Err(bad("Required dependency project is unavailable"));
+                }
+                (format!("https://modrinth.com/mod/{id}"), version)
+            }
+            "curseforge" => {
+                let kind = dep["relationType"].as_u64().unwrap_or(0);
+                if kind != 3 && !(input.include_optional && kind == 2) {
+                    continue;
+                }
+                let id = dep["modId"]
+                    .as_u64()
+                    .filter(|id| *id > 0)
+                    .ok_or_else(|| bad("Invalid dependency project"))?;
+                let data =
+                    metadata(&format!("https://api.curseforge.com/v1/mods/{id}"), true).await?;
+                let url = text(&data["data"]["links"], "websiteUrl");
+                let (provider, _) = link(&url)?;
+                if provider != "curseforge" {
+                    return Err(bad("Invalid dependency project address"));
+                }
+                (url, String::new())
+            }
+            _ => return Err(bad("Unsupported dependency provider")),
+        };
+        links.push(Link {
+            url,
+            version,
+            game_version: input.game_version.clone(),
+            loader: input.loader.clone(),
+            include_optional: input.include_optional,
+        });
+    }
+    Ok(links)
+}
+fn dependency_order(root: &str, edges: &ImportEdges) -> ApiResult<Vec<String>> {
+    fn visit(
+        key: &str,
+        edges: &ImportEdges,
+        active: &mut std::collections::BTreeSet<String>,
+        done: &mut std::collections::BTreeSet<String>,
+        out: &mut Vec<String>,
+    ) -> ApiResult<()> {
+        if done.contains(key) {
+            return Ok(());
+        }
+        if active.len() >= 32 || !active.insert(key.to_owned()) {
+            return Err(bad(
+                "Dependency graph contains a cycle or exceeds 32 levels",
+            ));
+        }
+        for next in edges.get(key).into_iter().flatten() {
+            visit(next, edges, active, done, out)?;
+        }
+        active.remove(key);
+        done.insert(key.to_owned());
+        out.push(key.to_owned());
+        Ok(())
+    }
+    let mut out = Vec::new();
+    visit(
+        root,
+        edges,
+        &mut Default::default(),
+        &mut Default::default(),
+        &mut out,
+    )?;
+    Ok(out)
+}
+async fn dependency_graph(
+    input: Link,
+) -> ApiResult<(String, ImportNodes, ImportEdges, Vec<String>)> {
+    let mut queue = std::collections::VecDeque::from([(None::<String>, input)]);
+    let mut root = String::new();
+    let mut game = String::new();
+    let mut nodes = ImportNodes::new();
+    let mut edges = ImportEdges::new();
+    let mut requests = 0;
+    let mut versions = std::collections::BTreeMap::new();
+    while let Some((parent, mut input)) = queue.pop_front() {
+        requests += 1;
+        if requests > 512 || nodes.len() >= 128 {
+            return Err(bad("Dependency import exceeds the 128-project limit"));
+        }
+        let (project, release) = selection(&input).await?;
+        let key = format!("{}:{}", project.provider, project.id);
+        if let Some(old) = versions.insert(key, release.id.clone())
+            && old != release.id
+        {
+            return Err(bad(
+                "Dependencies require conflicting versions of the same project",
+            ));
+        }
+        let origin = format!("{}:{}:{}", project.provider, project.id, release.id);
+        if let Some(parent) = parent {
+            edges.entry(parent).or_default().push(origin.clone());
+        } else {
+            root = origin.clone();
+            game = project.game.clone();
+            if project.provider != "thunderstore" && input.game_version.is_empty() {
+                input.game_version = release.game_versions.first().cloned().unwrap_or_default();
+            }
+            if project.provider != "thunderstore" && input.loader.is_empty() {
+                input.loader = release.loaders.first().cloned().unwrap_or_default();
+            }
+        }
+        if project.game != game {
+            return Err(bad("A dependency belongs to a different game"));
+        }
+        if nodes.contains_key(&origin) {
+            continue;
+        }
+        for dependency in dependency_links(&project, &release, &input).await? {
+            queue.push_back((Some(origin.clone()), dependency));
+        }
+        nodes.insert(origin, (input, project, release));
+    }
+    let order = dependency_order(&root, &edges)?;
+    Ok((root, nodes, edges, order))
 }
 fn steam_id(slug: &str) -> Option<u32> {
     match slug {
@@ -669,7 +1001,9 @@ pub async fn store(
             "INSERT INTO mod_details VALUES(?1,?2,?3)",
             params![id, origin, details.to_string()],
         )?;
-        tx.execute("INSERT INTO mod_reviews(mod_id) VALUES(?1)", [&id])?;
+        let approved:bool=tx.query_row("SELECT role='owner' FROM users WHERE id=?1",[user],|r|r.get(0))?;
+        tx.execute("INSERT INTO mod_reviews(mod_id,approved) VALUES(?1,?2)",params![id,approved])?;
+        if approved {tx.execute("INSERT INTO audit(actor,action,target,created) VALUES(?1,'owner-publish-mod',?2,?3)",params![user,id,now()])?;}
         tx.commit()?;
         Ok(())
     }
@@ -752,6 +1086,107 @@ pub async fn catalog(app: &App, manifest: &std::path::Path) -> anyhow::Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn dependency_graph_orders_transitive_diamonds_and_rejects_cycles() {
+        let edges = ImportEdges::from([
+            ("root".into(), vec!["a".into(), "b".into()]),
+            ("a".into(), vec!["leaf".into()]),
+            ("b".into(), vec!["leaf".into()]),
+        ]);
+        assert_eq!(
+            dependency_order("root", &edges).unwrap(),
+            ["leaf", "a", "b", "root"]
+        );
+        let mut cycle = edges;
+        cycle.insert("leaf".into(), vec!["root".into()]);
+        assert!(dependency_order("root", &cycle).is_err());
+        assert!(version_valid("1.2.3"));
+        assert!(!version_valid("../1"));
+    }
+    #[tokio::test]
+    async fn thunderstore_dependency_versions_and_owner_publishing_are_preserved() {
+        let (_dir, app) = crate::tests::fixture();
+        let owner = crate::tests::account(&app, "publisher", false);
+        let member = crate::tests::account(&app, "uploader", false);
+        let owner = app
+            .auth(&HeaderMap::from_iter([(
+                "authorization".parse().unwrap(),
+                format!("Bearer {owner}").parse().unwrap(),
+            )]))
+            .unwrap()
+            .0;
+        let member = app
+            .auth(&HeaderMap::from_iter([(
+                "authorization".parse().unwrap(),
+                format!("Bearer {member}").parse().unwrap(),
+            )]))
+            .unwrap()
+            .0;
+        app.db
+            .lock()
+            .unwrap()
+            .execute("UPDATE users SET role='owner' WHERE id=?1", [owner])
+            .unwrap();
+        let a = store(
+            &app,
+            owner,
+            1686940,
+            "Owner mod",
+            "1",
+            "test",
+            "fixture:owner",
+            &json!({}),
+            b"PK\x03\x04test bytes",
+        )
+        .await
+        .unwrap();
+        let b = store(
+            &app,
+            member,
+            1686940,
+            "Member mod",
+            "1",
+            "test",
+            "fixture:member",
+            &json!({"dependency_ids":[a]}),
+            b"PK\x03\x04test bytes",
+        )
+        .await
+        .unwrap();
+        assert!(security::approved(&app.db.lock().unwrap(), &a).is_ok());
+        assert!(security::approved(&app.db.lock().unwrap(), &b).is_err());
+        let project = Project {
+            provider: "thunderstore".into(),
+            id: "Test-Mod".into(),
+            name: "Mod".into(),
+            description: String::new(),
+            source_url: String::new(),
+            game: "Bopl Battle".into(),
+            authors: String::new(),
+            license: String::new(),
+            versions: vec![],
+        };
+        let release = Release {
+            id: "1".into(),
+            name: "1".into(),
+            filename: String::new(),
+            loaders: vec![],
+            game_versions: vec![],
+            dependencies: json!(["BepInEx-BepInExPack_BoplBattle-5.4.2301"]),
+            download: String::new(),
+            hash: String::new(),
+            algorithm: String::new(),
+        };
+        let input = Link {
+            url: "https://thunderstore.io/c/bopl-battle/p/Test/Mod/".into(),
+            version: String::new(),
+            game_version: String::new(),
+            loader: String::new(),
+            include_optional: false,
+        };
+        let deps = dependency_links(&project, &release, &input).await.unwrap();
+        assert_eq!(deps[0].version, "5.4.2301");
+    }
     #[tokio::test]
     #[ignore = "Live Thunderstore API and archive verification in isolated temporary encrypted storage"]
     async fn thunderstore_live_import_round_trip() {
@@ -848,7 +1283,13 @@ mod tests {
             .unwrap();
         assert!(bytes.starts_with(b"PK"));
         assert_eq!(
-            value(call(app, "GET", "/api/v1/mods", Value::Null, Some(&member)).await).await[0]["sha256"],
+            value(call(app, "GET", "/api/v1/mods", Value::Null, Some(&member)).await)
+                .await
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|m| m["id"] == id)
+                .unwrap()["sha256"],
             hex::encode(Sha256::digest(bytes))
         );
     }

@@ -1,4 +1,4 @@
-param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.15', [switch]$SourceOnly)
+param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt', [string]$Version = '0.2.15', [switch]$SourceOnly, [string]$CommitMessage = '')
 $ErrorActionPreference = 'Stop'
 $cannaRoot = Split-Path $PSScriptRoot -Parent
 $cannaToken = [IO.File]::ReadAllText($TokenFile).Trim().TrimStart([char]0xFEFF).Trim()
@@ -35,13 +35,25 @@ try {
         $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -File | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
     }
     $cannaFiles += @('server/Cargo.toml', 'server/Cargo.lock', 'server/README.md')
+    $cannaExistingTree = Invoke-CannaApi "git/trees/$($cannaCommit.tree.sha)?recursive=1"
+    $cannaExistingBlobs = @{}
+    foreach ($cannaEntry in $cannaExistingTree.tree) { if ($cannaEntry.type -eq 'blob') { $cannaExistingBlobs[$cannaEntry.path] = $cannaEntry.sha } }
     $cannaEntries = @()
     foreach ($cannaFile in $cannaFiles) {
-        $cannaBlob = Invoke-CannaApi 'git/blobs' 'POST' @{ content = [Convert]::ToBase64String([IO.File]::ReadAllBytes((Join-Path $cannaRoot $cannaFile))); encoding = 'base64' }
+        $cannaBytes = [IO.File]::ReadAllBytes((Join-Path $cannaRoot $cannaFile))
+        $cannaBlobPrefix = [Text.Encoding]::UTF8.GetBytes("blob $($cannaBytes.Length)`0")
+        $cannaGitBytes = [byte[]]::new($cannaBlobPrefix.Length + $cannaBytes.Length)
+        [Array]::Copy($cannaBlobPrefix, 0, $cannaGitBytes, 0, $cannaBlobPrefix.Length)
+        [Array]::Copy($cannaBytes, 0, $cannaGitBytes, $cannaBlobPrefix.Length, $cannaBytes.Length)
+        $cannaHasher = [Security.Cryptography.SHA1]::Create()
+        try { $cannaBlobSha = ([BitConverter]::ToString($cannaHasher.ComputeHash($cannaGitBytes))).Replace('-','').ToLowerInvariant() } finally { $cannaHasher.Dispose() }
+        if ($cannaExistingBlobs[$cannaFile] -eq $cannaBlobSha) { $cannaBlob = @{sha=$cannaBlobSha} }
+        else { $cannaBlob = Invoke-CannaApi 'git/blobs' 'POST' @{ content = [Convert]::ToBase64String($cannaBytes); encoding = 'base64' } }
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = "Canna ${Version}: server-hosted updates without shared credentials"; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    if (!$CommitMessage) { $CommitMessage = "Canna ${Version}: source update" }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = $CommitMessage; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'

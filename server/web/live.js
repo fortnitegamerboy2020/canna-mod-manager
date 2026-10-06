@@ -27,6 +27,7 @@ async function refreshLiveViews() {
     }
     if(kinds.has('refresh') || kinds.has('library')) {
       if(!$('libraryview').hidden) await loadLibrary();
+      if(currentUser?.admin && !$('moderation').hidden && typeof loadModReviews==='function'){await loadModReviews();await loadAdminOverview();}
     }
   } catch(error) { $('liveconnection').textContent='Live refresh interrupted. Reconnecting…'; }
   finally {liveRunning=false;if(livePending.size) liveTimer=setTimeout(refreshLiveViews,100);}

@@ -147,7 +147,13 @@ $('closethread').addEventListener('click',closeThread);
 $('replyform').addEventListener('submit',event => { event.preventDefault(); action(async () => {
   await json(`topics/${openThread}/reply`,{body:$('replybody').value}); $('replyform').reset(); await loadThread(openThread); await loadTopics();
 }); });
+let adminScript;
 async function loadAdmin() {
+  if(!currentUser?.admin) return;
+  if(!adminScript) adminScript=new Promise((resolve,reject)=>{const s=document.createElement('script');s.src='/admin.js';s.onload=resolve;s.onerror=()=>{adminScript=null;reject(new Error('Admin tools could not load. Try again.'));};document.head.append(s);});
+  await adminScript;setupAdmin();
+  await loadAdminOverview();await loadModReviews();
+
   $('sectionmanager').hidden=currentUser.role !== 'owner';
   if(currentUser.role === 'owner') await loadSectionEditor();
   $('ownercontrols').hidden=currentUser.role !== 'owner';
@@ -172,8 +178,10 @@ async function loadAdmin() {
         await json('admin/transfer-owner',{user_id:member.id}); location.assign('/');
       }));
     }
-    row.append(info,tools); return row;
+    if(member.id!==currentUser.id && member.role!=='owner' && (currentUser.role==='owner' || member.role!=='admin')) tools.append(button('Log out devices',async()=>{if(!confirm(`Log out all devices for ${member.username}?`))return;await api(`admin/users/${member.id}/sessions`,{method:'POST'});message('Devices logged out.');}));
+    row.dataset.search=member.username.toLowerCase();row.append(info,tools); return row;
   }));
+  filterAdminMembers();
   $('ownerlog').hidden = currentUser.role !== 'owner';
   if (currentUser.role === 'owner') {
     const events = await (await api('admin/audit')).json();

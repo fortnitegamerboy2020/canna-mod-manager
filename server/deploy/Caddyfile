@@ -12,6 +12,10 @@ cannamods.vip, api.cannamods.vip {
     request_body {
         max_size 134217728
     }
+    handle /BingSiteAuth.xml {
+        root * /srv/canna-public
+        file_server
+    }
     reverse_proxy 127.0.0.1:8787 {
         header_up X-Forwarded-For {remote_host}
         header_up -Forwarded
