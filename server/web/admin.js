@@ -25,7 +25,7 @@ function updateAdminTabs(){document.querySelectorAll('.admintabs button').forEac
 async function selectAdminTab(id){adminTab=id;document.querySelectorAll('.adminpanes>section').forEach(p=>p.hidden=p.id!=='admin-'+id);updateAdminTabs();if(id==='invitations')await loadInvitationHistory();if(id==='members')await loadAdminMembers();if(id==='sections')await loadSectionEditor();if(id==='logs')await loadAdminLogs();if(id==='economy')await loadWallets();if(id==='community')await loadLoungeAdmin();if(id==='tickets')await loadAdminTickets();if(id==='reviews')await loadModReviews();if(id==='overview')await loadAdminOverview();}
 let inviteHistoryPage=1;
 function setupInvitationHistory(){
- const controls=$('admin');
+ const controls=$('admin');controls.querySelector('h2').textContent='Generate invitations';
  const mode=adminNode('select');mode.id='invitemode';mode.setAttribute('aria-label','Generation mode');for(const [value,label]of [['wave','Invite wave (grouped codes)'],['codes','Individual invite codes']]){const option=adminNode('option',label);option.value=value;mode.append(option);}
  const label=adminNode('input');label.id='invitelabel';label.maxLength=80;label.placeholder='Label, e.g. Family October';label.setAttribute('aria-label','Invitation label');controls.prepend(mode,label);$('newwave').textContent='Generate invitations';
  const root=adminNode('section');root.append(adminNode('h2','Invitation history'),adminNode('p','New codes are saved here. Older hash-only invitations can be revoked, but their original codes cannot be recovered. Revoking an invite does not remove an account that already used it.'));

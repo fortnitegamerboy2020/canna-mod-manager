@@ -77,7 +77,7 @@ function entry(item, kind) {
     const copy = document.createElement('button'); copy.textContent = 'Copy link';
     copy.addEventListener('click', () => action(async () => { await navigator.clipboard.writeText(`https://cannamods.vip/packs/${item.id}`); message('Share link copied. Your family will need to sign in.'); })); actions.append(copy);
   }
-  if (!external && (currentUser.admin || currentUser.username === item.author)) {
+  if (!external && (currentUser.admin || currentUser.username === (kind==='mods'?item.uploader:item.author))) {
     const remove = document.createElement('button'); remove.textContent = 'Delete';
     remove.addEventListener('click', () => action(async () => {
       if (!await cannaConfirm(`Delete ${item.name}?`)) return;
