@@ -130,3 +130,7 @@ button,a,summary{-webkit-tap-highlight-color:transparent}button,summary{touch-ac
 .modpreview{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}.moddetaildialog{width:min(850px,calc(100% - 32px));max-height:85dvh;overflow:auto}.moddetaildialog .moddescription{max-width:none;font-size:14px}
 
 .provider-results{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:16px}.provider-result{min-width:0}.provider-result .modart{float:none;width:72px;height:72px;object-fit:contain}.provider-result p{overflow-wrap:anywhere}.provider-browser form label{display:flex;flex-direction:column;gap:4px}.provider-browser input,.provider-browser select{max-width:100%}
+#playview pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:28rem;overflow:auto}
+#playview .row{flex-wrap:wrap}
+#playview .row label{flex:1 1 12rem;min-width:0}
+#playview input,#playview textarea,#playview select{max-width:100%;box-sizing:border-box}

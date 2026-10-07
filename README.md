@@ -2,11 +2,10 @@
 
 A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and the private Canna server as the mod catalog. Uploads and external imports are managed on the website.
 
-Version 0.2.4 uses a compact icon sidebar and a borderless window. The yellow
+Canna 0.2.31 uses a compact icon sidebar and a borderless window. The yellow
 button in the top right minimizes; the red button beside it closes Canna. Drag
 the header to move the window, or double-click it to maximize/restore. Hover
-sidebar icons for their names. Rounded panels share the green canvas behind
-their corners, avoiding black gaps.
+sidebar icons for their names. Drag any window edge or corner to resize.
 
 ## Run
 
@@ -16,7 +15,7 @@ Double-click `dist/Canna Mod Manager.exe` after building, or run:
 cargo run
 ```
 
-Build a portable executable with `./build.ps1`. Rust and Windows C++ build tools must already be available. No installer or administrator access is required. Settings are stored at `%APPDATA%/CannaModManager/settings.json`. The executable can be copied to a family member's Windows PC.
+Build a portable executable with `./build.ps1`. Rust and Windows C++ build tools must already be available. The portable edition needs no installer; the Inno Setup installer adds Start menu and uninstall entries. Settings are stored at `%APPDATA%/CannaModManager/settings.json`. The executable can be copied to a family member's Windows PC.
 
 ## What works now
 
@@ -215,3 +214,25 @@ Community 0.3.34 requires manual staff approval for manually uploaded mods, incl
 The authenticated website supports paginated provider search and filters. Provider archives expire after seven days, while pinned version, attribution, dependency and review records remain. Downloads re-fetch the original release and verify its original SHA-256; updates create separately reviewed versions. Manual uploads are retained. Thunderstore browsing currently receives HTTP 403 from the provider; fixture tests do not establish live availability.
 
 185 preview Steam/BepInEx profiles use the MIT-licensed r2modman ecosystem registry, revision `64a6e9425a80da17274f0a096294b91d9529debe`. Attribution is in `server/web/thunderstore-games-LICENSE.txt`. These profiles are not a claim that every game has been tested. Compatible reviewed Mono/IL2CPP loaders and plugin/patcher layouts are supported; special MonoMod installers and other game families require further work.
+
+## Play Lab and privacy
+
+Desktop 0.2.31 and server 0.3.48 add private readiness manifests, invite-only lobbies,
+local recovery snapshots, dependency-closed test packs, local diagnostics/configuration,
+previewed compatibility/support reports, experimental/stable manifest channels and
+local memory/benchmark tools. These are shared across supported profiles, including
+managed Minecraft instances. Unknown compatibility stays unknown. A stable label
+requires the owner's exact successful-session report; it is not independent verification.
+
+Raw logs, local paths and configuration values are not uploaded by these tools. Reports
+are explicit, previewed and redacted. Member-visible reports omit account/device names;
+the server privately retains submitter ownership for moderation. Readiness lobbies use
+chosen aliases. No automatic telemetry or hardware fingerprinting is added.
+
+Recovery restores pinned content and supported configs with the game closed. It does not
+restore worlds or world data packs. Configure the local folder and budget in Play Lab.
+The server stores bounded manifests/reports, not desktop backup archives.
+
+Run `scripts/Test-Workflows.ps1` for the regression suite. See
+[scripts/WORKFLOW-TESTS.md](scripts/WORKFLOW-TESTS.md) for coverage, fault cases,
+required live checks and reproduction. Synthetic timings are not game performance results.

@@ -12,8 +12,10 @@ install -d -m 700 "$backup" "$backup/state" "$backup/volume" "$backup/keys" "$ba
 needed=$(du -sb /var/lib/canna /mnt/canna /etc/canna/keys | awk '{s+=$1} END {print s}')
 already=0
 if test -d "$previous"; then already=$(du -sb "$previous" | awk '{print $1}'); fi
+binary=$(stat -c %s /opt/canna/canna-server)
+test "$((needed + already + 2 * binary))" -le 10737418240 || { echo 'Backup staging plus current copy exceeds the 10 GiB budget; existing recovery copy preserved'; exit 1; }
 free=$(df --output=avail -B1 /var/backups | tail -1)
-test "$free" -gt "$((needed - already + 5368709120))" || { echo 'Insufficient backup space: preserve 5 GiB free'; exit 1; }
+test "$free" -gt "$((needed + binary + 5368709120))" || { echo 'Insufficient backup space: preserve 5 GiB free'; exit 1; }
 was_running=0
 if systemctl is-active --quiet canna; then was_running=1; fi
 resume() { if test "$was_running" = 1; then systemctl start canna; fi; }

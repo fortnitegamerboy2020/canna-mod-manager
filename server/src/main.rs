@@ -38,6 +38,8 @@ mod live;
 mod lounge;
 mod mod_updates;
 mod notifications;
+mod play;
+mod play_manifest;
 mod profiles;
 mod provider_browse;
 mod provider_cache;
@@ -163,6 +165,7 @@ impl App {
         provider_cache::initialize(&db)?;
         provider_browse::initialize(&db)?;
         support::initialize(&db)?;
+        play::initialize(&db)?;
         catalog::initialize(&db)?;
         mod_updates::initialize(&db)?;
         subscriptions::initialize(&db)?;
@@ -897,6 +900,10 @@ async fn admin_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResul
     }
     Ok(asset(include_str!("../web/admin.js")))
 }
+async fn play_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
+    app.auth(&headers)?;
+    Ok(asset(include_str!("../web/play-lab.js")))
+}
 async fn community_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/community.js")))
@@ -937,6 +944,8 @@ async fn lounge_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResu
 }
 fn router(app: Shared) -> Router {
     Router::new()
+        .route("/api/v1/play", get(play::list))
+        .route("/api/v1/play/action", post(play::action).layer(DefaultBodyLimit::max(512*1024)))
         .route("/", get(community_page))
         .route("/forums", get(community_page))
         .route("/forums/latest", get(community_page))
@@ -945,6 +954,8 @@ fn router(app: Shared) -> Router {
         .route("/forums/topics/{id}", get(community_page))
         .route("/mods", get(community_page))
         .route("/library", get(community_page))
+        .route("/play", get(community_page))
+        .route("/play-lab.js", get(play_script))
         .route("/subscriptions", get(community_page))
         .route("/submissions", get(community_page))
         .route("/notifications", get(community_page))
@@ -1010,7 +1021,7 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/mods/updates/check", post(mod_updates::request))
         .route("/api/v1/mods/updates/status", get(mod_updates::status))
         .route("/api/v1/mods/{id}/analysis/{finding}", post(scans::decision))
-        .route("/robots.txt", get(|| async { ([("content-type","text/plain; charset=utf-8")], "User-agent: *\nDisallow: /api/\nDisallow: /connect\nDisallow: /support\nDisallow: /packs/\nDisallow: /forums\nDisallow: /mods\nDisallow: /submissions\nDisallow: /notifications\nDisallow: /members\nDisallow: /admin\nSitemap: https://cannamods.vip/sitemap.xml\n") }))
+        .route("/robots.txt", get(|| async { ([("content-type","text/plain; charset=utf-8")], "User-agent: *\nDisallow: /api/\nDisallow: /play\nDisallow: /connect\nDisallow: /support\nDisallow: /packs/\nDisallow: /forums\nDisallow: /mods\nDisallow: /submissions\nDisallow: /notifications\nDisallow: /members\nDisallow: /admin\nSitemap: https://cannamods.vip/sitemap.xml\n") }))
         .route("/sitemap.xml", get(|| async { ([("content-type","application/xml; charset=utf-8")], r#"<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://cannamods.vip/</loc></url><url><loc>https://cannamods.vip/help</loc></url></urlset>"#) }))
         .route("/support", get(|| async { ([("cache-control","no-store")],Html(include_str!("../web/support.html"))) }))
         .route("/support.js", get(|| async { asset(include_str!("../web/support.js")) }))
@@ -1283,6 +1294,7 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&address).await?;
     println!("Canna server listening on {address}");
     lounge::start_cleanup(app.clone());
+    play::start_cleanup(app.clone());
     scans::start(app.clone());
     notifications::start(app.clone());
     mod_updates::start(app.clone());
@@ -1457,6 +1469,7 @@ mod tests {
             "/forums/topics/example",
             "/mods",
             "/submissions",
+            "/play",
             "/notifications",
             "/members",
             "/admin",
@@ -1493,6 +1506,7 @@ mod tests {
             "/app.js",
             "/community.js",
             "/profiles.js",
+            "/play-lab.js",
             "/sections.js",
             "/live.js",
             "/connect.js",

@@ -12,6 +12,9 @@ use std::{
     time::Duration,
 };
 const MANIFEST: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+#[path = "minecraft_play.rs"]
+mod play;
+pub use play::{create_play_candidate, play_setup, play_version, restore_play_pack};
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Instance {
     pub id: String,
@@ -223,6 +226,12 @@ pub fn install_catalog_content(
         )?
         .context("Mod was removed")
     })?;
+    let (previous, installed) = play_setup(instance)?;
+    crate::runtime::ensure_closed(&installed)?;
+    let policy = crate::play_backup::Policy::load();
+    if policy.automatic {
+        crate::play_backup::capture(&policy, &installed, &previous, false)?;
+    }
     let count = files.len();
     for (folder, name, bytes) in files {
         std::fs::create_dir_all(&folder)?;
@@ -230,6 +239,8 @@ pub fn install_catalog_content(
         std::fs::write(&pending, bytes)?;
         std::fs::rename(&pending, folder.join(name))?;
     }
+    let (applied, installed) = play_setup(instance)?;
+    crate::play_backup::remember_applied(&installed, &applied)?;
     Ok(format!(
         "Installed {count} content files into {}. Restart the instance to load them.",
         instance.name
@@ -866,6 +877,7 @@ fn launch(i: &Instance, id: &str) -> Result<Child> {
     Ok(cmd.spawn()?)
 }
 enum Outcome {
+    PlaySetup(Result<Box<(crate::modpacks::Modpack, crate::model::InstalledGame)>>),
     Status(String),
     SignIn(crate::minecraft_auth::SignInEvent),
     Versions(Vec<String>),
@@ -873,6 +885,8 @@ enum Outcome {
     Launched(Result<(String, Child)>),
 }
 pub struct Minecraft {
+    play_lab: crate::play_lab::Lab,
+    play_setup: Option<(crate::modpacks::Modpack, crate::model::InstalledGame)>,
     pub open: bool,
     status: String,
     versions: Vec<String>,
@@ -895,6 +909,8 @@ impl Default for Minecraft {
         let preview = std::env::var_os("CANNA_SCREENSHOT").is_some()
             && std::env::args().any(|a| a == "--microsoft-sign-in-preview");
         Self {
+            play_lab: Default::default(),
+            play_setup: None,
             open: false,
             status: String::new(),
             versions: vec![],
@@ -928,6 +944,21 @@ impl Default for Minecraft {
 impl Minecraft {
     pub fn library(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
+        if let Some((pack, game)) = self.play_setup.clone() {
+            if ui.button("‹ Minecraft instances").clicked() {
+                self.play_setup = None;
+                return;
+            }
+            self.play_lab
+                .show(ui, &pack, &[game], &[], self.job.is_some());
+            if let Some(copy) = self.play_lab.changed.take() {
+                self.status = format!(
+                    "Test setup saved: {}. Use its Minecraft instance entry to install/launch after review.",
+                    copy.name
+                );
+            }
+            return;
+        }
         ui.heading("Minecraft library · preview");
         ui.label(
             "Connect your Microsoft account to play. Minecraft launching is still being verified.",
@@ -978,6 +1009,14 @@ impl Minecraft {
                     ui.strong(&i.name);
                     ui.label(format!("{} · {} {}", i.version, i.loader, i.loader_version));
                     ui.horizontal(|ui| {
+                        if ui
+                            .add_enabled(!busy, egui::Button::new("Play Lab"))
+                            .clicked()
+                        {
+                            let i = i.clone();
+                            self.status = "Reading local instance content…".into();
+                            self.work(move |_| Outcome::PlaySetup(play_setup(&i).map(Box::new)));
+                        }
                         if ui
                             .add_enabled(
                                 !busy && !self.running.contains_key(&i.id),
@@ -1039,6 +1078,13 @@ impl Minecraft {
             let mut done = false;
             while let Ok(outcome) = rx.try_recv() {
                 match outcome {
+                    Outcome::PlaySetup(result) => {
+                        match result {
+                            Ok(setup) => self.play_setup = Some(*setup),
+                            Err(e) => self.status = e.to_string(),
+                        };
+                        done = true;
+                    }
                     Outcome::Status(s) => self.status = s,
                     Outcome::SignIn(event) => match event {
                         crate::minecraft_auth::SignInEvent::Status(s) => self.status = s,

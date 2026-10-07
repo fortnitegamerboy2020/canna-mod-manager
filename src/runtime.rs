@@ -27,6 +27,7 @@ pub(crate) fn settings(pack: &Modpack) -> Settings {
         branch: pack.repository.branch.clone(),
         catalog_folder: pack.repository.catalog_folder.clone(),
         steam_path: String::new(),
+        low_end: false,
     }
 }
 pub(crate) fn repo_path(pack: &Modpack, file: &str) -> String {
@@ -86,6 +87,14 @@ pub fn game_running(game: &InstalledGame) -> Result<bool> {
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
+        if game.app_id == u32::MAX {
+            let output=Command::new("powershell.exe").args(["-NoProfile","-NonInteractive","-Command","$r=$env:CANNA_GAME_ROOT; $p=@(Get-CimInstance Win32_Process -Filter \"name='java.exe' OR name='javaw.exe'\" | Where-Object { $_.CommandLine -and $_.CommandLine.IndexOf($r,[StringComparison]::OrdinalIgnoreCase) -ge 0 }); if ($p.Count) { exit 2 }"]).env("CANNA_GAME_ROOT",game.path.to_string_lossy().replace('/',"\\")).creation_flags(0x08000000).output()?;
+            return match output.status.code() {
+                Some(0) => Ok(false),
+                Some(2) => Ok(true),
+                _ => bail!("Could not determine Minecraft process status"),
+            };
+        }
         let output = Command::new("powershell.exe").args(["-NoProfile", "-NonInteractive", "-Command",
             "$r=$env:CANNA_GAME_ROOT; $p=@(Get-Process | Where-Object { $_.Path -and [System.IO.Path]::GetDirectoryName($_.Path) -eq $r }); if ($p.Count) { exit 2 }"])
             .env("CANNA_GAME_ROOT", game.path.to_string_lossy().replace('/' , "\\")).creation_flags(0x08000000).output()?;
@@ -401,6 +410,9 @@ pub fn install_pack(
     token: &str,
     progress: &dyn Fn(&str),
 ) -> Result<()> {
+    if game.app_id == u32::MAX {
+        return crate::minecraft::restore_play_pack(game, pack);
+    }
     pack.validate()?;
     if pack.game.app_id != game.app_id {
         bail!("Modpack belongs to a different game");

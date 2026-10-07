@@ -11,6 +11,12 @@ mod model;
 mod modpacks;
 mod owned_game;
 mod pack_ui;
+mod play_backup;
+mod play_config;
+mod play_lab;
+#[path = "../server/src/play_manifest.rs"]
+mod play_manifest;
+mod play_metrics;
 mod provider_browser;
 mod repository;
 mod runtime;
@@ -465,6 +471,7 @@ impl Canna {
                         scan.excluded
                     );
                     self.games = scan.games;
+                    self.pack_ui.lab_games = self.games.clone();
                     self.libraries = scan.libraries;
                     for warning in scan.warnings {
                         if !self.warnings.contains(&warning) {
@@ -545,6 +552,8 @@ impl Canna {
             .default_width(500.0)
             .show(ctx, |ui| {
                 ui.strong("CANNA SERVER");
+                if ui.checkbox(&mut self.settings.low_end,"Low-end PC mode").changed(){let _=self.settings.save();}
+                ui.label("Low-end mode reduces background scans and console refresh frequency; it does not change game graphics or memory settings.");
                 ui.label("cannamods.vip · private community library");
                 ui.label(if self.token.is_empty() {
                     "Not connected"
@@ -904,7 +913,9 @@ impl Canna {
                         Ok("Mod framework is ready. Choose mods for your pack.".into())
                     }
                     pack_ui::RuntimeAction::Install(pack) => {
+                        play_backup::before_change(&game, &pack)?;
                         runtime::install_pack(&game, &pack, &token, &progress)?;
+                        play_backup::remember_applied(&game, &pack)?;
                         Ok(format!(
                             "Installed {} mods from {}",
                             pack.mods.len(),
@@ -913,7 +924,9 @@ impl Canna {
                     }
                     pack_ui::RuntimeAction::Launch(pack, modded) => {
                         if modded {
+                            play_backup::before_change(&game, &pack)?;
                             runtime::install_pack(&game, &pack, &token, &progress)?;
+                            play_backup::remember_applied(&game, &pack)?;
                         }
                         let requested = std::time::SystemTime::now();
                         let owned = runtime::launch(&game, modded)?;
@@ -939,6 +952,11 @@ impl Canna {
         });
     }
     fn render(&mut self, ctx: &egui::Context) {
+        self.pack_ui.lab_memory = self
+            .owned_games
+            .iter()
+            .filter_map(|(id, game)| game.memory().map(|m| (*id, m)))
+            .collect();
         ctx.layer_painter(egui::LayerId::background()).rect_filled(
             ctx.viewport_rect(),
             0,
@@ -1001,8 +1019,13 @@ impl Canna {
             self.console.game_id = id;
         }
         if self.runtime_enabled && (self.console_page || self.launch_watch.is_some()) {
-            ctx.request_repaint_after(std::time::Duration::from_secs(1));
-            if !self.console_polling && self.last_console_poll.elapsed().as_secs() >= 1 {
+            let interval = if self.settings.low_end && self.launch_watch.is_none() {
+                5
+            } else {
+                1
+            };
+            ctx.request_repaint_after(std::time::Duration::from_secs(interval));
+            if !self.console_polling && self.last_console_poll.elapsed().as_secs() >= interval {
                 let mut ids = std::collections::BTreeSet::new();
                 if self.console_page {
                     ids.insert(self.console.game_id);
@@ -1634,7 +1657,8 @@ impl eframe::App for Canna {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
         if !self.scanning
-            && (self.last_steam_scan.elapsed() >= std::time::Duration::from_secs(30)
+            && (self.last_steam_scan.elapsed()
+                >= std::time::Duration::from_secs(if self.settings.low_end { 120 } else { 30 })
                 || focused
                     && !self.steam_was_focused
                     && self.last_steam_scan.elapsed() >= std::time::Duration::from_secs(3))

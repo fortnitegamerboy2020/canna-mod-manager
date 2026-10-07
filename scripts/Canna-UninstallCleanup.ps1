@@ -21,6 +21,31 @@ function Remove-CannaTree([string]$Path) {
  }
 }
 try {
+ # External recovery data is removable only with Canna's dedicated-folder marker.
+ $cannaPolicyPath=Join-Path $RoamingBase 'CannaModManager/play-lab/policy.json'
+ if(Test-Path -LiteralPath $cannaPolicyPath){
+  if((Get-Item -LiteralPath $cannaPolicyPath).Length -gt 8192){throw 'Invalid recovery policy.'}
+  $cannaPolicy=Get-Content -LiteralPath $cannaPolicyPath -Raw -Encoding UTF8 | ConvertFrom-Json
+  if(![IO.Path]::IsPathRooted($cannaPolicy.directory)){throw 'Invalid recovery folder.'}
+  $cannaRecovery=[IO.Path]::GetFullPath($cannaPolicy.directory).TrimEnd('\','/')
+  if($cannaRecovery -eq [IO.Path]::GetPathRoot($cannaRecovery).TrimEnd('\','/')){throw 'Recovery folder cannot be a drive root.'}
+  $cannaCursor=$cannaRecovery
+  while($cannaCursor){
+   if((Test-Path -LiteralPath $cannaCursor) -and ((Get-Item -LiteralPath $cannaCursor -Force).Attributes -band [IO.FileAttributes]::ReparsePoint)){throw 'Recovery folder cannot traverse a link.'}
+   $cannaCursor=[IO.Path]::GetDirectoryName($cannaCursor)
+  }
+  $cannaMarker=Join-Path $cannaRecovery '.canna-recovery-owner'
+  if(Test-Path -LiteralPath $cannaMarker){
+   $cannaMarkerItem=Get-Item -LiteralPath $cannaMarker -Force
+   if(($cannaMarkerItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -or $cannaMarkerItem.Length -gt 64){throw 'Invalid recovery ownership marker.'}
+   if([IO.File]::ReadAllText($cannaMarker) -ne 'CannaRecovery-v1'){throw 'Invalid recovery ownership marker.'}
+   $cannaSnapshots=[IO.Path]::GetFullPath((Join-Path $cannaRecovery 'snapshots'))
+   if([IO.Path]::GetDirectoryName($cannaSnapshots) -ne $cannaRecovery){throw 'Invalid recovery cleanup path.'}
+   Remove-CannaTree $cannaSnapshots
+   Remove-CannaTree $cannaMarker
+   if(!(Get-ChildItem -LiteralPath $cannaRecovery -Force | Select-Object -First 1)){[IO.Directory]::Delete($cannaRecovery,$false)}
+  }
+ }
  foreach($cannaBase in @($RoamingBase,$LocalBase,$TempBase)){
   if(![IO.Path]::IsPathRooted($cannaBase)){throw 'Cleanup base must be an absolute directory.'}
   $cannaParent=[IO.Path]::GetFullPath($cannaBase).TrimEnd('\','/')

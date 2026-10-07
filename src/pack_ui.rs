@@ -15,6 +15,9 @@ pub struct DiscoverState {
     pub target: Option<String>,
 }
 pub struct PackUi {
+    pub lab_games: Vec<crate::model::InstalledGame>,
+    pub lab_memory: BTreeMap<u32, crate::play_metrics::Memory>,
+    lab: crate::play_lab::Lab,
     pub console_game: Option<u32>,
     pub discover_pack: Option<String>,
     pub discover_return: bool,
@@ -513,6 +516,9 @@ impl PackUi {
             }
         }
         Self {
+            lab_games: Vec::new(),
+            lab_memory: BTreeMap::new(),
+            lab: Default::default(),
             console_game: None,
             discover_pack: None,
             discover_return: false,
@@ -683,6 +689,7 @@ impl PackUi {
             ui.horizontal(|ui| {
                 ui.selectable_value(&mut self.detail_tab, 0, "Content");
                 ui.selectable_value(&mut self.detail_tab, 1, "Pack details");
+                ui.selectable_value(&mut self.detail_tab, 2, "Play Lab");
             });
             ui.add_space(16.0);
             if self.detail_tab == 0 {
@@ -806,6 +813,27 @@ impl PackUi {
                             }
                         });
                 });
+            } else if self.detail_tab == 2 {
+                self.lab
+                    .show(ui, &pack, &self.lab_games, catalog, connection_busy);
+                if let Some(m) = self.lab_memory.get(&pack.game.app_id) {
+                    ui.label(format!(
+                        "Game working set: {:.1} MiB; peak {:.1} MiB (local only)",
+                        m.current as f64 / 1048576.,
+                        m.peak as f64 / 1048576.
+                    ));
+                }
+                if std::mem::take(&mut self.lab.console_requested) {
+                    self.console_game = Some(pack.game.app_id);
+                }
+                if let Some(changed) = self.lab.changed.take() {
+                    if let Some(existing) = self.packs.iter_mut().find(|p| p.id == changed.id) {
+                        *existing = changed.clone();
+                    } else {
+                        self.packs.push(changed.clone());
+                    }
+                    self.selected = Some(changed.id);
+                }
             } else {
                 panel().show(ui, |ui| { ui.set_min_width(ui.available_width()); ui.heading("About this pack"); ui.label(if pack.description.is_empty() { "No description yet." } else { &pack.description }); ui.add_space(14.0); ui.label(RichText::new("SOURCE REPOSITORY").small().color(GREEN)); ui.label(repository_label(&pack.repository)); ui.add_space(14.0); ui.label("Export format: .canna.zip"); ui.label(RichText::new("Contains mod selections, version pins and local files. Use Apply modpack or Launch modded after importing.").small().color(MUTED)); });
             }

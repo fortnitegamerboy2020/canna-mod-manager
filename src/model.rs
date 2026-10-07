@@ -9,6 +9,8 @@ pub struct Settings {
     #[serde(default)]
     pub catalog_folder: String,
     pub steam_path: String,
+    #[serde(default)]
+    pub low_end: bool,
 }
 impl Settings {
     pub fn path() -> PathBuf {
@@ -127,14 +129,18 @@ pub fn source_addons(app_id: u32) -> Option<&'static str> {
     }
 }
 pub fn framework(app_id: u32) -> &'static str {
-    if source_addons(app_id).is_some() {
+    if app_id == u32::MAX {
+        "minecraft"
+    } else if source_addons(app_id).is_some() {
         "source-vpk"
     } else {
         "bepinex"
     }
 }
 pub fn framework_label(app_id: u32) -> &'static str {
-    if source_addons(app_id).is_some() {
+    if app_id == u32::MAX {
+        "Minecraft instances"
+    } else if source_addons(app_id).is_some() {
         "Source / VPK addons"
     } else {
         "BepInEx / Unity"

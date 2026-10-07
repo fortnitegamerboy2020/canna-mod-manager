@@ -20,3 +20,13 @@ Do not post vulnerabilities containing real credentials or account data in publi
 ## License scope
 
 The MIT license covers original Canna code. Dependencies, third-party mods, game artwork and game logos retain their respective licenses and trademarks. This repository does not grant a license to proprietary game assemblies or private mod archives. Do not include those files in source releases.
+
+Play Lab has no automatic diagnostics uploads. Only allowlisted setup metadata and
+previewed notes can be shared, with no configuration values or paths. Redaction does not
+prove anonymity; unusual mod lists and free text can be identifying. Reports retain their
+actor privately for authorization, moderation and deletion, but never return actor IDs or
+usernames to readers. Lobby invitations are random capabilities stored as hashes;
+account authentication is also required. Member aliases are explicit choices.
+Reports expire after 30 days and readiness rooms after 24 hours, with hourly cleanup.
+Strict request/manifest sizes, per-account rates, room/member limits and global record caps
+bound this feature's storage. Existing auth/security logging remains separate from telemetry.

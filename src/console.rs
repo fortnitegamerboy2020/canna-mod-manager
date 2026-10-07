@@ -204,6 +204,12 @@ fn tail(path: &Path) -> LogFile {
     }
 }
 pub fn collect(game: &InstalledGame) -> Snapshot {
+    if game.app_id == u32::MAX {
+        return Snapshot {
+            files: vec![tail(&game.path.join("logs/latest.log"))],
+            running: crate::runtime::game_running(game).map_err(|e| e.to_string()),
+        };
+    }
     if let Some(addons) = crate::model::source_addons(game.app_id) {
         let content = game.path.join(addons).parent().unwrap().to_owned();
         let mut file = tail(&content.join("console.log"));

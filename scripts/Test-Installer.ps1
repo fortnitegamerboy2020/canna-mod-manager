@@ -58,6 +58,14 @@ try {
   [IO.File]::WriteAllText((Join-Path $cannaData 'login.credential'),'fixture')
   [IO.File]::WriteAllText((Join-Path $cannaCleanupRoot "$cannaBase/unrelated.txt"),'keep')
  }
+ $cannaRecovery=Join-Path $cannaFixtureRoot 'external-backups'
+ New-Item -ItemType Directory -Path (Join-Path $cannaRecovery 'snapshots/550/fixture') -Force | Out-Null
+ [IO.File]::WriteAllText((Join-Path $cannaRecovery 'snapshots/550/fixture/fixture.zip'),'fixture')
+ [IO.File]::WriteAllText((Join-Path $cannaRecovery '.canna-recovery-owner'),'CannaRecovery-v1')
+ [IO.File]::WriteAllText((Join-Path $cannaRecovery 'unrelated.txt'),'keep')
+ $cannaRecoveryPolicy=Join-Path $cannaCleanupRoot 'Roaming/CannaModManager/play-lab'
+ New-Item -ItemType Directory -Path $cannaRecoveryPolicy -Force | Out-Null
+ @{directory=$cannaRecovery;budget_gb=1;automatic=$true} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $cannaRecoveryPolicy 'policy.json') -Encoding utf8
  $cannaOutside=Join-Path $cannaFixtureRoot 'unrelated-folder'
  New-Item -ItemType Directory -Path $cannaOutside -Force | Out-Null
  [IO.File]::WriteAllText((Join-Path $cannaOutside 'keep.txt'),'keep')
@@ -74,6 +82,8 @@ try {
  if(Test-Path -LiteralPath (Join-Path $cannaCleanupRoot 'Temp/canna-console-12345.log')){throw 'Console log survived uninstall.'}
  if(!(Test-Path -LiteralPath (Join-Path $cannaOutside 'keep.txt'))){throw 'Cleanup followed a junction.'}
  if(!(Test-Path -LiteralPath (Join-Path $cannaCleanupRoot 'Temp/canna-console-unrelated.log'))){throw 'Cleanup matched an unrelated log.'}
+ if((Test-Path -LiteralPath (Join-Path $cannaRecovery 'snapshots')) -or (Test-Path -LiteralPath (Join-Path $cannaRecovery '.canna-recovery-owner'))){throw 'Owned external recovery files survived uninstall.'}
+ if([IO.File]::ReadAllText((Join-Path $cannaRecovery 'unrelated.txt')) -ne 'keep'){throw 'Uninstall erased unrelated external data.'}
  if(Test-Path -LiteralPath $cannaInstallDir){throw 'Installation folder survived uninstall.'}
  if(Test-Path -LiteralPath $cannaShortcut){throw 'Shortcut survived uninstall.'}
  foreach($cannaSuffix in @(' Maintenance',' Recovery')){

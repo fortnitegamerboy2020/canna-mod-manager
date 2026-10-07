@@ -169,6 +169,7 @@ let prefetchReady=false;
 const pageWarm=new Map();
 function pageReads(path){
  const url=new URL(path,location.origin),p=url.pathname;
+ if(p==='/play')return ['play?page=1&channel='];
  if(p==='/members')return ['profiles?page=1&search='];
  if(/^\/members\/\d+$/.test(p))return ['profiles/'+p.split('/')[2]];
  if(p==='/mods')return ['providers/games'];
@@ -202,7 +203,7 @@ async function navigatePage(path,back=false){
  }finally{navigating=false;}
 }
 function setupPagePrefetch(){
- const paths={forumnav:'/forums',browsenav:'/mods',subscriptionsnav:'/subscriptions',librarynav:'/library',peoplenav:'/members',adminnav:'/admin',submissionsnav:'/submissions',notificationsnav:'/notifications',myprofilenav:'/members/'+currentUser.id,welcome:'/members/'+currentUser.id,forumback:'/forums',latestdiscussions:'/forums/latest'};
+ const paths={playnav:'/play',forumnav:'/forums',browsenav:'/mods',subscriptionsnav:'/subscriptions',librarynav:'/library',peoplenav:'/members',adminnav:'/admin',submissionsnav:'/submissions',notificationsnav:'/notifications',myprofilenav:'/members/'+currentUser.id,welcome:'/members/'+currentUser.id,forumback:'/forums',latestdiscussions:'/forums/latest'};
  for(const [id,path] of Object.entries(paths))$(id).dataset.page=path;
  if(prefetchReady)return;prefetchReady=true;
  const intent=event=>{

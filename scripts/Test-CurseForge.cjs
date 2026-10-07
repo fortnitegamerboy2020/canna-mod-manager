@@ -7,7 +7,7 @@ const context={URLSearchParams,Map,Option:function(name,value){return {name,valu
  {name:'Wrong content',details:{game:'Minecraft',content_type:'mod',provider:'curseforge',loaders:['neoforge'],game_versions:['1.21.1']}},
  {name:'Wrong version',details:{game:'Minecraft',content_type:'shader',provider:'curseforge',loaders:['neoforge'],game_versions:['1.20.1']}}
 ],packs:[]}};
-const source=fs.readFileSync('server/web/library.js','utf8');vm.createContext(context);vm.runInContext(source.slice(0,source.indexOf('for(const id of')),context);vm.runInContext('initialLibraryFilters=false;renderLibrary();',context);
+const source=fs.readFileSync('server/web/library.js','utf8');vm.createContext(context);vm.runInContext(source.slice(source.indexOf('const gameNames='),source.indexOf('function updateUploadGame'))+source.slice(source.indexOf('let initialLibraryFilters='),source.indexOf('for(const id of')),context);vm.runInContext('initialLibraryFilters=false;renderLibrary();',context);
 assert.equal(fields.mods.rows.length,1);assert.equal(fields.mods.rows[0].name,'Matching shader');assert.equal(fields.packs.section.hidden,true);assert.equal(fields.librarycount.textContent,'1 item');
 fields.libraryloader.value='fabric';vm.runInContext('renderLibrary();',context);assert.equal(fields.mods.rows.length,0);assert.equal(fields.librarycount.textContent,'0 items');
 console.log('CurseForge content, game, version, provider and case-insensitive loader filters passed.');

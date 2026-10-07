@@ -46,11 +46,29 @@ fn new_id() -> String {
     format!("pack-{nanos:x}-{:x}", std::process::id())
 }
 pub fn directory() -> PathBuf {
+    #[cfg(test)]
+    if let Some(root) = TEST_ROOT.with(|p| p.borrow().clone()) {
+        return root.join("modpacks");
+    }
     std::env::var_os("APPDATA")
         .map(PathBuf::from)
         .unwrap_or_else(std::env::temp_dir)
         .join("CannaModManager")
         .join("modpacks")
+}
+#[cfg(test)]
+thread_local! { static TEST_ROOT: std::cell::RefCell<Option<PathBuf>> = const { std::cell::RefCell::new(None) }; }
+#[cfg(test)]
+pub(crate) fn with_test_root<T>(root: PathBuf, run: impl FnOnce() -> T) -> T {
+    struct Reset;
+    impl Drop for Reset {
+        fn drop(&mut self) {
+            TEST_ROOT.with(|p| *p.borrow_mut() = None);
+        }
+    }
+    TEST_ROOT.with(|p| *p.borrow_mut() = Some(root));
+    let _reset = Reset;
+    run()
 }
 pub fn local_directory() -> PathBuf {
     directory().join("local-mods")
@@ -233,6 +251,7 @@ impl Modpack {
                         format!("{}.dll", item.sha256),
                         format!("{}.zip", item.sha256),
                         format!("{}.vpk", item.sha256),
+                        format!("{}.jar", item.sha256),
                     ]
                     .contains(&item.local_file))
             {

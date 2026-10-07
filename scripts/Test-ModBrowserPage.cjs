@@ -19,10 +19,10 @@ return route.fulfill({contentType:'text/html',body:fs.readFileSync('server/web/i
 await page.goto('https://canna.test/mods');await page.locator('#bootstatus').waitFor({state:'hidden'});await page.getByRole('heading',{name:'External Fixture'}).waitFor();
 assert(await page.locator('#browseview').isVisible());assert(!await page.locator('#libraryview').isVisible());assert(!requests.includes('/api/v1/mods'));assert(!requests.some(p=>p.includes('/external/import')));
 await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByText('Page 2',{exact:true}).waitFor();
-await page.getByLabel('Loader',{exact:true}).selectOption('fabric');await page.waitForFunction(()=>location.search.includes('loader=fabric'));
+await page.locator('#providerbrowser').getByLabel('Loader',{exact:true}).selectOption('fabric');await page.waitForFunction(()=>location.search.includes('loader=fabric'));
 await page.evaluate(()=>{window.downloaded=[];window.downloadToApp=async item=>downloaded.push(item);});await page.getByRole('button',{name:'Download & subscribe'}).click();await page.waitForFunction(()=>downloaded.length===1);
 assert.equal(requests.filter(p=>p==='/api/v1/mods/external/import').length,1);
 await page.locator('#subscriptionsnav').click();await page.getByRole('heading',{name:'Subscribed Mod'}).waitFor();assert(!await page.locator('#browseview').isVisible());
 await page.locator('#librarynav').click();await page.getByRole('heading',{name:'My library',exact:true}).waitFor();assert(await page.locator('#libraryview').isVisible());
-await page.locator('#browsenav').click();assert(await page.locator('#browseview').isVisible());assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
+await page.locator('#browsenav').click();await page.locator('#browseview').waitFor({state:'visible'});assert(await page.locator('#browseview').isVisible());assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
 console.log(`Full community browser ${width}px: auto-loaded external listings, pagination, filtering, navigation and on-demand download passed`);await page.close();}await browser.close();})().catch(e=>{console.error(e);process.exit(1)});

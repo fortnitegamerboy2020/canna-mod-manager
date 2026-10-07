@@ -17,7 +17,7 @@ function activity(seconds) {
   return new Date(seconds*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
 }
 function updateNavigation() {
-  const views = {browsenav:'browseview',subscriptionsnav:'subscriptionsview',librarynav:'libraryview',forumnav:'forumview',peoplenav:'profilesview',myprofilenav:'profilesview',adminnav:'moderation',submissionsnav:'submissionsview',notificationsnav:'notificationsview'};
+  const views = {playnav:'playview',browsenav:'browseview',subscriptionsnav:'subscriptionsview',librarynav:'libraryview',forumnav:'forumview',peoplenav:'profilesview',myprofilenav:'profilesview',adminnav:'moderation',submissionsnav:'submissionsview',notificationsnav:'notificationsview'};
   for (const [nav,view] of Object.entries(views)) {
     const active = !$(view).hidden && (nav !== 'myprofilenav' || profileId === currentUser.id) && (nav !== 'peoplenav' || profileId !== currentUser.id);
     $(nav).classList.toggle('active',active); $(nav).setAttribute('aria-current',active ? 'page' : 'false');
@@ -27,11 +27,12 @@ function button(label, callback, page) {
   const node = document.createElement('button'); node.textContent = label;if(page)node.dataset.page=page;
   node.addEventListener('click', () => action(callback)); return node;
 }
-const viewPaths={forumview:'/forums',browseview:'/mods',subscriptionsview:'/subscriptions',libraryview:'/library',profilesview:'/members',moderation:'/admin',submissionsview:'/submissions',notificationsview:'/notifications'};
+const viewPaths={playview:'/play',forumview:'/forums',browseview:'/mods',subscriptionsview:'/subscriptions',libraryview:'/library',profilesview:'/members',moderation:'/admin',submissionsview:'/submissions',notificationsview:'/notifications'};
 function showView(name,stay=false) {
   if(!stay){return navigatePage(viewPaths[name] || '/forums');}
-  for (const id of ['browseview','subscriptionsview','libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
+  for (const id of ['playview','browseview','subscriptionsview','libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
   updateNavigation();
+  if(name==='playview') return loadPlayLab();
   if(name==='forumview') return (async()=>{await loadTopics();})();
   if(name==='browseview') return loadProviderBrowser();
   if(name==='subscriptionsview') return loadSubscriptions();

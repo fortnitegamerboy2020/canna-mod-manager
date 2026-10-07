@@ -1404,6 +1404,84 @@ impl Browser {
         }
     }
 }
+#[cfg(debug_assertions)]
+pub fn live_check() -> Result<()> {
+    let token = crate::website::session();
+    let c = client()?;
+    let history = request(
+        &c,
+        &token,
+        reqwest::Method::GET,
+        api("invites?sort=most&page=1"),
+        None,
+    )?;
+    println!(
+        "Owner invitation history: {} entries on page, {} total (codes omitted)",
+        history["items"].as_array().map(Vec::len).unwrap_or(0),
+        history["total"]
+    );
+    let mods = request(&c, &token, reqwest::Method::GET, api("mods"), None)?;
+    for m in mods
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|m| matches!(text(m, "name"), "ArrowWall" | "BiggerLazerPush"))
+    {
+        println!(
+            "{}: creator={}, uploader={}",
+            m["name"], m["author"], m["uploader"]
+        );
+        ensure!(
+            m["author"] != m["uploader"],
+            "Original creator attribution missing"
+        );
+    }
+    for game in ["bopl-battle", "rounds"] {
+        for page in [1, 2] {
+            let f = Filters {
+                provider: "thunderstore".into(),
+                game: game.into(),
+                page,
+                ..Default::default()
+            };
+            let data = request(&c, &token, reqwest::Method::GET, f.url()?, None)?;
+            let count = data["items"].as_array().map(Vec::len).unwrap_or(0);
+            ensure!(count > 0, "No live Thunderstore listings for {game}");
+            println!("Thunderstore {game} page {page}: {count} metadata results");
+        }
+    }
+    for provider in ["modrinth", "curseforge"] {
+        let f = Filters {
+            provider: provider.into(),
+            content_type: "mod".into(),
+            ..Default::default()
+        };
+        let data = request(&c, &token, reqwest::Method::GET, f.url()?, None)?;
+        println!(
+            "{provider}: {} metadata results; more={}",
+            data["items"].as_array().map(Vec::len).unwrap_or(0),
+            data["has_more"]
+        );
+    }
+    let combined = browse_metadata(&c, &token, &Filters::default().url()?)?;
+    println!(
+        "All sources: {} metadata results",
+        combined["items"].as_array().map(Vec::len).unwrap_or(0)
+    );
+    let data = request(
+        &c,
+        &token,
+        reqwest::Method::GET,
+        api("mods/subscriptions?page=1"),
+        None,
+    )?;
+    println!(
+        "Private subscriptions: {} results",
+        data["items"].as_array().map(Vec::len).unwrap_or(0)
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1707,82 +1785,4 @@ mod tests {
         assert!(b.job.is_none());
         assert!(!b.subscriptions_loaded);
     }
-}
-
-#[cfg(debug_assertions)]
-pub fn live_check() -> Result<()> {
-    let token = crate::website::session();
-    let c = client()?;
-    let history = request(
-        &c,
-        &token,
-        reqwest::Method::GET,
-        api("invites?sort=most&page=1"),
-        None,
-    )?;
-    println!(
-        "Owner invitation history: {} entries on page, {} total (codes omitted)",
-        history["items"].as_array().map(Vec::len).unwrap_or(0),
-        history["total"]
-    );
-    let mods = request(&c, &token, reqwest::Method::GET, api("mods"), None)?;
-    for m in mods
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|m| matches!(text(m, "name"), "ArrowWall" | "BiggerLazerPush"))
-    {
-        println!(
-            "{}: creator={}, uploader={}",
-            m["name"], m["author"], m["uploader"]
-        );
-        ensure!(
-            m["author"] != m["uploader"],
-            "Original creator attribution missing"
-        );
-    }
-    for game in ["bopl-battle", "rounds"] {
-        for page in [1, 2] {
-            let f = Filters {
-                provider: "thunderstore".into(),
-                game: game.into(),
-                page,
-                ..Default::default()
-            };
-            let data = request(&c, &token, reqwest::Method::GET, f.url()?, None)?;
-            let count = data["items"].as_array().map(Vec::len).unwrap_or(0);
-            ensure!(count > 0, "No live Thunderstore listings for {game}");
-            println!("Thunderstore {game} page {page}: {count} metadata results");
-        }
-    }
-    for provider in ["modrinth", "curseforge"] {
-        let f = Filters {
-            provider: provider.into(),
-            content_type: "mod".into(),
-            ..Default::default()
-        };
-        let data = request(&c, &token, reqwest::Method::GET, f.url()?, None)?;
-        println!(
-            "{provider}: {} metadata results; more={}",
-            data["items"].as_array().map(Vec::len).unwrap_or(0),
-            data["has_more"]
-        );
-    }
-    let combined = browse_metadata(&c, &token, &Filters::default().url()?)?;
-    println!(
-        "All sources: {} metadata results",
-        combined["items"].as_array().map(Vec::len).unwrap_or(0)
-    );
-    let data = request(
-        &c,
-        &token,
-        reqwest::Method::GET,
-        api("mods/subscriptions?page=1"),
-        None,
-    )?;
-    println!(
-        "Private subscriptions: {} results",
-        data["items"].as_array().map(Vec::len).unwrap_or(0)
-    );
-    Ok(())
 }

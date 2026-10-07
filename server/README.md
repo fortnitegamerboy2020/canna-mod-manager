@@ -1,8 +1,8 @@
 # Canna family server
 
-Rust/Axum service for invitation-only accounts, ZIP uploads, and authenticated
-modpack share links, plus a small browser portal. Desktop account and server
-catalog integration are still pending; the existing GitHub catalog is retained.
+Rust/Axum service for invitation-only accounts, reviewed uploads, provider browsing,
+mod subscriptions, forums and private support. Desktop account pairing and the
+authenticated server catalog are integrated. Production secrets remain outside source.
 
 ## Host
 
@@ -221,3 +221,30 @@ The separate `canna-review` worker has no access to production keys, database, u
 Analysis is bounded and static: no submitted code is run, native code is not reconstructed, failed or oversized analysis is explicit, and packing/obfuscation cannot always be identified or unpacked. Findings can be false positives. Test the service using the harmless `deploy/test-review-live.py` fixture before deployment; it verifies .NET decompilation, code findings, ClamAV EICAR detection, and DiE availability.
 
 Member-only chat expires after 24 hours in active storage; backups rotate separately. CannaBot coins and cosmetic badges have no monetary value and never confer permissions. Daily rewards and game limits are enforced transactionally in the encrypted database. Category removal requires Owner review/confirmation and reassigns existing discussions rather than deleting their posts. Submission decision history expires after seven days; private notifications expire after 30 days and are capped at 500 per recipient.
+
+## Play Lab (0.3.48)
+
+Member-only `/play`, `/play-lab.js`, GET `/api/v1/play` and POST
+`/api/v1/play/action` provide invite-only readiness and previewed report/release
+workflows. The shared manifest schema accepts no identity, file-path, config-value
+or raw-log fields. Membership plus a hashed random invitation capability is needed
+for a room; chosen aliases are public to that room, account IDs are not returned.
+Heartbeat readiness expires after 60 seconds. Rooms expire in 24 hours, reports in
+30 days, with hourly cleanup. Private support tickets keep their normal author/staff
+permissions. Shared observations retain actor ownership privately for moderation.
+
+Manifests are limited to 256 KiB/1,000 projects/100 selected config digests. Rooms
+have 32 members, 4 hosted rooms/account and a global 200-room cap. Reports have
+per-account daily rates and a 10,000-record cap. Releases start experimental;
+owner promotion requires a successful observation for the exact fingerprint and
+no unresolved/unknown preflight data. Channels and release counts are bounded.
+List pages contain 50 compact summaries; full manifests load on demand. No desktop
+recovery archives or performance measurements are uploaded by this feature.
+
+`deploy/backup.sh` caps current plus staged recovery copies at 10 GiB and keeps a
+5 GiB free-space reserve. If either limit would be exceeded, it preserves the
+existing recovery copy and fails visibly in the service journal. Volume data is
+copied to the primary disk because Droplet backups do not cover the separate Volume.
+
+See `../scripts/WORKFLOW-TESTS.md` for coverage and live-check limitations. This
+release adds shared profiles/tools, not a verified live session in every game.

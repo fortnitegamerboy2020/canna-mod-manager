@@ -58,7 +58,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.30 automatically refreshes installed Steam games and displays installed branches/build IDs in Discover, without inventing compatibility for unlabelled mods. Server 0.3.47 adds owner invitation history, search, sorting, batch/wave generation, revocation and logs, and distinguishes original creators from uploaders.
+Canna 0.2.31 adds Play Lab: invite-only readiness lobbies, local archive/config recovery, dependency-closed test copies, local diagnostics and config editing, previewed anonymous compatibility reports and private support tickets, stable/experimental manifest channels, and local memory/benchmark tools. Server 0.3.48 enforces private ownership, retention and bounded records. No automatic telemetry, raw log upload or device identifiers are added. Shared tools cover supported Unity, Source and managed Minecraft profiles; new live game/multiplayer checks remain unverified, and Minecraft launch still needs API approval. Automated regression and desktop/mobile browser checks passed; see the workflow test matrix.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

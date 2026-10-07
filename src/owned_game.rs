@@ -24,6 +24,13 @@ unsafe extern "system" {
     fn GetSystemTimeAsFileTime(time: *mut u64);
 }
 impl OwnedGame {
+    pub fn memory(&self) -> Option<crate::play_metrics::Memory> {
+        if self.running() {
+            crate::play_metrics::sample(self.handle)
+        } else {
+            None
+        }
+    }
     #[cfg(windows)]
     pub fn now() -> u64 {
         let mut time = 0;
