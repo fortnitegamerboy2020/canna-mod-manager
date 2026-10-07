@@ -227,7 +227,104 @@ pub fn safe_filename(name: &str) -> String {
         .collect();
     cleaned.trim_start_matches('.').to_owned()
 }
+type ThunderstoreFallback = Option<(String, i64, std::sync::Arc<Value>)>;
+static THUNDERSTORE_FALLBACK: std::sync::LazyLock<tokio::sync::Mutex<ThunderstoreFallback>> =
+    std::sync::LazyLock::new(|| tokio::sync::Mutex::new(None));
+fn compact_thunderstore_index(data: &Value) -> ApiResult<Value> {
+    let packages = data
+        .as_array()
+        .ok_or_else(|| bad("Invalid Thunderstore package index"))?;
+    let compact: Vec<Value> = packages.iter().map(|p| {
+        let versions: Vec<Value> = p["versions"].as_array().into_iter().flatten().map(|v|json!({
+            "version_number":v["version_number"],"description":v["description"],"icon":v["icon"],
+            "dependencies":v["dependencies"],"download_url":v["download_url"],"is_active":v["is_active"]
+        })).collect();
+        json!({"name":p["name"],"owner":p["owner"],"is_deprecated":p["is_deprecated"],
+            "categories":p["categories"],"has_nsfw_content":p["has_nsfw_content"],"versions":versions})
+    }).collect();
+    let compact = json!(compact);
+    if serde_json::to_vec(&compact)
+        .map_err(|_| bad("Invalid Thunderstore package index"))?
+        .len()
+        > 16 * 1024 * 1024
+    {
+        return Err(bad("Thunderstore dependency index exceeds limit"));
+    }
+    Ok(compact)
+}
+fn public_thunderstore_package(index: &Value, parts: &[String], version: &str) -> ApiResult<Value> {
+    let p = index
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|p| p["owner"] == parts[3] && p["name"] == parts[4])
+        .ok_or_else(|| bad("This mod is not listed for the selected game"))?;
+    let versions = p["versions"]
+        .as_array()
+        .ok_or_else(|| bad("Invalid Thunderstore package versions"))?;
+    if !version.is_empty() {
+        return versions
+            .iter()
+            .find(|v| v["version_number"] == version)
+            .cloned()
+            .ok_or_else(|| bad("Required dependency is unavailable"));
+    }
+    let latest = versions
+        .first()
+        .ok_or_else(|| bad("This mod is unavailable"))?;
+    Ok(
+        json!({"name":p["name"],"owner":p["owner"],"is_deprecated":p["is_deprecated"],"latest":latest,
+        "community_listings":[{"community":parts[1],"categories":p["categories"],"has_nsfw_content":p["has_nsfw_content"]}]}),
+    )
+}
+async fn thunderstore_metadata(parts: &[String], version: &str) -> ApiResult<Value> {
+    // The public community index is the same provider's official metadata, not
+    // a scraper or an authorization bypass. Reuse a bounded snapshot on failures
+    // instead of fetching the whole index for every transitive requirement.
+    let suffix = if version.is_empty() {
+        String::new()
+    } else {
+        format!("{version}/")
+    };
+    let endpoint = format!(
+        "https://thunderstore.io/api/experimental/package/{}/{}/{suffix}",
+        parts[3], parts[4]
+    );
+    {
+        let cache = THUNDERSTORE_FALLBACK.lock().await;
+        if let Some((community, at, index)) = &*cache
+            && community == &parts[1]
+            && now() - at < 300
+        {
+            return public_thunderstore_package(index, parts, version);
+        }
+    }
+    if let Ok(data) = metadata(&endpoint, false).await {
+        return Ok(data);
+    }
+    let mut cache = THUNDERSTORE_FALLBACK.lock().await;
+    if !cache
+        .as_ref()
+        .is_some_and(|(community, at, _)| community == &parts[1] && now() - at < 300)
+    {
+        let data = metadata_limited(
+            &format!("https://thunderstore.io/c/{}/api/v1/package/", parts[1]),
+            false,
+            64 * 1024 * 1024,
+        )
+        .await?;
+        *cache = Some((
+            parts[1].clone(),
+            now(),
+            std::sync::Arc::new(compact_thunderstore_index(&data)?),
+        ));
+    }
+    public_thunderstore_package(&cache.as_ref().unwrap().2, parts, version)
+}
 pub async fn resolve(raw: &str) -> ApiResult<Project> {
+    resolve_context(raw, false).await
+}
+async fn resolve_context(raw: &str, dependency: bool) -> ApiResult<Project> {
     let (provider, parts) = link(raw)?;
     if provider == "thunderstore" {
         if steam_id(&parts[1]).is_none() {
@@ -235,23 +332,12 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
                 "This Thunderstore community is not a supported Steam/Unity game",
             ));
         }
-        let p = metadata(
-            &format!(
-                "https://thunderstore.io/api/experimental/package/{}/{}/",
-                parts[3], parts[4]
-            ),
-            false,
-        )
-        .await?;
-        if !p["community_listings"]
+        let p = thunderstore_metadata(&parts, "").await?;
+        let listing = p["community_listings"]
             .as_array()
-            .is_some_and(|a| a.iter().any(|v| v["community"] == parts[1]))
-        {
-            return Err(bad("This mod is not listed for the selected game"));
-        }
-        if p["is_deprecated"] == true || p["latest"]["is_active"] != true {
-            return Err(bad("This mod is deprecated or unavailable"));
-        }
+            .and_then(|a| a.iter().find(|v| v["community"] == parts[1]))
+            .ok_or_else(|| bad("This mod is not listed for the selected game"))?;
+        thunderstore_available(&p, dependency)?;
         let latest = &p["latest"];
         let version = text(latest, "version_number");
         let game = game_profiles::by_community(&parts[1])
@@ -265,7 +351,7 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
                 other => other,
             });
         Ok(Project {
-            attribution: json!({"icon_url":text(latest,"icon"),"author_links":[{"name":text(&p,"owner"),"url":format!("https://thunderstore.io/c/{}/p/{}/",parts[1],parts[3])}]}),
+            attribution: json!({"icon_url":text(latest,"icon"),"deprecated":p["is_deprecated"]==true,"is_modpack":listing["categories"].as_array().is_some_and(|a| a.iter().any(|v| v.as_str().is_some_and(|s|s.eq_ignore_ascii_case("Modpacks")))),"author_links":[{"name":text(&p,"owner"),"url":format!("https://thunderstore.io/c/{}/p/{}/",parts[1],parts[3])}]}),
             provider,
             id: format!("{}-{}", parts[3], parts[4]),
             name: text(&p, "name"),
@@ -789,8 +875,26 @@ fn mr_file(v: &Value) -> Option<Release> {
         algorithm: "sha512".into(),
     })
 }
+fn thunderstore_available(project: &Value, dependency: bool) -> ApiResult<()> {
+    // Deprecated packages may still be active requirements of supported mods.
+    // Deprecation is not a malware verdict; imported files still pass review.
+    if project["latest"]["is_active"] != true {
+        return Err(bad(if dependency {
+            "Required dependency is unavailable"
+        } else {
+            "This mod is unavailable"
+        }));
+    }
+    if project["is_deprecated"] == true && !dependency {
+        return Err(bad("This mod is deprecated"));
+    }
+    Ok(())
+}
 pub(crate) async fn selection(input: &Link) -> ApiResult<(Project, Release)> {
-    let mut project = resolve(&input.url).await?;
+    selection_context(input, false).await
+}
+async fn selection_context(input: &Link, dependency: bool) -> ApiResult<(Project, Release)> {
+    let mut project = resolve_context(&input.url, dependency).await?;
     if !input.version.is_empty() && !project.versions.iter().any(|v| v.id == input.version) {
         if !version_valid(&input.version) {
             return Err(bad("Invalid dependency version"));
@@ -807,14 +911,7 @@ pub(crate) async fn selection(input: &Link) -> ApiResult<(Project, Release)> {
             mr_file(&data).ok_or_else(|| bad("Dependency file is unavailable"))?
         } else if project.provider == "thunderstore" {
             let (_, parts) = link(&input.url)?;
-            let data = metadata(
-                &format!(
-                    "https://thunderstore.io/api/experimental/package/{}/{}/{}/",
-                    parts[3], parts[4], input.version
-                ),
-                false,
-            )
-            .await?;
+            let data = thunderstore_metadata(&parts, &input.version).await?;
             if data["is_active"] != true {
                 return Err(bad("Required dependency is unavailable"));
             }
@@ -975,6 +1072,19 @@ fn dependency_order(root: &str, edges: &ImportEdges) -> ApiResult<Vec<String>> {
 async fn dependency_graph(
     input: Link,
 ) -> ApiResult<(String, ImportNodes, ImportEdges, Vec<String>)> {
+    dependency_graph_with(input, |input, dependency| async move {
+        selection_context(&input, dependency).await
+    })
+    .await
+}
+async fn dependency_graph_with<F, Fut>(
+    input: Link,
+    mut select: F,
+) -> ApiResult<(String, ImportNodes, ImportEdges, Vec<String>)>
+where
+    F: FnMut(Link, bool) -> Fut,
+    Fut: std::future::Future<Output = ApiResult<(Project, Release)>>,
+{
     let mut queue = std::collections::VecDeque::from([(None::<String>, input)]);
     let mut root = String::new();
     let mut game = String::new();
@@ -982,12 +1092,28 @@ async fn dependency_graph(
     let mut edges = ImportEdges::new();
     let mut requests = 0;
     let mut versions = std::collections::BTreeMap::new();
+    let mut selections = std::collections::BTreeMap::new();
+    let mut latest_dependencies = false;
     while let Some((parent, mut input)) = queue.pop_front() {
         requests += 1;
-        if requests > 512 || nodes.len() >= 128 {
+        if requests > 512 {
             return Err(bad("Dependency import exceeds the 128-project limit"));
         }
-        let (project, release) = selection(&input).await?;
+        let request_key = (
+            input.url.clone(),
+            input.version.clone(),
+            input.game_version.clone(),
+            input.loader.clone(),
+            input.include_optional,
+        );
+        let (project, release) = if let Some(selected) = selections.get(&request_key) {
+            let selected: &(Project, Release) = selected;
+            selected.clone()
+        } else {
+            let selected = select(input.clone(), parent.is_some()).await?;
+            selections.insert(request_key, selected.clone());
+            selected
+        };
         let key = format!("{}:{}", project.provider, project.id);
         if let Some(old) = versions.insert(key, release.id.clone())
             && old != release.id
@@ -1002,6 +1128,10 @@ async fn dependency_graph(
         } else {
             root = origin.clone();
             game = project.game.clone();
+            // Match the ecosystem's individual-mod behavior. Provider modpacks
+            // retain exact declarations; Minecraft file pins stay exact too.
+            latest_dependencies =
+                project.provider == "thunderstore" && project.attribution["is_modpack"] != true;
             if project.provider != "thunderstore" && input.game_version.is_empty() {
                 input.game_version = release.game_versions.first().cloned().unwrap_or_default();
             }
@@ -1015,7 +1145,13 @@ async fn dependency_graph(
         if nodes.contains_key(&origin) {
             continue;
         }
-        for dependency in dependency_links(&project, &release, &input).await? {
+        if nodes.len() >= 128 {
+            return Err(bad("Dependency import exceeds the 128-project limit"));
+        }
+        for mut dependency in dependency_links(&project, &release, &input).await? {
+            if latest_dependencies && project.provider == "thunderstore" {
+                dependency.version.clear();
+            }
             queue.push_back((Some(origin.clone()), dependency));
         }
         nodes.insert(origin, (input, project, release));
@@ -1219,6 +1355,243 @@ pub async fn catalog(app: &App, manifest: &std::path::Path) -> anyhow::Result<()
 mod tests {
     use super::*;
     #[test]
+    fn public_thunderstore_fallback_preserves_identity_history_and_availability() {
+        let index=compact_thunderstore_index(&json!([
+            {"owner":"Other","name":"Pack","versions":[{"version_number":"99.0.0","is_active":true}]},
+            {"owner":"Test","name":"Pack","is_deprecated":true,"categories":["Modpacks"],
+            "versions":[{"version_number":"2.0.0","is_active":true,"dependencies":["Test-Lib-1.0.0"],"download_url":"https://thunderstore.io/package/download/Test/Pack/2.0.0/","icon":"https://ccdn.thunderstore.io/icon.png","description":"original"},
+                {"version_number":"1.0.0","is_active":false,"dependencies":[]}]}
+        ])).unwrap();
+        let (_, parts) = link(&graph_input("Pack").url).unwrap();
+        let p = public_thunderstore_package(&index, &parts, "").unwrap();
+        assert_eq!(p["owner"], "Test");
+        assert_eq!(p["latest"]["version_number"], "2.0.0");
+        assert_eq!(p["latest"]["dependencies"], json!(["Test-Lib-1.0.0"]));
+        assert_eq!(p["latest"]["description"], "original");
+        assert_eq!(p["community_listings"][0]["community"], "rounds");
+        assert_eq!(
+            p["community_listings"][0]["categories"],
+            json!(["Modpacks"])
+        );
+        assert!(thunderstore_available(&p, false).is_err());
+        assert!(thunderstore_available(&p, true).is_ok());
+        assert_eq!(
+            public_thunderstore_package(&index, &parts, "1.0.0").unwrap()["is_active"],
+            false
+        );
+        assert!(public_thunderstore_package(&index, &parts, "3.0.0").is_err());
+        let (_, missing) = link(&graph_input("Missing").url).unwrap();
+        assert!(public_thunderstore_package(&index, &missing, "").is_err());
+        assert!(compact_thunderstore_index(&json!({})).is_err());
+    }
+    fn graph_fixture(
+        input: &Link,
+        version: &str,
+        deps: Value,
+        modpack: bool,
+    ) -> (Project, Release) {
+        let (provider, parts) = link(&input.url).unwrap();
+        let thunderstore = provider == "thunderstore";
+        let id = if thunderstore {
+            format!("{}-{}", parts[3], parts[4])
+        } else {
+            parts[1].clone()
+        };
+        let release = Release {
+            id: version.into(),
+            name: version.into(),
+            filename: "fixture.zip".into(),
+            loaders: vec![],
+            game_versions: vec![],
+            dependencies: deps,
+            download: String::new(),
+            hash: String::new(),
+            algorithm: String::new(),
+        };
+        (
+            Project {
+                provider,
+                id: id.clone(),
+                name: id,
+                description: String::new(),
+                source_url: input.url.clone(),
+                attribution: json!({"is_modpack":modpack}),
+                game: if thunderstore { "ROUNDS" } else { "Minecraft" }.into(),
+                authors: String::new(),
+                license: String::new(),
+                versions: vec![release.clone()],
+            },
+            release,
+        )
+    }
+    fn graph_input(name: &str) -> Link {
+        Link {
+            url: format!("https://thunderstore.io/c/rounds/p/Test/{name}/"),
+            version: "1.0.0".into(),
+            game_version: String::new(),
+            loader: String::new(),
+            include_optional: false,
+        }
+    }
+    #[tokio::test]
+    async fn rounds_reported_mods_resolve_recursive_latest_dependencies_once() {
+        let data: Value =
+            serde_json::from_str(include_str!("fixtures/rounds-dependencies.json")).unwrap();
+        for name in data["roots"].as_array().unwrap() {
+            let name = name.as_str().unwrap();
+            let (owner, package) = name.split_once('-').unwrap();
+            let mut input = graph_input(package);
+            input.url = format!("https://thunderstore.io/c/rounds/p/{owner}/{package}/");
+            input.version = data["packages"][name]["version"].as_str().unwrap().into();
+            let mut counts = std::collections::BTreeMap::<String, usize>::new();
+            let (root, nodes, edges, order) = dependency_graph_with(input.clone(), |request, dependency| {
+                let (_, parts) = link(&request.url).unwrap();
+                let key = format!("{}-{}", parts[3], parts[4]);
+                *counts.entry(key.clone()).or_default() += 1;
+                let p = &data["packages"][&key];
+                assert!(p.is_object(), "Missing fixture {key}");
+                thunderstore_available(&json!({"is_deprecated":p["deprecated"],"latest":{"is_active":p["active"]}}),dependency).unwrap();
+                if dependency { assert!(request.version.is_empty()); } else { assert_eq!(request.version, input.version); }
+                let selected = graph_fixture(&request, p["version"].as_str().unwrap(), p["dependencies"].clone(), false);
+                std::future::ready(Ok(selected))
+            }).await.unwrap();
+            assert_eq!(nodes[&root].2.id, input.version);
+            assert!(nodes.len() >= 10, "Incomplete closure for {name}");
+            assert_eq!(order.len(), nodes.len());
+            assert_eq!(order.last(), Some(&root));
+            assert!(
+                counts.values().all(|n| *n == 1),
+                "Repeated metadata lookup for {name}"
+            );
+            assert_eq!(counts.len(), nodes.len());
+            for (parent, children) in edges {
+                for child in children {
+                    assert!(
+                        order.iter().position(|k| k == &child).unwrap()
+                            < order.iter().position(|k| k == &parent).unwrap()
+                    );
+                }
+            }
+        }
+    }
+    #[tokio::test]
+    async fn thunderstore_modpack_and_minecraft_file_pins_still_reject_real_conflicts() {
+        let err = dependency_graph_with(graph_input("Pack"), |request, _| {
+            let (_, parts) = link(&request.url).unwrap();
+            let deps = if parts[4] == "Pack" {
+                json!(["Test-Lib-1.0.0", "Test-Other-1.0.0"])
+            } else if parts[4] == "Other" {
+                json!(["Test-Lib-2.0.0"])
+            } else {
+                json!([])
+            };
+            let selected = graph_fixture(&request, &request.version, deps, true);
+            std::future::ready(Ok(selected))
+        })
+        .await
+        .err()
+        .unwrap();
+        assert_eq!(
+            err.1,
+            "Dependencies require conflicting versions of the same project"
+        );
+        let mut input = graph_input("Pack");
+        input.url = "https://modrinth.com/mod/root".into();
+        let result = dependency_graph_with(input, |request, _| {
+            let (_, parts) = link(&request.url).unwrap();
+            let deps = match parts[1].as_str() {
+                "root" => json!([{"dependency_type":"required","project_id":"leaf","version_id":"v1"},{"dependency_type":"required","project_id":"other","version_id":"v1"}]),
+                "other" => json!([{"dependency_type":"required","project_id":"leaf","version_id":"v2"}]), _=>json!([]),
+            };
+            let selected = graph_fixture(&request, &request.version, deps, false);
+            std::future::ready(Ok(selected))
+        }).await;
+        assert_eq!(
+            result.err().unwrap().1,
+            "Dependencies require conflicting versions of the same project"
+        );
+    }
+    #[tokio::test]
+    async fn latest_dependency_graph_rejects_cycles_missing_files_and_cross_game_content() {
+        let cycle = dependency_graph_with(graph_input("Root"), |request, _| {
+            let (_, parts) = link(&request.url).unwrap();
+            let deps = if parts[4] == "Root" {
+                json!(["Test-Lib-1.0.0"])
+            } else {
+                json!(["Test-Root-1.0.0"])
+            };
+            std::future::ready(Ok(graph_fixture(&request, "1.0.0", deps, false)))
+        })
+        .await;
+        assert_eq!(
+            cycle.err().unwrap().1,
+            "Dependency graph contains a cycle or exceeds 32 levels"
+        );
+        for missing in [true, false] {
+            let result = dependency_graph_with(graph_input("Root"), |request, dependency| {
+                let selected = if dependency && missing {
+                    Err(bad("Required dependency is unavailable"))
+                } else {
+                    let mut pair = graph_fixture(
+                        &request,
+                        "1.0.0",
+                        if dependency {
+                            json!([])
+                        } else {
+                            json!(["Test-Lib-1.0.0"])
+                        },
+                        false,
+                    );
+                    if dependency {
+                        pair.0.game = "Other game".into();
+                    }
+                    Ok(pair)
+                };
+                std::future::ready(selected)
+            })
+            .await;
+            assert_eq!(
+                result.err().unwrap().1,
+                if missing {
+                    "Required dependency is unavailable"
+                } else {
+                    "A dependency belongs to a different game"
+                }
+            );
+        }
+    }
+    #[test]
+    fn deprecated_active_requirements_are_allowed_but_unavailable_files_are_not() {
+        let p = json!({"is_deprecated":true,"latest":{"is_active":true}});
+        assert_eq!(
+            thunderstore_available(&p, false).err().unwrap().1,
+            "This mod is deprecated"
+        );
+        assert!(thunderstore_available(&p, true).is_ok());
+        assert!(thunderstore_available(&json!({"latest":{"is_active":false}}), true).is_err());
+        assert!(thunderstore_available(&json!({}), true).is_err());
+    }
+    #[tokio::test]
+    #[ignore = "Live Thunderstore metadata only; no archives or production database writes"]
+    async fn rounds_live_dependency_graphs() {
+        for (owner, name) in [
+            ("XAngelMoonX", "CR"),
+            ("Root", "Classes_Manager_Reborn"),
+            ("CrazyCoders", "RarityBundle"),
+            ("Keys", "KeysCards"),
+            ("willuwontu", "ItemShops"),
+        ] {
+            let mut input = graph_input(name);
+            input.url = format!("https://thunderstore.io/c/rounds/p/{owner}/{name}/");
+            input.version.clear();
+            let (root, nodes, _, order) = dependency_graph(input).await.unwrap();
+            assert_eq!(nodes[&root].1.game, "ROUNDS");
+            assert!(nodes.len() >= 10);
+            assert_eq!(order.len(), nodes.len());
+            println!("{owner}/{name}: {} resolved projects", nodes.len());
+        }
+    }
+    #[test]
     fn dependency_graph_orders_transitive_diamonds_and_rejects_cycles() {
         let edges = ImportEdges::from([
             ("root".into(), vec!["a".into(), "b".into()]),
@@ -1326,6 +1699,15 @@ mod tests {
         import_round_trip(
             "https://thunderstore.io/c/bopl-battle/p/Antimality/InfiniteBlackHoles/",
             "Bopl Battle",
+        )
+        .await;
+    }
+    #[tokio::test]
+    #[ignore = "Live ROUNDS provider/archive import, repeat import and authorized download in isolated temporary encrypted storage"]
+    async fn rounds_live_import_round_trip() {
+        import_round_trip(
+            "https://thunderstore.io/c/rounds/p/CrazyCoders/RarityBundle/",
+            "ROUNDS",
         )
         .await;
     }

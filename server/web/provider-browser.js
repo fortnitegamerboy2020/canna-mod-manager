@@ -27,10 +27,10 @@
  async function initialize(){if(loaded)return;const data=await(await api('providers/games')).json();profiles=data.games;games();if(initial.has('game')&&[...game.options].some(o=>o.value===initial.get('game')))game.value=initial.get('game');loaded=true;}
  function link(label,url){const a=document.createElement('a');a.textContent=label;try{const parsed=new URL(url);if(parsed.protocol==='https:'){a.href=parsed.href;a.target='_blank';a.rel='noopener noreferrer';}}catch{}return a;}
  function card(item){const box=document.createElement('article');box.className='card provider-result';
- if(/^https:\/\/(cdn\.thunderstore\.io|gcdn\.thunderstore\.io|cdn\.modrinth\.com|media\.forgecdn\.net)\//.test(item.icon_url||'')){const img=document.createElement('img');img.src=item.icon_url;img.alt=item.name+' original artwork';img.loading='lazy';img.referrerPolicy='no-referrer';img.className='modart';box.append(img);}
+ if(/^https:\/\/(cdn\.thunderstore\.io|ccdn\.thunderstore\.io|gcdn\.thunderstore\.io|cdn\.modrinth\.com|media\.forgecdn\.net)\//.test(item.icon_url||'')){const img=document.createElement('img');img.src=item.icon_url;img.alt=item.name+' original artwork';img.loading='lazy';img.referrerPolicy='no-referrer';img.className='modart';box.append(img);}
  const title=document.createElement('h3');title.textContent=item.name;const author=document.createElement('p');author.append('By ',link(item.authors||'Author',item.author_url));const description=document.createElement('p');description.textContent=item.description;const stats=document.createElement('p');stats.textContent=`${Number(item.downloads||0).toLocaleString()} downloads${item.rating==null?'':` · ${Number(item.rating).toLocaleString()} ${item.rating_label||'ratings'}`}`;
  const add=document.createElement('button');add.type='button';add.className='primary';add.textContent='Download & subscribe';const feedback=document.createElement('p');feedback.setAttribute('role','status');
- add.addEventListener('click',async()=>{add.disabled=true;feedback.textContent='Checking the mod and its dependencies…';try{
+ add.addEventListener('click',async()=>{add.disabled=true;let unavailable=false;feedback.textContent='Checking the mod and its dependencies…';try{
  const preview=await json('mods/external/preview',{url:item.source_url});
  const selectedVersion=version.hidden?'':version.value.trim();
  const chosen=preview.versions.find(v=>(!selectedVersion||v.game_versions.includes(selectedVersion))&&(loader.parentElement.hidden||!loader.value||v.loaders.some(l=>l.toLowerCase()===loader.value)));
@@ -38,7 +38,7 @@
  const result=await json('mods/external/import',{url:item.source_url,version:chosen.id,game_version:selectedVersion,loader:loader.parentElement.hidden?'':loader.value,include_optional:false});
  if(result.approved){feedback.textContent='Subscribed. Connecting to Canna…';await downloadToApp({id:result.id,name:preview.name,version:chosen.name},'mods');}
  else{feedback.textContent='Subscribed. Files were retrieved and are awaiting analysis or review. Download becomes available in Subscriptions when approved.';const button=document.createElement('button');button.textContent='Subscriptions';button.addEventListener('click',()=>$('subscriptionsnav').click());feedback.append(' ',button);}
- }catch(e){feedback.textContent=e.message;}finally{add.disabled=false;}});
+ }catch(e){feedback.textContent=e.message;unavailable=['This mod is deprecated','This mod is unavailable','This mod is deprecated or unavailable'].includes(e.message);if(unavailable)add.textContent='Unavailable';}finally{add.disabled=unavailable;}});
  box.append(title,author,description,stats,link('Original project',item.source_url),document.createTextNode(' '),add,feedback);return box;}
  async function browse(){const request=++generation;go.disabled=true;status.textContent='Loading provider results…';prev.disabled=next.disabled=true;try{await initialize();
  const params=new URLSearchParams({provider:provider.value,game:game.value,q:search.value.trim(),order:order.value,category:category.value,version:version.hidden?'':version.value.trim(),page:String(page),loader:loader.parentElement.hidden?'':loader.value,content_type:type.parentElement.hidden?'':type.value});

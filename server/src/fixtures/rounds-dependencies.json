@@ -1,0 +1,343 @@
+{
+  "source": "https://thunderstore.io/c/rounds/api/v1/package/",
+  "retrieved": "2026-10-07",
+  "roots": [
+    "XAngelMoonX-CR",
+    "Root-Classes_Manager_Reborn",
+    "CrazyCoders-RarityBundle",
+    "Keys-KeysCards",
+    "willuwontu-ItemShops"
+  ],
+  "packages": {
+    "XAngelMoonX-CR": {
+      "version": "2.7.0",
+      "dependencies": [
+        "willis81808-UnboundLib-3.2.13",
+        "BepInEx-BepInExPack_ROUNDS-5.4.1901",
+        "Pykess-CardChoiceSpawnUniqueCardPatch-0.1.10",
+        "willuwontu-WillsWackyMapObjects-1.2.4",
+        "Pykess-ModdingUtils-0.4.8",
+        "RoundsModding-Performance_Improvements-0.2.0",
+        "Root-RarityLib-1.2.8",
+        "Root-CardThemeLib-1.1.7",
+        "Root-Classes_Manager_Reborn-1.5.4",
+        "Root-GravityPatch-0.0.0",
+        "TeamDK-ZeroGBulletPatch-1.1.0",
+        "BossSloth-CardBarPatch-2.1.1",
+        "willis81808-ModsPlus-1.6.2",
+        "willuwontu-StopShootingYoureDead-0.0.0"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Root-Classes_Manager_Reborn": {
+      "version": "1.5.5",
+      "dependencies": [
+        "willis81808-MMHook-1.0.0",
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100",
+        "willis81808-UnboundLib-2.10.2",
+        "Pykess-ModdingUtils-0.3.5",
+        "Pykess-CardChoiceSpawnUniqueCardPatch-0.1.7",
+        "Root-RarityLib-1.1.2"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "CrazyCoders-RarityBundle": {
+      "version": "0.2.1",
+      "dependencies": [
+        "Root-RarityLib-1.2.1"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Keys-KeysCards": {
+      "version": "2.1.0",
+      "dependencies": [
+        "willis81808-UnboundLib-3.2.13",
+        "Pykess-ModdingUtils-0.4.8",
+        "Pykess-CardChoiceSpawnUniqueCardPatch-0.1.10",
+        "Root-RarityLib-1.2.8",
+        "Root-CardThemeLib-1.1.7",
+        "Pykess-PlayerJumpPatch-0.0.2",
+        "Pykess-GunUnblockablePatch-0.0.0"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "willuwontu-ItemShops": {
+      "version": "0.0.2",
+      "dependencies": [
+        "willis81808-UnboundLib-2.11.0",
+        "willis81808-MMHook-1.0.0",
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100",
+        "Pykess-CardChoiceSpawnUniqueCardPatch-0.1.7",
+        "Pykess-ModdingUtils-0.2.6"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "willis81808-UnboundLib": {
+      "version": "3.2.14",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1900",
+        "willis81808-MMHook-1.0.0"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "BepInEx-BepInExPack_ROUNDS": {
+      "version": "5.4.1901",
+      "dependencies": [],
+      "deprecated": false,
+      "active": true
+    },
+    "Pykess-CardChoiceSpawnUniqueCardPatch": {
+      "version": "0.1.10",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100",
+        "willis81808-UnboundLib-3.1.0",
+        "Pykess-ModdingUtils-0.3.3"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "willuwontu-WillsWackyMapObjects": {
+      "version": "1.2.4",
+      "dependencies": [
+        "willis81808-UnboundLib-2.6.2",
+        "willis81808-MMHook-1.0.0",
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100",
+        "Pykess-ModdingUtils-0.1.3",
+        "olavim-MapsExtended-1.2.4"
+      ],
+      "deprecated": true,
+      "active": true
+    },
+    "Pykess-ModdingUtils": {
+      "version": "0.4.8",
+      "dependencies": [
+        "willis81808-UnboundLib-3.1.0",
+        "willis81808-MMHook-1.0.0",
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100",
+        "Pykess-PlayerJumpPatch-0.0.2",
+        "Pykess-LegRaycastersPatch-0.0.0",
+        "willuwontu-RespawnPatch-1.0.6",
+        "willuwontu-AttackLevelPatch-0.0.0"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "RoundsModding-Performance_Improvements": {
+      "version": "0.2.0",
+      "dependencies": [
+        "willis81808-UnboundLib-3.2.6",
+        "willis81808-MMHook-1.0.0"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Root-RarityLib": {
+      "version": "1.3.0",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1901",
+        "Pykess-ModdingUtils-0.4.8",
+        "Pykess-CardChoiceSpawnUniqueCardPatch-0.1.10",
+        "willis81808-UnboundLib-3.2.14"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Root-CardThemeLib": {
+      "version": "1.1.7",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Root-GravityPatch": {
+      "version": "0.0.0",
+      "dependencies": [
+        "willis81808-MMHook-1.0.0",
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100",
+        "willis81808-UnboundLib-2.10.2"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "TeamDK-ZeroGBulletPatch": {
+      "version": "1.1.0",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "BossSloth-CardBarPatch": {
+      "version": "2.1.1",
+      "dependencies": [
+        "willis81808-UnboundLib-2.5.1",
+        "willis81808-MMHook-1.0.0",
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "willis81808-ModsPlus": {
+      "version": "1.6.2",
+      "dependencies": [
+        "willis81808-UnboundLib-3.2.3",
+        "Pykess-ModdingUtils-0.4.3",
+        "RoundsModding-AllThePatch-1.0.0"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "willuwontu-StopShootingYoureDead": {
+      "version": "0.0.0",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100",
+        "willis81808-UnboundLib-2.6.2",
+        "willis81808-MMHook-1.0.0"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "willis81808-MMHook": {
+      "version": "1.0.0",
+      "dependencies": [],
+      "deprecated": false,
+      "active": true
+    },
+    "Pykess-PlayerJumpPatch": {
+      "version": "0.0.2",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Pykess-GunUnblockablePatch": {
+      "version": "0.0.0",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "olavim-MapsExtended": {
+      "version": "1.4.2",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100",
+        "willis81808-UnboundLib-3.2.8"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Pykess-LegRaycastersPatch": {
+      "version": "0.0.0",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "willuwontu-RespawnPatch": {
+      "version": "1.0.6",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "willuwontu-AttackLevelPatch": {
+      "version": "0.0.0",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "RoundsModding-AllThePatch": {
+      "version": "1.0.0",
+      "dependencies": [
+        "RoundsModding-Grow_Patch-0.0.0",
+        "Pykess-CardChoiceSpawnUniqueCardPatch-0.1.9",
+        "Pykess-PlayerJumpPatch-0.0.2",
+        "Pykess-TemporaryStatsPatch-0.0.1",
+        "Pykess-TeleportPatch-0.0.1",
+        "Pykess-DemonicPactPatch-0.0.0",
+        "Pykess-GunUnblockablePatch-0.0.0",
+        "Pykess-LegRaycastersPatch-0.0.0",
+        "willuwontu-RespawnPatch-1.0.6",
+        "willuwontu-StopShootingYoureDead-0.0.0",
+        "willuwontu-BlockForcePatch-1.0.1",
+        "Root-GravityPatch-0.0.0",
+        "Root-RegenerationPatch-0.0.0",
+        "Senyksia-ResetAttackCooldownPatch-1.0.1",
+        "TeamDK-ZeroGBulletPatch-1.1.0"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "RoundsModding-Grow_Patch": {
+      "version": "0.0.0",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Pykess-TemporaryStatsPatch": {
+      "version": "0.0.2",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Pykess-TeleportPatch": {
+      "version": "0.0.1",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1900"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Pykess-DemonicPactPatch": {
+      "version": "0.0.0",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "willuwontu-BlockForcePatch": {
+      "version": "1.0.1",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Root-RegenerationPatch": {
+      "version": "0.0.0",
+      "dependencies": [
+        "willis81808-MMHook-1.0.0",
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100",
+        "willis81808-UnboundLib-2.10.2"
+      ],
+      "deprecated": false,
+      "active": true
+    },
+    "Senyksia-ResetAttackCooldownPatch": {
+      "version": "1.0.1",
+      "dependencies": [
+        "BepInEx-BepInExPack_ROUNDS-5.4.1100"
+      ],
+      "deprecated": false,
+      "active": true
+    }
+  }
+}
