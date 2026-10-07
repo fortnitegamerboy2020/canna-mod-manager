@@ -262,8 +262,14 @@ impl Chrome {
     }
 }
 
-pub fn title_bar(ctx: &egui::Context) -> [egui::Rect; 2] {
-    let mut controls = [egui::Rect::NOTHING; 2];
+pub struct TitleBar {
+    #[cfg_attr(not(test), allow(dead_code))] // Geometry for headless click tests.
+    pub controls: [egui::Rect; 3],
+    pub account_clicked: bool,
+}
+pub fn title_bar(ctx: &egui::Context, account_label: &str) -> TitleBar {
+    let mut controls = [egui::Rect::NOTHING; 3];
+    let mut account_clicked = false;
     egui::TopBottomPanel::top("window_controls")
         .exact_height(44.0)
         .frame(
@@ -273,57 +279,74 @@ pub fn title_bar(ctx: &egui::Context) -> [egui::Rect; 2] {
         )
         .show(ctx, |ui| {
             ui.spacing_mut().item_spacing.x = 8.0;
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                for (index, (label, color, command)) in [
-                    (
-                        "Close",
-                        Color32::from_rgb(232, 104, 107),
-                        egui::ViewportCommand::Close,
-                    ),
-                    (
-                        "Minimize",
-                        Color32::from_rgb(235, 192, 93),
-                        egui::ViewportCommand::Minimized(true),
-                    ),
-                ]
-                .into_iter()
-                .enumerate()
-                {
-                    let (rect, response) =
-                        ui.allocate_exact_size(egui::vec2(30.0, 18.0), egui::Sense::click());
-                    controls[index] = rect;
-                    ui.painter().rect_filled(
-                        rect,
-                        super::ui_helpers::CONTROL_RADIUS,
-                        if response.hovered() {
-                            color.gamma_multiply(1.15)
-                        } else {
-                            color
-                        },
-                    );
-                    response.widget_info(|| {
-                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
-                    });
-                    if response.clicked() {
-                        ctx.send_viewport_cmd(command);
+            ui.horizontal(|ui| {
+                account_clicked = ui.button(account_label).clicked();
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    for (index, (label, color, command)) in [
+                        (
+                            "Close",
+                            Color32::from_rgb(232, 104, 107),
+                            egui::ViewportCommand::Close,
+                        ),
+                        (
+                            if ctx.input(|i| i.viewport().maximized.unwrap_or(false)) {
+                                "Restore"
+                            } else {
+                                "Maximize"
+                            },
+                            Color32::from_rgb(103, 194, 113),
+                            egui::ViewportCommand::Maximized(
+                                !ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
+                            ),
+                        ),
+                        (
+                            "Minimize",
+                            Color32::from_rgb(235, 192, 93),
+                            egui::ViewportCommand::Minimized(true),
+                        ),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    {
+                        let (rect, response) =
+                            ui.allocate_exact_size(egui::vec2(30.0, 18.0), egui::Sense::click());
+                        controls[index] = rect;
+                        ui.painter().rect_filled(
+                            rect,
+                            super::ui_helpers::CONTROL_RADIUS,
+                            if response.hovered() {
+                                color.gamma_multiply(1.15)
+                            } else {
+                                color
+                            },
+                        );
+                        response.widget_info(|| {
+                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
+                        });
+                        if response.clicked() {
+                            ctx.send_viewport_cmd(command);
+                        }
+                        response.on_hover_text(label);
                     }
-                    response.on_hover_text(label);
-                }
-                let (_, drag) = ui.allocate_exact_size(
-                    egui::vec2(ui.available_width(), 28.0),
-                    egui::Sense::click_and_drag(),
-                );
-                if drag.drag_started() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
-                }
-                if drag.double_clicked() {
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(
-                        !ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
-                    ));
-                }
+                    let (_, drag) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width(), 28.0),
+                        egui::Sense::click_and_drag(),
+                    );
+                    if drag.drag_started() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::StartDrag);
+                    }
+                    if drag.double_clicked() {
+                        ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(
+                            !ctx.input(|i| i.viewport().maximized.unwrap_or(false)),
+                        ));
+                    }
+                });
             });
         });
-    controls
+    TitleBar {
+        controls,
+        account_clicked,
+    }
 }
 
 #[cfg(test)]
@@ -377,24 +400,33 @@ mod tests {
         }
     }
     #[test]
-    fn window_controls_send_close_and_minimize_commands() {
-        for index in 0..2 {
+    fn window_controls_send_close_maximize_restore_and_minimize_commands() {
+        for (index, maximized) in [(0, false), (1, false), (1, true), (2, false)] {
             let ctx = egui::Context::default();
-            let input = |events| egui::RawInput {
-                screen_rect: Some(egui::Rect::from_min_size(
-                    egui::Pos2::ZERO,
-                    egui::vec2(1240.0, 820.0),
-                )),
-                events,
-                ..Default::default()
+            let input = |events| {
+                let mut input = egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(
+                        egui::Pos2::ZERO,
+                        egui::vec2(1240.0, 820.0),
+                    )),
+                    events,
+                    ..Default::default()
+                };
+                input
+                    .viewports
+                    .get_mut(&egui::ViewportId::ROOT)
+                    .unwrap()
+                    .maximized = Some(maximized);
+                input
             };
-            let mut controls = [egui::Rect::NOTHING; 2];
+            let mut controls = [egui::Rect::NOTHING; 3];
             let _ = ctx.run(input(vec![]), |ctx| {
-                controls = title_bar(ctx);
+                controls = title_bar(ctx, "Log in").controls;
             });
             assert!(
-                controls[1].right() < controls[0].left(),
-                "Yellow is immediately left of red"
+                controls[2].right() < controls[1].left()
+                    && controls[1].right() < controls[0].left(),
+                "Yellow, green, red from left to right"
             );
             let point = controls[index].center();
             let _ = ctx.run(
@@ -408,7 +440,7 @@ mod tests {
                     },
                 ]),
                 |ctx| {
-                    title_bar(ctx);
+                    title_bar(ctx, "Log in");
                 },
             );
             let output = ctx.run(
@@ -419,7 +451,7 @@ mod tests {
                     modifiers: Default::default(),
                 }]),
                 |ctx| {
-                    title_bar(ctx);
+                    title_bar(ctx, "Account");
                 },
             );
             assert!(
@@ -429,6 +461,8 @@ mod tests {
                     .any(|command| {
                         if index == 0 {
                             matches!(command, egui::ViewportCommand::Close)
+                        } else if index==1 {
+                            matches!(command, egui::ViewportCommand::Maximized(value) if *value == !maximized)
                         } else {
                             matches!(command, egui::ViewportCommand::Minimized(true))
                         }

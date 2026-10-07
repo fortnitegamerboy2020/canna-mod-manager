@@ -381,6 +381,7 @@ pub struct Website {
     last_heartbeat: std::time::Instant,
     pair_cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub account_status: String,
+    connection_prompt: Option<(String, String)>,
     tickets: Option<Receiver<String>>,
     pending: std::collections::VecDeque<String>,
     result: Option<Receiver<Result<String>>>,
@@ -398,6 +399,7 @@ impl Default for Website {
             last_heartbeat: std::time::Instant::now() - Duration::from_secs(61),
             pair_cancel: Default::default(),
             account_status: String::new(),
+            connection_prompt: None,
             tickets: None,
             pending: Default::default(),
             result: None,
@@ -420,6 +422,17 @@ impl Website {
     pub fn connecting(&self) -> bool {
         self.pairing.is_some()
     }
+    pub fn connection_prompt(&self) -> Option<(&str, &str)> {
+        self.connection_prompt
+            .as_ref()
+            .map(|(code, url)| (code.as_str(), url.as_str()))
+    }
+    pub fn preview_connection(&mut self) {
+        let (_, rx) = mpsc::channel();
+        self.pairing = Some(rx);
+        self.connection_prompt = Some(("ABC123".into(), "https://cannamods.vip/connect".into()));
+        self.account_status = "Visual fixture: enter this code on the verification page.".into();
+    }
     pub fn cancel_sign_in(&mut self) {
         self.pair_cancel
             .store(true, std::sync::atomic::Ordering::Relaxed);
@@ -430,6 +443,7 @@ impl Website {
         }
         let (tx, rx) = mpsc::channel();
         self.pairing = Some(rx);
+        self.connection_prompt = None;
         self.pair_cancel = Default::default();
         let cancel = self.pair_cancel.clone();
         self.account_status = "Preparing a secure account connection…".into();
@@ -484,6 +498,7 @@ impl Website {
             while let Ok(event) = rx.try_recv() {
                 match event {
                     PairEvent::Started { code, url } => {
+                        self.connection_prompt = Some((code.clone(), url.clone()));
                         self.account_status = format!(
                             "Enter connection code {code} on the verification page. Waiting for verification…"
                         );
@@ -500,6 +515,7 @@ impl Website {
         }
         if finished {
             self.pairing = None;
+            self.connection_prompt = None;
         }
         if let Some(rx) = &self.tickets {
             while let Ok(t) = rx.try_recv() {

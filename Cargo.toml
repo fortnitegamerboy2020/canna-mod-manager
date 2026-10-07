@@ -1,6 +1,6 @@
 [package]
 name = "canna-mod-manager"
-version = "0.2.31"
+version = "0.2.32"
 edition = "2024"
 default-run = "canna-mod-manager"
 
@@ -16,6 +16,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 sha2 = "0.10"
 sha1 = "0.10"
 scraper = "0.24"
+zeroize = "1"
 base64 = "0.22"
 
 [target.'cfg(windows)'.dependencies]

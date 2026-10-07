@@ -234,7 +234,13 @@ impl App {
             "DELETE FROM sessions WHERE expires<>-1 AND expires<=?1",
             [now()],
         )?;
-        devices::record(&tx, &raw, id, &devices::name(headers), "browser")?;
+        devices::record(
+            &tx,
+            &raw,
+            id,
+            &devices::name(headers),
+            devices::kind(headers),
+        )?;
         if let Some(trust) = devices::trust(headers) {
             tx.execute(
                 "UPDATE session_devices SET trust_hash=?1 WHERE hash=?2",

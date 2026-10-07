@@ -204,6 +204,119 @@ mod tests {
         }
     }
     #[tokio::test]
+    async fn desktop_verification_creates_a_named_device_and_logout_is_scoped() {
+        use crate::tests::call;
+        let (_dir, app) = fixture();
+        let other_device = account(&app, "desktop", false);
+        app.db
+            .lock()
+            .unwrap()
+            .execute("UPDATE users SET email='desktop@example.com'", [])
+            .unwrap();
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            "user-agent",
+            "CannaDesktop/0.2.32 (Windows)".parse().unwrap(),
+        );
+        let response = start(app.clone(), 1, &headers).await.unwrap();
+        let binding = cookies(&response, BINDING);
+        let started = value(response).await;
+        assert_eq!(started["two_factor_required"], true);
+        assert!(started.get("token").is_none());
+        let challenge = started["challenge"].as_str().unwrap();
+        let code = last_code(&app);
+        assert_eq!(
+            confirm(app.clone(), "", challenge, &code, false)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/login/verify")
+            .header("content-type", "application/json")
+            .header("cookie", &binding)
+            .header("origin", "https://cannamods.vip")
+            .header("user-agent", "CannaDesktop/0.2.32 (Windows)")
+            .body(Body::from(
+                json!({"challenge":challenge,"code":code,"trust_device":false}).to_string(),
+            ))
+            .unwrap();
+        let response = router(app.clone()).oneshot(request).await.unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        assert!(
+            !response
+                .headers()
+                .get_all("set-cookie")
+                .iter()
+                .any(|h| h.to_str().unwrap().starts_with(&format!("{TRUST}=")))
+        );
+        let signed_in = value(response).await;
+        let token = signed_in["token"].as_str().unwrap();
+        let devices = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/devices",
+                Value::Null,
+                Some(token),
+            )
+            .await,
+        )
+        .await;
+        assert!(
+            devices
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|d| d["current"] == true
+                    && d["kind"] == "desktop"
+                    && d["name"] == "Canna desktop on Windows")
+        );
+        assert_eq!(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/profiles/1",
+                Value::Null,
+                Some(token)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            confirm(app.clone(), &binding, challenge, &code, false)
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/logout",
+                Value::Null,
+                Some(token)
+            )
+            .await
+            .status(),
+            StatusCode::NO_CONTENT
+        );
+        assert_eq!(
+            call(app.clone(), "GET", "/api/v1/me", Value::Null, Some(token))
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(app, "GET", "/api/v1/me", Value::Null, Some(&other_device))
+                .await
+                .status(),
+            StatusCode::OK
+        );
+    }
+    #[tokio::test]
     async fn login_requires_email_and_trust_is_scoped_expiring_and_revocable() {
         let (_dir, app) = fixture();
         let session = account(&app, "family", false);

@@ -236,3 +236,14 @@ The server stores bounded manifests/reports, not desktop backup archives.
 Run `scripts/Test-Workflows.ps1` for the regression suite. See
 [scripts/WORKFLOW-TESTS.md](scripts/WORKFLOW-TESTS.md) for coverage, fault cases,
 required live checks and reproduction. Synthetic timings are not game performance results.
+
+### Desktop account screen (0.2.32)
+
+Choose **Log in** in the title bar for desktop username/password and email-code
+sign-in, or website authorization with a large copyable connection code. After
+sign-in, **Account** shows your profile, Kash, device-management link and **Log out**.
+Only the device session is saved using Windows protection; passwords and codes
+are not saved in settings. Logout revokes this device and preserves other sessions.
+The green title-bar button between yellow Minimize and red Close maximizes/restores
+the window. Email binding, device revocation and window commands have fixture
+coverage; signing in with a real member account remains a user check.

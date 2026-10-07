@@ -27,6 +27,9 @@ pub fn name(headers: &HeaderMap) -> String {
         .get("user-agent")
         .and_then(|v| v.to_str().ok())
         .unwrap_or("");
+    if ua.starts_with("CannaDesktop/") {
+        return "Canna desktop on Windows".into();
+    }
     let browser = if ua.contains("Edg/") {
         "Edge"
     } else if ua.contains("Firefox/") {
@@ -52,6 +55,17 @@ pub fn name(headers: &HeaderMap) -> String {
         "Unknown device"
     };
     format!("{browser} on {os}")
+}
+pub fn kind(headers: &HeaderMap) -> &'static str {
+    if headers
+        .get("user-agent")
+        .and_then(|v| v.to_str().ok())
+        .is_some_and(|ua| ua.starts_with("CannaDesktop/"))
+    {
+        "desktop"
+    } else {
+        "browser"
+    }
 }
 pub fn record(
     db: &Connection,

@@ -1,4 +1,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod account;
 mod cache;
 mod chrome;
 mod console;
@@ -54,6 +55,7 @@ enum Event {
     Synced(cache::Source, Result<repository::RepositoryData, String>),
 }
 struct Canna {
+    account: account::Account,
     website: website::Website,
     skins: skins::Skins,
     minecraft: minecraft::Minecraft,
@@ -145,7 +147,14 @@ impl Canna {
     fn new_with_context(ctx: &egui::Context, start_jobs: bool) -> Self {
         let provider_preview = std::env::var_os("CANNA_SCREENSHOT").is_some()
             && std::env::args().any(|a| a == "--provider-browser-preview");
-        let start_jobs = start_jobs && !provider_preview;
+        let account_preview = std::env::var_os("CANNA_SCREENSHOT").is_some()
+            && std::env::args().any(|a| {
+                matches!(
+                    a.as_str(),
+                    "--account-preview" | "--account-code-preview" | "--account-profile-preview"
+                )
+            });
+        let start_jobs = start_jobs && !provider_preview && !account_preview;
         let mut style = (*ctx.style()).clone();
         style.visuals = egui::Visuals::dark();
         ui_helpers::apply_corner_radii(&mut style.visuals);
@@ -171,6 +180,7 @@ impl Canna {
         settings.catalog_folder.clear();
         let configured = !settings.owner.is_empty();
         let mut app = Self {
+            account: Default::default(),
             website: website::Website::default(),
             skins: {
                 let mut skins = skins::Skins::default();
@@ -237,7 +247,7 @@ impl Canna {
             steam_was_focused: true,
             syncing: false,
             scan_status: String::new(),
-            repo_status: "Connect your Canna account in Settings".into(),
+            repo_status: "Log in to connect your Canna account".into(),
             tx,
             rx,
             screenshot: std::env::var_os("CANNA_SCREENSHOT").map(Into::into),
@@ -272,6 +282,18 @@ impl Canna {
                 local_file: String::new(),
                 dependencies: vec![],
             }];
+        }
+        if account_preview {
+            let profile = std::env::args().any(|a| a == "--account-profile-preview");
+            app.token = if profile {
+                "ui-fixture".into()
+            } else {
+                String::new()
+            };
+            app.account.preview(profile);
+            if std::env::args().any(|a| a == "--account-code-preview") {
+                app.website.preview_connection();
+            }
         }
         if provider_preview {
             app.token = "ui-fixture".into();
@@ -567,7 +589,7 @@ impl Canna {
                     )
                     .clicked()
                 {
-                    self.website.start_sign_in();
+                    self.account.open(ctx, &self.token);
                 }
                 if !self.token.is_empty() && ui.button("Manage logged-in devices").clicked() {
                     ctx.open_url(egui::OpenUrl::new_tab("https://cannamods.vip/?devices=1"));
@@ -600,7 +622,7 @@ impl Canna {
                     self.sync(ctx);
                 }
             });
-        self.settings_open = open;
+        self.settings_open = open && !self.account.open;
     }
     fn art(&self, ui: &mut egui::Ui, id: u32, size: egui::Vec2) {
         self.art_tinted(ui, id, size, Color32::WHITE);
@@ -714,7 +736,7 @@ impl Canna {
         if self.provider_browser.mode != 1 {
             self.provider_browser.observe_installations(&self.games);
             if self.token.is_empty() && ui.button("Sign in & connect account").clicked() {
-                self.website.start_sign_in();
+                self.account.open(ui.ctx(), &self.token);
             }
             self.provider_browser.show(
                 ui,
@@ -742,7 +764,7 @@ impl Canna {
                     )
                     .clicked()
                 {
-                    self.website.start_sign_in();
+                    self.account.open(ui.ctx(), &self.token);
                 }
                 if !self.website.account_status.is_empty() {
                     ui.label(&self.website.account_status);
@@ -985,6 +1007,8 @@ impl Canna {
             && self.owned_games.is_empty()
             && !self.pack_ui.editing()
             && !self.settings_open
+            && !self.account.open
+            && !self.account.busy()
             && self.pack_ui.runtime_requests.is_empty()
         {
             let ready = self.pending_update.take().unwrap();
@@ -1098,14 +1122,26 @@ impl Canna {
                 || s.contains("expired")
                 || s.contains("error")
         });
-        chrome::title_bar(ctx);
+        if chrome::title_bar(
+            ctx,
+            if self.token.is_empty() {
+                "Log in"
+            } else {
+                "Account"
+            },
+        )
+        .account_clicked
+        {
+            self.settings_open = false;
+            self.account.open(ctx, &self.token);
+        }
         let notice = notice
             .copied()
             .map(|s| (9, s))
             .or_else(|| self.warnings.first().map(|s| (10, s.as_str())));
         if let Some((icon, message)) = notice {
             egui::Area::new("status_notice".into())
-                .anchor(egui::Align2::RIGHT_TOP, [-108.0, 3.0])
+                .anchor(egui::Align2::RIGHT_TOP, [-146.0, 3.0])
                 .show(ctx, |ui| {
                     if self
                         .chrome
@@ -1153,6 +1189,7 @@ impl Canna {
                     )
                     .clicked()
                 {
+                    self.account.hide();
                     self.website.open = false;
                     self.skins.open = false;
                     self.minecraft_page = false;
@@ -1172,6 +1209,7 @@ impl Canna {
                 )
                 .clicked()
                 {
+                    self.account.hide();
                     self.website.open = false;
                     self.skins.open = false;
                     self.minecraft_page = false;
@@ -1189,6 +1227,7 @@ impl Canna {
                     )
                     .clicked()
                 {
+                    self.account.hide();
                     self.open_discover();
                 }
                 if self
@@ -1201,6 +1240,7 @@ impl Canna {
                     )
                     .clicked()
                 {
+                    self.account.hide();
                     self.website.open = false;
                     self.skins.open = false;
                     self.minecraft_page = false;
@@ -1214,6 +1254,7 @@ impl Canna {
                     .nav(ui, 5, "Minecraft", self.minecraft_page)
                     .clicked()
                 {
+                    self.account.hide();
                     self.minecraft_page = true;
                     self.website.open = false;
                     self.skins.open = false;
@@ -1221,6 +1262,7 @@ impl Canna {
                     self.console_page = false;
                 }
                 if self.chrome.nav(ui, 4, "Skins", self.skins.open).clicked() {
+                    self.account.hide();
                     self.website.open = false;
                     self.skins.open = false;
                     self.minecraft_page = false;
@@ -1231,6 +1273,7 @@ impl Canna {
                     .nav(ui, 7, "Downloads", self.website.open)
                     .clicked()
                 {
+                    self.account.hide();
                     self.minecraft_page = false;
                     self.website.open = true;
                     self.skins.open = false;
@@ -1240,6 +1283,7 @@ impl Canna {
                     .nav(ui, 3, "Settings", self.settings_open)
                     .clicked()
                 {
+                    self.account.hide();
                     self.settings_open = true;
                 }
                 for id in self.owned_games.keys().copied().collect::<Vec<_>>() {
@@ -1259,6 +1303,7 @@ impl Canna {
                         .on_hover_text(format!("Stop {name}"))
                         .clicked()
                     {
+                        self.account.hide();
                         self.stop_game(id);
                     }
                 }
@@ -1269,6 +1314,7 @@ impl Canna {
                             .color(MUTED),
                     );
                     if self.chrome.nav(ui, 6, "Website", false).clicked() {
+                        self.account.hide();
                         ctx.open_url(egui::OpenUrl::new_tab("https://cannamods.vip"));
                     }
                 });
@@ -1302,7 +1348,8 @@ impl Canna {
                     ui.label(RichText::new(&self.update_status).size(13.0).color(MUTED));
                 });
             });
-        if !self.website.open
+        if !self.account.open
+            && !self.website.open
             && !self.skins.open
             && !self.modpacks_page
             && !self.game_details
@@ -1440,6 +1487,16 @@ impl Canna {
                     .inner_margin(20),
             )
             .show(ctx, |ui| {
+                if self.account.open {
+                    if self.account.show(ui, &self.token, &mut self.website) {
+                        website::disconnect();
+                        self.token.clear();
+                        self.catalog = model::supported_catalog();
+                        self.repository_textures.clear();
+                        self.repo_status = "Account logged out".into();
+                    }
+                    return;
+                }
                 if self.website.open { if self.website.show(ui) { self.pack_ui = pack_ui::PackUi::new(); } return; }
                 if self.skins.open { self.skins.show(ui); return; }
                 if self.minecraft_page { self.minecraft.open=false;self.minecraft.library(ui);return; }
@@ -1667,7 +1724,12 @@ impl eframe::App for Canna {
         }
         self.steam_was_focused = focused;
         ctx.request_repaint_after(std::time::Duration::from_secs(30));
-        if self.website.update(ctx) {
+        if self.screenshot.is_none() && self.website.update(ctx) {
+            self.pack_ui = pack_ui::PackUi::new();
+            self.token = website::session();
+            self.sync(ctx);
+        }
+        if self.account.update(ctx, &self.token) {
             self.pack_ui = pack_ui::PackUi::new();
             self.token = website::session();
             self.sync(ctx);
@@ -1688,12 +1750,14 @@ impl eframe::App for Canna {
         }
         self.skins.update(ctx);
         self.render(ctx);
-        self.minecraft.ui(ctx);
-        if self.pack_ui.mod_details_window(ctx) {
-            self.website.refresh_downloads();
-        }
-        if self.discover_page {
-            self.provider_browser.modal(ctx);
+        if !self.account.open {
+            self.minecraft.ui(ctx);
+            if self.pack_ui.mod_details_window(ctx) {
+                self.website.refresh_downloads();
+            }
+            if self.discover_page {
+                self.provider_browser.modal(ctx);
+            }
         }
         chrome::resize_handles(ctx);
         if self.minecraft.discover_requested {
