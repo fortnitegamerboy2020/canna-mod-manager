@@ -58,7 +58,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.26 adds native provider browsing and subscriptions in desktop Discover. Browse metadata with game/source/category/sort/version/loader filters and pages, select a release, download verified archives and add them to Steam modpacks without opening the website. Approved Minecraft content and dependencies can be installed into compatible managed instances. Community catalog navigation remains available. Provider credentials stay on the server. Thunderstore currently returns HTTP 403; broad game support remains a preview and Minecraft login/launch still depends on API approval.
+Canna 0.2.27 fixes cramped Discover filters with larger vertical dropdowns, top-aligned rows and a searchable game selector. All sources now combines paginated metadata from compatible providers, identifies each source, keeps provider-specific categories correctly scoped, and preserves successful results if another provider fails. Modrinth is included for Minecraft. Browsing still retrieves metadata only; archives are retrieved after Download & subscribe. Thunderstore currently returns HTTP 403.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

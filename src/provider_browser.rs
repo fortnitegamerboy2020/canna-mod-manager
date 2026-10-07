@@ -1,5 +1,5 @@
 //! Native metadata browser. Provider credentials never leave the Canna server.
-use anyhow::{Result, ensure};
+use anyhow::{Context, Result, ensure};
 use eframe::egui;
 use serde_json::{Value, json};
 use std::{
@@ -23,7 +23,7 @@ struct Filters {
 impl Default for Filters {
     fn default() -> Self {
         Self {
-            provider: "modrinth".into(),
+            provider: "all".into(),
             game: "minecraft".into(),
             q: String::new(),
             order: "downloads".into(),
@@ -87,8 +87,11 @@ pub struct Browser {
     link: String,
     instance_target: String,
     world_target: String,
+    game_search: String,
     #[cfg(test)]
     modal_rect: Option<egui::Rect>,
+    #[cfg(test)]
+    game_control: Option<(egui::Id, egui::Rect)>,
     imported_id: String,
 }
 impl Default for Browser {
@@ -113,8 +116,11 @@ impl Default for Browser {
             link: String::new(),
             instance_target: String::new(),
             world_target: String::new(),
+            game_search: String::new(),
             #[cfg(test)]
             modal_rect: None,
+            #[cfg(test)]
+            game_control: None,
             imported_id: String::new(),
         }
     }
@@ -162,6 +168,150 @@ fn request(
     );
     ensure!(!value.is_null(), "Invalid server response");
     Ok(value)
+}
+fn provider_requests(url: &reqwest::Url) -> Result<Vec<(String, reqwest::Url)>> {
+    let fields: std::collections::BTreeMap<String, String> = url
+        .query_pairs()
+        .map(|(k, v)| (k.into_owned(), v.into_owned()))
+        .collect();
+    let game = fields
+        .get("game")
+        .map(String::as_str)
+        .unwrap_or("minecraft");
+    let mut providers = if fields.get("provider").is_some_and(|s| s == "all") {
+        if game == "minecraft" {
+            vec!["modrinth", "curseforge"]
+        } else {
+            vec!["thunderstore", "curseforge"]
+        }
+    } else {
+        vec![fields.get("provider").context("Missing provider")?.as_str()]
+    };
+    let category = fields
+        .get("category")
+        .map(String::as_str)
+        .unwrap_or_default();
+    let selection = category.split_once(':');
+    if let Some((source, _)) = selection {
+        providers.retain(|p| *p == source);
+    }
+    let mut requests = Vec::new();
+    for provider in providers {
+        // CurseForge has a fixed index ceiling; other sources can continue paging.
+        if provider == "curseforge"
+            && fields
+                .get("page")
+                .and_then(|s| s.parse::<u32>().ok())
+                .is_some_and(|p| p > 416)
+        {
+            continue;
+        }
+        let mut next = url.clone();
+        next.query_pairs_mut().clear();
+        for (k, v) in &fields {
+            let value = if k == "provider" {
+                provider
+            } else if k == "category" {
+                selection.map(|(_, id)| id).unwrap_or(v)
+            } else {
+                v
+            };
+            next.query_pairs_mut().append_pair(k, value);
+        }
+        requests.push((provider.to_owned(), next));
+    }
+    Ok(requests)
+}
+fn merge_pages(pages: Vec<(String, Result<Value, String>)>, order: &str) -> Result<Value> {
+    let mut items = Vec::new();
+    let mut categories = Vec::new();
+    let mut warnings = Vec::new();
+    let mut more = false;
+    let mut successful = 0;
+    for (provider, result) in pages {
+        match result {
+            Err(error) => warnings.push(format!("{provider}: {error}")),
+            Ok(mut data) => {
+                successful += 1;
+                more |= data["has_more"] == true;
+                if data["stale"] == true {
+                    warnings.push(format!("{provider}: showing cached metadata"));
+                }
+                for item in data["items"].as_array_mut().into_iter().flatten() {
+                    item["provider"] = json!(provider);
+                    items.push(item.clone());
+                }
+                for c in data["categories"].as_array().into_iter().flatten() {
+                    let id = c["id"]
+                        .as_str()
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| c["id"].to_string());
+                    categories.push(json!({"id":format!("{provider}:{id}"),"name":format!("{} · {provider}",text(c,"name"))}));
+                }
+            }
+        }
+    }
+    ensure!(successful > 0, "{}", warnings.join("; "));
+    match order {
+        "downloads" => {
+            items.sort_by_key(|v| std::cmp::Reverse(v["downloads"].as_u64().unwrap_or(0)))
+        }
+        "rating" => items.sort_by_key(|v| std::cmp::Reverse(v["rating"].as_u64().unwrap_or(0))),
+        "updated" => items.sort_by(|a, b| text(b, "updated").cmp(text(a, "updated"))),
+        // Each provider supplies its own newest order. Interleave instead of inventing dates.
+        _ => {}
+    }
+    Ok(
+        json!({"items":items,"categories":categories,"has_more":more,"warnings":warnings,"provider":"all"}),
+    )
+}
+fn browse_metadata(
+    client: &reqwest::blocking::Client,
+    token: &str,
+    url: &reqwest::Url,
+) -> Result<Value> {
+    let requests = provider_requests(url)?;
+    let combined = url
+        .query_pairs()
+        .any(|(k, v)| k == "provider" && v == "all");
+    if !combined {
+        let (provider, url) = requests
+            .into_iter()
+            .next()
+            .context("No provider page available")?;
+        let mut data = request(client, token, reqwest::Method::GET, url, None)?;
+        for item in data["items"].as_array_mut().into_iter().flatten() {
+            item["provider"] = json!(provider);
+        }
+        return Ok(data);
+    }
+    let pages = std::thread::scope(|scope| {
+        let jobs = requests
+            .into_iter()
+            .map(|(provider, url)| {
+                let job = scope.spawn(move || {
+                    request(client, token, reqwest::Method::GET, url, None)
+                        .map_err(|e| e.to_string())
+                });
+                (provider, job)
+            })
+            .collect::<Vec<_>>();
+        jobs.into_iter()
+            .map(|(provider, job)| {
+                (
+                    provider,
+                    job.join()
+                        .unwrap_or_else(|_| Err("Provider request interrupted".into())),
+                )
+            })
+            .collect::<Vec<_>>()
+    });
+    let order = url
+        .query_pairs()
+        .find(|(k, _)| k == "order")
+        .map(|(_, v)| v.into_owned())
+        .unwrap_or_default();
+    merge_pages(pages, &order)
 }
 fn thumbnails(page: &mut Value) {
     use base64::Engine;
@@ -252,6 +402,9 @@ fn compatible(v: &Value, loader: &str, version: &str) -> bool {
 }
 fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, choices: &[(&str, &str)]) {
     egui::ComboBox::from_id_salt(id)
+        .width(190.0)
+        .height(340.0)
+        .truncate()
         .selected_text(
             choices
                 .iter()
@@ -260,9 +413,12 @@ fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, choices: &[(&str, &str
                 .unwrap_or(value),
         )
         .show_ui(ui, |ui| {
-            for (v, name) in choices {
-                ui.selectable_value(value, (*v).into(), *name);
-            }
+            ui.vertical(|ui| {
+                ui.set_min_width(230.0);
+                for (v, name) in choices {
+                    ui.selectable_value(value, (*v).into(), *name);
+                }
+            });
         });
 }
 fn credits(ui: &mut egui::Ui, item: &Value) {
@@ -294,13 +450,13 @@ impl Browser {
         self.mode = 0;
         if app_id == u32::MAX {
             self.filters.game = "minecraft".into();
-            self.filters.provider = "modrinth".into();
+            self.filters.provider = "all".into();
         } else if let Some(g) = crate::game_profiles::games()
             .iter()
             .find(|g| g.app_id == app_id)
         {
             self.filters.game = g.community.clone();
-            self.filters.provider = "thunderstore".into();
+            self.filters.provider = "all".into();
         } else {
             self.mode = 1;
             return;
@@ -339,7 +495,7 @@ impl Browser {
         std::thread::spawn(move || {
             let result=(|| {
                 let client=client()?;
-                let mut data=request(&client,&token,method,url,body)?;
+                let mut data=if matches!(kind,Kind::Browse) {browse_metadata(&client,&token,&url)?}else{request(&client,&token,method,url,body)?};
                 if matches!(kind,Kind::Browse) { thumbnails(&mut data); }
                 if matches!(kind,Kind::Import) && data["approved"]==true {
                     let ticket=request(&client,&token,reqwest::Method::POST,api("download-tickets"),Some(json!({"kind":"mods","id":data["id"]})))?;
@@ -378,7 +534,15 @@ impl Browser {
                     self.status.clear();
                     match job.kind {
                         Kind::Browse => {
-                            self.status = if data["stale"] == true {
+                            self.status = if let Some(warnings) =
+                                data["warnings"].as_array().filter(|w| !w.is_empty())
+                            {
+                                warnings
+                                    .iter()
+                                    .filter_map(Value::as_str)
+                                    .collect::<Vec<_>>()
+                                    .join("; ")
+                            } else if data["stale"] == true {
                                 "Showing cached provider metadata; provider is temporarily unavailable.".into()
                             } else {
                                 String::new()
@@ -469,88 +633,127 @@ impl Browser {
         let before = self.filters.clone();
         let mut search = false;
         ui.add_enabled_ui(self.job.is_none(), |ui| {
-            ui.horizontal_wrapped(|ui| {
-                combo(
-                    ui,
-                    "provider-source",
-                    &mut self.filters.provider,
-                    &[
-                        ("modrinth", "Modrinth"),
-                        ("curseforge", "CurseForge"),
-                        ("thunderstore", "Thunderstore"),
-                    ],
-                );
-                if self.filters.provider != before.provider {
-                    self.filters.game = if self.filters.provider == "thunderstore" {
-                        "rounds"
-                    } else {
-                        "minecraft"
+            ui.allocate_ui_with_layout(
+                egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true),
+                |ui| {
+                    combo(
+                        ui,
+                        "provider-source",
+                        &mut self.filters.provider,
+                        &[
+                            ("all", "All sources"),
+                            ("modrinth", "Modrinth"),
+                            ("curseforge", "CurseForge"),
+                            ("thunderstore", "Thunderstore"),
+                        ],
+                    );
+                    if self.filters.provider != before.provider {
+                        if self.filters.provider == "modrinth" {
+                            self.filters.game = "minecraft".into();
+                        } else if self.filters.provider == "thunderstore"
+                            && self.filters.game == "minecraft"
+                        {
+                            self.filters.game = "rounds".into();
+                        }
+                        self.filters.category.clear();
+                        self.game_search.clear();
                     }
-                    .into();
-                    self.filters.category.clear();
-                    self.filters.loader.clear();
-                    self.filters.version.clear();
-                    self.filters.content_type.clear();
-                }
-                let label = if self.filters.game == "minecraft" {
-                    "Minecraft"
-                } else {
-                    crate::game_profiles::by_community(&self.filters.game)
-                        .map(|g| g.name.as_str())
-                        .unwrap_or("Choose game")
-                };
-                egui::ComboBox::from_id_salt("provider-game")
-                    .selected_text(label)
-                    .show_ui(ui, |ui| {
-                        if self.filters.provider != "thunderstore" {
-                            ui.selectable_value(
-                                &mut self.filters.game,
-                                "minecraft".into(),
-                                "Minecraft",
-                            );
-                        }
-                        if self.filters.provider != "modrinth" {
-                            for g in crate::game_profiles::games() {
-                                ui.selectable_value(
-                                    &mut self.filters.game,
-                                    g.community.clone(),
-                                    &g.name,
-                                );
-                            }
-                        }
-                    });
-                combo(
-                    ui,
-                    "provider-order",
-                    &mut self.filters.order,
-                    &[
-                        ("downloads", "Most downloaded"),
-                        ("rating", "Top rated / popular"),
-                        ("updated", "Recently updated"),
-                        ("newest", "Newest"),
-                    ],
-                );
-                egui::ComboBox::from_id_salt("provider-category")
-                    .selected_text(if self.filters.category.is_empty() {
-                        "All categories"
+                    let label = if self.filters.game == "minecraft" {
+                        "Minecraft"
                     } else {
-                        &self.filters.category
-                    })
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut self.filters.category,
-                            String::new(),
-                            "All categories",
-                        );
-                        for c in self.page["categories"].as_array().into_iter().flatten() {
-                            let id = c["id"]
-                                .as_str()
-                                .map(str::to_owned)
-                                .unwrap_or_else(|| c["id"].to_string());
-                            ui.selectable_value(&mut self.filters.category, id, text(c, "name"));
-                        }
-                    });
-            });
+                        crate::game_profiles::by_community(&self.filters.game)
+                            .map(|g| g.name.as_str())
+                            .unwrap_or("Choose game")
+                    };
+                    let game_control = egui::ComboBox::from_id_salt("provider-game")
+                        .width(240.0)
+                        .height(380.0)
+                        .truncate()
+                        .selected_text(label)
+                        .show_ui(ui, |ui| {
+                            ui.vertical(|ui| {
+                                ui.set_min_width(300.0);
+                                ui.add(
+                                    egui::TextEdit::singleline(&mut self.game_search)
+                                        .hint_text("Find a game…")
+                                        .desired_width(280.0)
+                                        .char_limit(80),
+                                );
+                                let query = self.game_search.to_lowercase();
+                                if self.filters.provider != "thunderstore"
+                                    && "minecraft".contains(&query)
+                                {
+                                    ui.selectable_value(
+                                        &mut self.filters.game,
+                                        "minecraft".into(),
+                                        "Minecraft",
+                                    );
+                                }
+                                if self.filters.provider != "modrinth" {
+                                    for g in crate::game_profiles::games()
+                                        .iter()
+                                        .filter(|g| g.name.to_lowercase().contains(&query))
+                                    {
+                                        ui.selectable_value(
+                                            &mut self.filters.game,
+                                            g.community.clone(),
+                                            &g.name,
+                                        );
+                                    }
+                                }
+                            });
+                        });
+                    #[cfg(test)]
+                    {
+                        self.game_control =
+                            Some((game_control.response.id, game_control.response.rect));
+                    }
+                    #[cfg(not(test))]
+                    let _ = game_control;
+                    combo(
+                        ui,
+                        "provider-order",
+                        &mut self.filters.order,
+                        &[
+                            ("downloads", "Most downloaded"),
+                            ("rating", "Top rated / popular"),
+                            ("updated", "Recently updated"),
+                            ("newest", "Newest"),
+                        ],
+                    );
+                    egui::ComboBox::from_id_salt("provider-category")
+                        .width(210.0)
+                        .height(340.0)
+                        .truncate()
+                        .selected_text(if self.filters.category.is_empty() {
+                            "All categories"
+                        } else {
+                            &self.filters.category
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.vertical(|ui| {
+                                ui.set_min_width(280.0);
+                                ui.selectable_value(
+                                    &mut self.filters.category,
+                                    String::new(),
+                                    "All categories",
+                                );
+                                for c in self.page["categories"].as_array().into_iter().flatten() {
+                                    let id = c["id"]
+                                        .as_str()
+                                        .map(str::to_owned)
+                                        .unwrap_or_else(|| c["id"].to_string());
+                                    ui.selectable_value(
+                                        &mut self.filters.category,
+                                        id,
+                                        text(c, "name"),
+                                    );
+                                }
+                            });
+                        });
+                },
+            );
             if self.filters.game != before.game {
                 self.filters.category.clear();
                 self.filters.loader.clear();
@@ -558,39 +761,43 @@ impl Browser {
                 self.filters.content_type.clear();
             }
             if self.filters.game == "minecraft" {
-                ui.horizontal_wrapped(|ui| {
-                    combo(
-                        ui,
-                        "provider-type",
-                        &mut self.filters.content_type,
-                        &[
-                            ("", "All content"),
-                            ("mod", "Mods"),
-                            ("shader", "Shaders"),
-                            ("resourcepack", "Resource packs"),
-                            ("datapack", "Data packs"),
-                        ],
-                    );
-                    combo(
-                        ui,
-                        "provider-loader",
-                        &mut self.filters.loader,
-                        &[
-                            ("", "All loaders"),
-                            ("fabric", "Fabric"),
-                            ("forge", "Forge"),
-                            ("neoforge", "NeoForge"),
-                            ("quilt", "Quilt"),
-                        ],
-                    );
-                    ui.label("Game version");
-                    let r = ui.add(
-                        egui::TextEdit::singleline(&mut self.filters.version)
-                            .desired_width(90.0)
-                            .char_limit(40),
-                    );
-                    search |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
-                });
+                ui.allocate_ui_with_layout(
+                    egui::vec2(ui.available_width(), ui.spacing().interact_size.y),
+                    egui::Layout::left_to_right(egui::Align::Min).with_main_wrap(true),
+                    |ui| {
+                        combo(
+                            ui,
+                            "provider-type",
+                            &mut self.filters.content_type,
+                            &[
+                                ("", "All content"),
+                                ("mod", "Mods"),
+                                ("shader", "Shaders"),
+                                ("resourcepack", "Resource packs"),
+                                ("datapack", "Data packs"),
+                            ],
+                        );
+                        combo(
+                            ui,
+                            "provider-loader",
+                            &mut self.filters.loader,
+                            &[
+                                ("", "All loaders"),
+                                ("fabric", "Fabric"),
+                                ("forge", "Forge"),
+                                ("neoforge", "NeoForge"),
+                                ("quilt", "Quilt"),
+                            ],
+                        );
+                        ui.label("Game version");
+                        let r = ui.add(
+                            egui::TextEdit::singleline(&mut self.filters.version)
+                                .desired_width(90.0)
+                                .char_limit(40),
+                        );
+                        search |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    },
+                );
             }
             ui.horizontal(|ui| {
                 let r = ui.add(
@@ -656,6 +863,7 @@ impl Browser {
                                 artwork(ui, item);
                                 ui.heading(text(item, "name"));
                             });
+                            ui.label(text(item, "provider"));
                             credits(ui, item);
                             let description = text(item, "description");
                             let preview: String = description.chars().take(180).collect();
@@ -1063,6 +1271,19 @@ mod tests {
             browser.preview_fixture();
             let mut packs = crate::pack_ui::PackUi::new();
             let mut target = None;
+            for _ in 0..3 {
+                let _ = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            browser.show(ui, &[], None, &mut packs, &mut target)
+                        });
+                    },
+                );
+            }
             let output = ctx.run(
                 egui::RawInput {
                     screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
@@ -1109,6 +1330,138 @@ mod tests {
         }
     }
     #[test]
+    fn combined_sources_are_game_scoped_and_category_ids_stay_with_their_provider() {
+        let f = Filters::default();
+        let requests = provider_requests(&f.url().unwrap()).unwrap();
+        assert_eq!(
+            requests.iter().map(|(p, _)| p.as_str()).collect::<Vec<_>>(),
+            vec!["modrinth", "curseforge"]
+        );
+        let f = Filters {
+            game: "rounds".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            provider_requests(&f.url().unwrap())
+                .unwrap()
+                .iter()
+                .map(|(p, _)| p.as_str())
+                .collect::<Vec<_>>(),
+            vec!["thunderstore", "curseforge"]
+        );
+        let f = Filters {
+            category: "curseforge:123".into(),
+            ..Default::default()
+        };
+        let urls = provider_requests(&f.url().unwrap()).unwrap();
+        assert_eq!(urls.len(), 1);
+        assert_eq!(urls[0].0, "curseforge");
+        assert!(
+            urls[0]
+                .1
+                .query_pairs()
+                .any(|(k, v)| k == "category" && v == "123")
+        );
+    }
+    #[test]
+    fn a_failed_source_does_not_hide_results_or_break_pagination() {
+        let a = json!({"items":[{"name":"one","downloads":10}],"categories":[{"id":"performance","name":"Performance"}],"has_more":true});
+        let b = json!({"items":[{"name":"two","downloads":20}],"categories":[{"id":12,"name":"Resources"}],"has_more":false});
+        let data = merge_pages(
+            vec![
+                ("modrinth".into(), Ok(a.clone())),
+                ("curseforge".into(), Ok(b)),
+            ],
+            "downloads",
+        )
+        .unwrap();
+        assert_eq!(data["items"][0]["provider"], "curseforge");
+        assert_eq!(data["items"][1]["provider"], "modrinth");
+        assert_eq!(data["categories"][0]["id"], "modrinth:performance");
+        assert_eq!(data["has_more"], true);
+        let partial = merge_pages(
+            vec![
+                ("modrinth".into(), Ok(a)),
+                ("curseforge".into(), Err("temporarily unavailable".into())),
+            ],
+            "downloads",
+        )
+        .unwrap();
+        assert_eq!(partial["items"].as_array().unwrap().len(), 1);
+        assert_eq!(partial["warnings"].as_array().unwrap().len(), 1);
+        assert!(
+            merge_pages(
+                vec![("thunderstore".into(), Err("403".into()))],
+                "downloads"
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn game_dropdown_opens_without_moving_controls_and_shows_a_useful_list() {
+        let ctx = egui::Context::default();
+        let size = egui::vec2(1240.0, 820.0);
+        let mut b = Browser::default();
+        b.preview_fixture();
+        let mut packs = crate::pack_ui::PackUi::new();
+        let mut target = None;
+        let input = |events| egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+            events,
+            ..Default::default()
+        };
+        for _ in 0..3 {
+            let _ = ctx.run(input(vec![]), |ctx| {
+                egui::CentralPanel::default()
+                    .show(ctx, |ui| b.show(ui, &[], None, &mut packs, &mut target));
+            });
+        }
+        let (id, before) = b.game_control.unwrap();
+        let point = before.center();
+        let _ = ctx.run(
+            input(vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]),
+            |ctx| {
+                egui::CentralPanel::default()
+                    .show(ctx, |ui| b.show(ui, &[], None, &mut packs, &mut target));
+            },
+        );
+        let _ = ctx.run(
+            input(vec![egui::Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }]),
+            |ctx| {
+                egui::CentralPanel::default()
+                    .show(ctx, |ui| b.show(ui, &[], None, &mut packs, &mut target));
+            },
+        );
+        assert!(egui::ComboBox::is_open(&ctx, id));
+        for _ in 0..3 {
+            let _ = ctx.run(input(vec![]), |ctx| {
+                egui::CentralPanel::default()
+                    .show(ctx, |ui| b.show(ui, &[], None, &mut packs, &mut target));
+            });
+        }
+        let output = ctx.run(input(vec![]), |ctx| {
+            egui::CentralPanel::default()
+                .show(ctx, |ui| b.show(ui, &[], None, &mut packs, &mut target));
+        });
+        assert_eq!(b.game_control.unwrap().1, before);
+        let visible_games=output.shapes.iter().filter(|s|matches!(&s.shape,egui::Shape::Text(t) if t.pos.y>=s.clip_rect.min.y && t.pos.y+18.0<=s.clip_rect.max.y && crate::game_profiles::games().iter().any(|g|g.name==t.galley.text()))).count();
+        assert!(visible_games >= 6, "Only {visible_games} game rows visible");
+        assert!(b.job.is_none());
+    }
+    #[test]
     fn account_switch_drops_private_results_and_inflight_responses() {
         let ctx = egui::Context::default();
         let mut b = Browser::default();
@@ -1147,6 +1500,11 @@ pub fn live_check() -> Result<()> {
             data["has_more"]
         );
     }
+    let combined = browse_metadata(&c, &token, &Filters::default().url()?)?;
+    println!(
+        "All sources: {} metadata results",
+        combined["items"].as_array().map(Vec::len).unwrap_or(0)
+    );
     let data = request(
         &c,
         &token,
