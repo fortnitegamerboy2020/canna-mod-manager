@@ -89,11 +89,17 @@ impl Console {
             ui.checkbox(&mut self.follow, "Follow output");
             ui.checkbox(&mut self.errors_only, "Errors & warnings");
         });
+        let source_game = crate::model::source_addons(self.game_id).is_some();
+        let sources: &[&str] = if source_game {
+            &["Canna", "Source game"]
+        } else {
+            &["Canna", "BepInEx", "Unity", "Preloader"]
+        };
+        if self.source >= sources.len() {
+            self.source = 1;
+        }
         ui.horizontal_wrapped(|ui| {
-            for (id, name) in ["Canna", "BepInEx", "Unity", "Preloader"]
-                .iter()
-                .enumerate()
-            {
+            for (id, name) in sources.iter().enumerate() {
                 ui.selectable_value(&mut self.source, id, *name);
             }
         });
@@ -198,6 +204,17 @@ fn tail(path: &Path) -> LogFile {
     }
 }
 pub fn collect(game: &InstalledGame) -> Snapshot {
+    if let Some(addons) = crate::model::source_addons(game.app_id) {
+        let content = game.path.join(addons).parent().unwrap().to_owned();
+        let mut file = tail(&content.join("console.log"));
+        if !content.join("console.log").exists() {
+            file.text = "No Source console log yet. Launch this game through Canna to enable logging. An already-running game must be restarted through Canna.".into();
+        }
+        return Snapshot {
+            files: vec![file],
+            running: crate::runtime::game_running(game).map_err(|e| e.to_string()),
+        };
+    }
     let bepinex = [
         game.path.join("BepInEx/LogOutput.log"),
         game.path.join("BepInEx/LogOutput.txt"),
@@ -272,13 +289,24 @@ impl LaunchWatch {
         };
         if running {
             self.was_running = true;
+            let source_game = crate::model::source_addons(self.game_id).is_some();
             self.loader_seen |= snapshot.files.iter().any(|file| {
                 file.modified.is_some_and(|time| time >= self.requested)
-                    && file.text.contains("Chainloader startup complete")
+                    && if source_game {
+                        !file.text.is_empty()
+                            && !file.text.starts_with("Log file is empty")
+                            && !file.text.starts_with("Cannot read log")
+                    } else {
+                        file.text.contains("Chainloader startup complete")
+                    }
             });
             return (
                 if !self.modded {
                     "Game running — vanilla mode"
+                } else if source_game && self.loader_seen {
+                    "Game running — Source console output received"
+                } else if source_game {
+                    "Game running — waiting for Source console output; see Console"
                 } else if self.loader_seen {
                     "Game running — BepInEx startup confirmed"
                 } else {
@@ -307,6 +335,49 @@ impl LaunchWatch {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn source_console_reads_engine_log_and_rejects_stale_launch_output() {
+        let root =
+            std::env::temp_dir().join(format!("canna-source-console-{}", std::process::id()));
+        fs::create_dir_all(root.join("left4dead2")).unwrap();
+        let game = InstalledGame {
+            app_id: 550,
+            name: "Left 4 Dead 2".into(),
+            path: root.clone(),
+            loader: String::new(),
+            plugins: 0,
+            icon: None,
+        };
+        fs::write(
+            root.join("left4dead2/console.log"),
+            "Loading server plugin
+[Canna Auto-Hop] bootstrap ready
+",
+        )
+        .unwrap();
+        let mut snapshot = collect(&game);
+        assert_eq!(snapshot.files.len(), 1);
+        assert!(snapshot.files[0].text.contains("bootstrap ready"));
+        snapshot.running = Ok(true);
+        let now = SystemTime::now();
+        let mut watch = LaunchWatch::new(550, true, now);
+        snapshot.files[0].modified = Some(now - std::time::Duration::from_secs(10));
+        assert!(watch.update(&snapshot).0.contains("waiting for Source"));
+        snapshot.files[0].modified = Some(now);
+        assert!(
+            watch
+                .update(&snapshot)
+                .0
+                .contains("Source console output received")
+        );
+        fs::remove_file(root.join("left4dead2/console.log")).unwrap();
+        assert!(
+            collect(&game).files[0]
+                .text
+                .contains("Launch this game through Canna")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn launch_status_tracks_process_exit_and_rejects_old_logs() {
         let now = SystemTime::now();

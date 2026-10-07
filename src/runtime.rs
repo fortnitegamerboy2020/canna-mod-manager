@@ -428,8 +428,8 @@ pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::O
         set_mode(&game.path, modded)?;
     }
     let earliest = crate::owned_game::OwnedGame::now();
-    if crate::model::source_addons(game.app_id).is_some() && modded {
-        crate::steam::launch_practice(game.app_id)?;
+    if crate::model::source_addons(game.app_id).is_some() {
+        crate::steam::launch_source(game.app_id, modded)?;
     } else {
         Command::new("explorer.exe")
             .arg(format!("steam://rungameid/{}", game.app_id))

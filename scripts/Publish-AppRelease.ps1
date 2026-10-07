@@ -58,7 +58,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.23 adds border and corner resizing for the desktop window, compact full-width Discover results, and a centered in-app mod details dialog with a dimmed backdrop, artwork, credits, source links and verified downloads.
+Canna 0.2.24 adds Source console log capture for Left 4 Dead and Left 4 Dead 2, including engine messages, script prints and plugin output. Both launch modes enable logging; modded launches retain -insecure. Launch status now reports Source output instead of waiting for BepInEx.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

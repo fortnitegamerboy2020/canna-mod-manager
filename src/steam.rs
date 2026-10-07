@@ -441,7 +441,7 @@ mod tests {
     }
 }
 
-pub fn launch_practice(app_id: u32) -> Result<()> {
+pub fn launch_source(app_id: u32, modded: bool) -> Result<()> {
     if crate::model::source_addons(app_id).is_none() {
         bail!("Unsupported practice game");
     }
@@ -452,8 +452,35 @@ pub fn launch_practice(app_id: u32) -> Result<()> {
         .ok_or_else(|| {
             anyhow::anyhow!("Steam executable not found; check your Steam installation")
         })?;
-    std::process::Command::new(steam)
-        .args(["-applaunch", &app_id.to_string(), "-insecure", "-console"])
-        .spawn()?;
+    let mut command = std::process::Command::new(steam);
+    command.args(source_launch_args(app_id, modded)?);
+    command.spawn()?;
     Ok(())
+}
+
+fn source_launch_args(app_id: u32, modded: bool) -> Result<Vec<String>> {
+    anyhow::ensure!(
+        crate::model::source_addons(app_id).is_some(),
+        "Unsupported Source game"
+    );
+    let mut args = vec!["-applaunch".into(), app_id.to_string(), "-condebug".into()];
+    if modded {
+        args.extend(["-insecure".into(), "-console".into()]);
+    }
+    Ok(args)
+}
+#[cfg(test)]
+mod source_launch_tests {
+    #[test]
+    fn logging_enabled_without_changing_vanilla_security() {
+        for id in [500, 550] {
+            let vanilla = super::source_launch_args(id, false).unwrap();
+            assert!(vanilla.iter().any(|a| a == "-condebug"));
+            assert!(!vanilla.iter().any(|a| a == "-insecure"));
+            let modded = super::source_launch_args(id, true).unwrap();
+            assert!(modded.iter().any(|a| a == "-condebug"));
+            assert!(modded.iter().any(|a| a == "-insecure"));
+        }
+        assert!(super::source_launch_args(1686940, true).is_err());
+    }
 }
