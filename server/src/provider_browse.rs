@@ -14,6 +14,10 @@ pub struct Search {
     pub category: String,
     #[serde(default)]
     pub version: String,
+    #[serde(default)]
+    pub loader: String,
+    #[serde(default)]
+    pub content_type: String,
     #[serde(default = "first")]
     pub page: u32,
 }
@@ -35,9 +39,18 @@ fn valid(q: &Search) -> ApiResult<()> {
         "thunderstore" | "modrinth" | "curseforge"
     ) || q.page == 0
         || q.page > 500
+        || (q.provider == "curseforge" && q.page > 416)
         || q.q.len() > 120
         || q.category.len() > 80
         || q.version.len() > 40
+        || !matches!(
+            q.loader.as_str(),
+            "" | "fabric" | "forge" | "neoforge" | "quilt"
+        )
+        || !matches!(
+            q.content_type.as_str(),
+            "" | "mod" | "shader" | "resourcepack" | "datapack"
+        )
         || !matches!(
             q.order.as_str(),
             "" | "updated" | "downloads" | "rating" | "newest"
@@ -106,6 +119,9 @@ pub async fn search(
             return Err(e);
         }
     };
+    data["has_more"] = json!(
+        data["has_more"] == true && q.page < if q.provider == "curseforge" { 416 } else { 500 }
+    );
     data["page"] = json!(q.page);
     data["provider"] = json!(q.provider);
     data["cache_days"] = json!(7);
@@ -173,6 +189,12 @@ async fn fetch(q: &Search) -> ApiResult<Value> {
             .map(String::from)
             .collect::<Vec<_>>(),
         ];
+        if !q.content_type.is_empty() {
+            facets[0] = vec![format!("project_type:{}", q.content_type)];
+        }
+        if !q.loader.is_empty() {
+            facets.push(vec![format!("categories:{}", q.loader)]);
+        }
         if !q.category.is_empty() {
             facets.push(vec![format!("categories:{}", q.category)]);
         }
@@ -234,6 +256,32 @@ async fn fetch(q: &Search) -> ApiResult<Value> {
                 ("index", ((q.page - 1) * 24).to_string()),
                 ("categoryId", q.category.clone()),
                 ("gameVersion", q.version.clone()),
+                (
+                    "modLoaderType",
+                    match q.loader.as_str() {
+                        "forge" => "1",
+                        "fabric" => "4",
+                        "quilt" => "5",
+                        "neoforge" => "6",
+                        _ => "",
+                    }
+                    .into(),
+                ),
+                (
+                    "classId",
+                    if q.game == "minecraft" {
+                        match q.content_type.as_str() {
+                            "mod" => "6",
+                            "resourcepack" => "12",
+                            "shader" => "6552",
+                            "datapack" => "6945",
+                            _ => "",
+                        }
+                    } else {
+                        ""
+                    }
+                    .into(),
+                ),
             ],
         ),
         true,
@@ -255,6 +303,44 @@ fn normalize_thunderstore(data: &Value, community: &str) -> Vec<Value> {
 }
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn browsing_cached_metadata_never_imports_archives() {
+        use crate::tests::{account, call, fixture, value};
+        let (_dir, app) = fixture();
+        let token = account(&app, "browser", false);
+        let q = super::Search {
+            provider: "modrinth".into(),
+            game: "minecraft".into(),
+            q: "fixture".into(),
+            order: "downloads".into(),
+            category: String::new(),
+            version: String::new(),
+            loader: String::new(),
+            content_type: String::new(),
+            page: 1,
+        };
+        let key = serde_json::to_string(&q).unwrap();
+        app.db.lock().unwrap().execute("INSERT INTO provider_pages VALUES(?1,?2,?3)",super::params![key,serde_json::json!({"items":[{"name":"Metadata only"}],"has_more":true,"categories":[]}).to_string(),super::now()]).unwrap();
+        let response = call(
+            app.clone(),
+            "GET",
+            "/api/v1/providers/search?provider=modrinth&game=minecraft&q=fixture&order=downloads",
+            serde_json::json!({}),
+            Some(&token),
+        )
+        .await;
+        assert_eq!(response.status(), super::StatusCode::OK);
+        assert_eq!(value(response).await["items"][0]["name"], "Metadata only");
+        assert_eq!(
+            app.db
+                .lock()
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM mods", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(std::fs::read_dir(&app.files).unwrap().count(), 0);
+    }
     #[test]
     fn provider_search_is_bounded_and_attribution_preserved() {
         let mut q = super::Search {
@@ -264,6 +350,8 @@ mod tests {
             order: "downloads".into(),
             category: String::new(),
             version: String::new(),
+            loader: String::new(),
+            content_type: String::new(),
             page: 1,
         };
         assert!(super::valid(&q).is_ok());

@@ -171,7 +171,9 @@ function pageReads(path){
  const url=new URL(path,location.origin),p=url.pathname;
  if(p==='/members')return ['profiles?page=1&search='];
  if(/^\/members\/\d+$/.test(p))return ['profiles/'+p.split('/')[2]];
- if(p==='/mods')return ['mods','packs'];
+ if(p==='/mods')return ['providers/games'];
+ if(p==='/library')return ['mods','packs'];
+ if(p==='/subscriptions')return ['mods/subscriptions?page=1&q='];
  if(p==='/admin' && currentUser.admin)return ['admin/overview'];
  if(p==='/notifications')return ['notifications'];
  if(p==='/submissions')return ['submissions'];
@@ -200,13 +202,13 @@ async function navigatePage(path,back=false){
  }finally{navigating=false;}
 }
 function setupPagePrefetch(){
- const paths={forumnav:'/forums',librarynav:'/mods',peoplenav:'/members',adminnav:'/admin',submissionsnav:'/submissions',notificationsnav:'/notifications',myprofilenav:'/members/'+currentUser.id,welcome:'/members/'+currentUser.id,forumback:'/forums',latestdiscussions:'/forums/latest'};
+ const paths={forumnav:'/forums',browsenav:'/mods',subscriptionsnav:'/subscriptions',librarynav:'/library',peoplenav:'/members',adminnav:'/admin',submissionsnav:'/submissions',notificationsnav:'/notifications',myprofilenav:'/members/'+currentUser.id,welcome:'/members/'+currentUser.id,forumback:'/forums',latestdiscussions:'/forums/latest'};
  for(const [id,path] of Object.entries(paths))$(id).dataset.page=path;
  if(prefetchReady)return;prefetchReady=true;
  const intent=event=>{
   const node=event.target.closest('a[href],button[data-page]');if(!node || navigator.connection?.saveData)return;
   const path=node.dataset.page || node.getAttribute('href');
-  if(!path || !/^\/(forums(?:\/|$)|members(?:\/|$)|mods$|admin$|submissions$|notifications$|help$|support$|review\/mods\/)/.test(path) || path.includes('?'))return;
+  if(!path || !/^\/(forums(?:\/|$)|members(?:\/|$)|mods$|library$|subscriptions$|admin$|submissions$|notifications$|help$|support$|review\/mods\/)/.test(path) || path.includes('?'))return;
   clearTimeout(node._prefetchTimer);
   node._prefetchTimer=setTimeout(()=>{
    if(pageReads(path).length){warmPage(path);return;}

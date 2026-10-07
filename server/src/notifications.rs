@@ -29,6 +29,7 @@ pub fn notify(
     Ok(())
 }
 pub fn accepted(db: &Connection, id: &str) -> ApiResult<()> {
+    subscriptions::accepted(db, id)?;
     let row: Option<(i64, String)> = db
         .query_row(
             "SELECT user_id,name FROM mod_submissions WHERE id=?1 AND status<>'accepted'",

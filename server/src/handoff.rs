@@ -218,6 +218,9 @@ pub async fn create(
     if count >= 10 {
         return Err(bad("Too many pending downloads; wait a few minutes"));
     }
+    if input.kind == "mods" && catalog::project_key(&external::details(&db, &input.id)?).is_some() {
+        subscriptions::subscribe(&db, user, &input.id)?;
+    }
     let raw = token();
     db.execute(
         "INSERT INTO download_tickets(hash,user_id,kind,item,expires) VALUES(?1,?2,?3,?4,?5)",

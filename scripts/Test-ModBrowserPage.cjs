@@ -1,0 +1,28 @@
+const fs=require('fs'),assert=require('assert');const {chromium}=require(process.env.CANNA_PLAYWRIGHT_MODULE||'playwright');
+(async()=>{const browser=await chromium.launch({headless:true,channel:'msedge'});
+for(const width of [1280,390]){const page=await browser.newPage({viewport:{width,height:900}});const requests=[],errors=[];page.on('pageerror',e=>errors.push(e.message));
+await page.route('https://canna.test/**',async route=>{const url=new URL(route.request().url()),path=url.pathname;
+if(path.startsWith('/api/v1/')){const key=path.slice(8);requests.push(path+url.search);let data=[];
+if(key==='me')data={id:1,username:'Tester',role:'member',admin:false,kash:0,can_invite:false,invites_remaining:0};
+if(key==='providers/games')data={games:[{name:'ROUNDS',community:'rounds'}]};
+if(key==='providers/search')data={items:[{name:'External Fixture',authors:'Creator',source_url:'https://modrinth.com/mod/fixture',author_url:'https://modrinth.com/user/Creator',description:'External provider listing',downloads:100}],categories:[{name:'Utility',id:'utility'}],has_more:url.searchParams.get('page')!=='2'};
+if(key==='mods/subscriptions')data={items:[{id:'fixture',source:'fixture',name:'Subscribed Mod',provider:'modrinth',version:'1',approved:true}],page:1,has_more:false};
+if(key==='mods/external/preview')data={name:'External Fixture',versions:[{id:'one',name:'1',game_versions:['1.21.1'],loaders:['fabric']}]};
+if(key==='mods/external/import')data={id:'fixture',approved:true};
+if(key==='announcement')data={active:false,revision:0};
+if(key==='mods/updates/status')data={checks:[],retry_at:0};
+if(key==='events')return route.fulfill({contentType:'text/event-stream',body:''});
+return route.fulfill({contentType:'application/json',body:JSON.stringify(data)});}
+if(/\.(js|css)$/.test(path))return route.fulfill({contentType:path.endsWith('.js')?'text/javascript':'text/css',body:fs.readFileSync('server/web'+path,'utf8')});
+if(path.endsWith('.png'))return route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64')});
+return route.fulfill({contentType:'text/html',body:fs.readFileSync('server/web/index.html','utf8')});});
+await page.goto('https://canna.test/mods');await page.locator('#bootstatus').waitFor({state:'hidden'});await page.getByRole('heading',{name:'External Fixture'}).waitFor();
+assert(await page.locator('#browseview').isVisible());assert(!await page.locator('#libraryview').isVisible());assert(!requests.includes('/api/v1/mods'));assert(!requests.some(p=>p.includes('/external/import')));
+await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByText('Page 2',{exact:true}).waitFor();
+await page.getByLabel('Loader',{exact:true}).selectOption('fabric');await page.waitForFunction(()=>location.search.includes('loader=fabric'));
+await page.evaluate(()=>{window.downloaded=[];window.downloadToApp=async item=>downloaded.push(item);});await page.getByRole('button',{name:'Download & subscribe'}).click();await page.waitForFunction(()=>downloaded.length===1);
+assert.equal(requests.filter(p=>p==='/api/v1/mods/external/import').length,1);
+await page.locator('#subscriptionsnav').click();await page.getByRole('heading',{name:'Subscribed Mod'}).waitFor();assert(!await page.locator('#browseview').isVisible());
+await page.locator('#librarynav').click();await page.getByRole('heading',{name:'My library',exact:true}).waitFor();assert(await page.locator('#libraryview').isVisible());
+await page.locator('#browsenav').click();assert(await page.locator('#browseview').isVisible());assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
+console.log(`Full community browser ${width}px: auto-loaded external listings, pagination, filtering, navigation and on-demand download passed`);await page.close();}await browser.close();})().catch(e=>{console.error(e);process.exit(1)});

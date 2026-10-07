@@ -500,7 +500,15 @@ pub async fn import(
         .upload_gate
         .try_acquire()
         .map_err(|_| bad("Another import is in progress"))?;
-    import_background(&app, user, input).await.map(axum::Json)
+    let result = import_background(&app, user, input).await?;
+    subscriptions::subscribe(
+        &app.db.lock().unwrap(),
+        user,
+        result["id"]
+            .as_str()
+            .ok_or_else(|| bad("Import did not return a mod"))?,
+    )?;
+    Ok(axum::Json(result))
 }
 pub async fn refresh_existing(app: &App, user: i64, id: &str) -> ApiResult<Option<String>> {
     let (data, origin) = {

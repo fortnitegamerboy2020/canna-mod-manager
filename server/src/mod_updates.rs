@@ -51,7 +51,7 @@ fn next(app: &App) -> ApiResult<Option<(String, String, i64)>> {
         [],
         |r| r.get(0),
     )?;
-    let mut stmt=db.prepare("SELECT m.id,m.user_id,d.data FROM mods m JOIN mod_details d ON d.mod_id=m.id JOIN users u ON u.id=m.user_id WHERE u.banned=0 AND json_extract(d.data,'$.provider') IN ('thunderstore','modrinth','curseforge','github') ORDER BY m.rowid DESC")?;
+    let mut stmt=db.prepare("SELECT m.id,m.user_id,d.data FROM mods m JOIN mod_details d ON d.mod_id=m.id JOIN users u ON u.id=m.user_id WHERE json_extract(d.data,'$.provider') IN ('thunderstore','modrinth','curseforge','github') ORDER BY m.rowid DESC")?;
     let mut seen = std::collections::HashSet::new();
     let mut candidates = Vec::new();
     for row in stmt.query_map([], |r| {
@@ -70,6 +70,13 @@ fn next(app: &App) -> ApiResult<Option<(String, String, i64)>> {
         let Some(key) = catalog::project_key(&data) else {
             continue;
         };
+        let subscriber:Option<i64>=db.query_row("SELECT s.user_id FROM mod_subscriptions s JOIN users u ON u.id=s.user_id WHERE s.source=?1 AND u.banned=0 ORDER BY s.created LIMIT 1",[&key],|r|r.get(0)).optional()?;
+        let user = subscriber.unwrap_or(user);
+        if db.query_row("SELECT banned FROM users WHERE id=?1", [user], |r| {
+            r.get::<_, bool>(0)
+        })? {
+            continue;
+        }
         let source = hex::encode(Sha256::digest(key));
         if !seen.insert(source.clone()) {
             continue;

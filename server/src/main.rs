@@ -44,6 +44,7 @@ mod scans;
 mod sections;
 mod security;
 mod source_packages;
+mod subscriptions;
 mod support;
 mod twofactor;
 mod updates;
@@ -162,6 +163,7 @@ impl App {
         support::initialize(&db)?;
         catalog::initialize(&db)?;
         mod_updates::initialize(&db)?;
+        subscriptions::initialize(&db)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS mod_reviews(mod_id TEXT PRIMARY KEY REFERENCES mods(id) ON DELETE CASCADE, approved INTEGER NOT NULL DEFAULT 0);")?;
         scans::initialize(&db)?;
         notifications::initialize(&db)?;
@@ -901,6 +903,8 @@ fn router(app: Shared) -> Router {
         .route("/forums/sections/{id}", get(community_page))
         .route("/forums/topics/{id}", get(community_page))
         .route("/mods", get(community_page))
+        .route("/library", get(community_page))
+        .route("/subscriptions", get(community_page))
         .route("/submissions", get(community_page))
         .route("/notifications", get(community_page))
         .route("/members", get(community_page))
@@ -1086,6 +1090,7 @@ fn router(app: Shared) -> Router {
         )
         .route("/api/v1/catalog", get(catalog::list))
         .route("/api/v1/catalog/file", get(catalog::file))
+        .route("/api/v1/mods/subscriptions", get(subscriptions::list).delete(subscriptions::remove))
         .route("/api/v1/providers/games", get(provider_browse::games))
         .route("/api/v1/providers/search", get(provider_browse::search))
         .route("/api/v1/mods/external/preview", post(external::preview))
