@@ -1544,6 +1544,20 @@ mod tests {
 pub fn live_check() -> Result<()> {
     let token = crate::website::session();
     let c = client()?;
+    for game in ["bopl-battle", "rounds"] {
+        for page in [1, 2] {
+            let f = Filters {
+                provider: "thunderstore".into(),
+                game: game.into(),
+                page,
+                ..Default::default()
+            };
+            let data = request(&c, &token, reqwest::Method::GET, f.url()?, None)?;
+            let count = data["items"].as_array().map(Vec::len).unwrap_or(0);
+            ensure!(count > 0, "No live Thunderstore listings for {game}");
+            println!("Thunderstore {game} page {page}: {count} metadata results");
+        }
+    }
     for provider in ["modrinth", "curseforge"] {
         let f = Filters {
             provider: provider.into(),

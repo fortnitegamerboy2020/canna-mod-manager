@@ -171,6 +171,9 @@ async fn cf_pages(url: &str) -> ApiResult<Vec<Value>> {
     Ok(output)
 }
 pub(crate) async fn metadata(url: &str, cf: bool) -> ApiResult<Value> {
+    metadata_limited(url, cf, 8 * 1024 * 1024).await
+}
+pub(crate) async fn metadata_limited(url: &str, cf: bool, limit: usize) -> ApiResult<Value> {
     let mut response = if cf {
         curseforge::get(url).await?
     } else {
@@ -191,7 +194,7 @@ pub(crate) async fn metadata(url: &str, cf: bool) -> ApiResult<Value> {
         .await
         .map_err(|_| bad("Provider response interrupted"))?
     {
-        if bytes.len() + chunk.len() > 8 * 1024 * 1024 {
+        if bytes.len() + chunk.len() > limit {
             return Err(bad("Provider response too large"));
         }
         bytes.extend_from_slice(&chunk);

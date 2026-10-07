@@ -143,6 +143,11 @@ pub async fn search(
 }
 async fn fetch(q: &Search) -> ApiResult<Value> {
     if q.provider == "thunderstore" {
+        if let Some((at, rows)) = THUNDERSTORE_LISTINGS.lock().await.get(&q.game)
+            && now() - at < 1800
+        {
+            return Ok(public_list_page(rows, q));
+        }
         let ordering = match q.order.as_str() {
             "downloads" => "most-downloaded",
             "rating" => "top-rated",
@@ -166,7 +171,11 @@ async fn fetch(q: &Search) -> ApiResult<Value> {
             ),
             false,
         )
-        .await?;
+        .await;
+        let data = match data {
+            Ok(data) => data,
+            Err(_) => return thunderstore_public(q).await,
+        };
         return Ok(
             json!({"items":normalize_thunderstore(&data,&q.game),"categories":data["categories"],"has_more":data["has_more_pages"]}),
         );
@@ -298,11 +307,196 @@ async fn fetch(q: &Search) -> ApiResult<Value> {
         json!({"items":items,"categories":categories,"has_more":data["pagination"]["totalCount"].as_u64().unwrap_or(0)>q.page as u64*24}),
     )
 }
+// Cache compact metadata only, without archives or full version histories.
+type CommunityCache = std::collections::BTreeMap<String, (i64, std::sync::Arc<Vec<Value>>)>;
+static THUNDERSTORE_LISTINGS: std::sync::LazyLock<tokio::sync::Mutex<CommunityCache>> =
+    std::sync::LazyLock::new(|| tokio::sync::Mutex::new(std::collections::BTreeMap::new()));
+async fn thunderstore_public(q: &Search) -> ApiResult<Value> {
+    let mut cache = THUNDERSTORE_LISTINGS.lock().await;
+    let rows = if let Some((at, rows)) = cache.get(&q.game)
+        && now() - at < 1800
+    {
+        rows.clone()
+    } else {
+        let data = external::metadata_limited(
+            &format!("https://thunderstore.io/c/{}/api/v1/package/", q.game),
+            false,
+            64 * 1024 * 1024,
+        )
+        .await?;
+        let rows = std::sync::Arc::new(normalize_public_list(&data, &q.game)?);
+        if cache.len() >= 4
+            && !cache.contains_key(&q.game)
+            && let Some(oldest) = cache
+                .iter()
+                .min_by_key(|(_, (at, _))| *at)
+                .map(|(k, _)| k.clone())
+        {
+            cache.remove(&oldest);
+        }
+        cache.insert(q.game.clone(), (now(), rows.clone()));
+        rows
+    };
+    drop(cache);
+    Ok(public_list_page(&rows, q))
+}
+fn normalize_public_list(data: &Value, community: &str) -> ApiResult<Vec<Value>> {
+    let packages = data
+        .as_array()
+        .ok_or_else(|| bad("Invalid Thunderstore package index"))?;
+    let mut rows = Vec::new();
+    for p in packages
+        .iter()
+        .filter(|p| p["has_nsfw_content"] != true && p["is_deprecated"] != true)
+    {
+        let Some(version) = p["versions"]
+            .as_array()
+            .and_then(|v| v.iter().find(|v| v["is_active"] != false))
+        else {
+            continue;
+        };
+        let name = p["name"].as_str().unwrap_or_default();
+        let owner = p["owner"].as_str().unwrap_or_default();
+        if name.is_empty() || owner.is_empty() {
+            continue;
+        }
+        let downloads = p["versions"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|v| v["downloads"].as_u64())
+            .fold(0u64, u64::saturating_add);
+        rows.push(json!({"name":name,"description":version["description"],"authors":owner,
+            "author_url":format!("https://thunderstore.io/c/{community}/p/{owner}/"),
+            "source_url":format!("https://thunderstore.io/c/{community}/p/{owner}/{name}/"),
+            "icon_url":version["icon"],"downloads":downloads,"rating":p["rating_score"],
+            "rating_label":"upvotes","updated":p["date_updated"],"created":p["date_created"],"categories":p["categories"]}));
+    }
+    if serde_json::to_vec(&rows)
+        .map_err(|_| bad("Invalid Thunderstore index"))?
+        .len()
+        > 8 * 1024 * 1024
+    {
+        return Err(bad("Thunderstore listing index exceeds limit"));
+    }
+    Ok(rows)
+}
+fn public_list_page(rows: &[Value], q: &Search) -> Value {
+    let categories: std::collections::BTreeSet<&str> = rows
+        .iter()
+        .flat_map(|v| v["categories"].as_array().into_iter().flatten())
+        .filter_map(Value::as_str)
+        .collect();
+    let query = q.q.to_lowercase();
+    let mut matching: Vec<&Value> = rows
+        .iter()
+        .filter(|v| {
+            (q.category.is_empty()
+                || v["categories"]
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|c| c.as_str() == Some(q.category.as_str()))))
+                && (query.is_empty()
+                    || ["name", "description", "authors"].iter().any(|k| {
+                        v[*k]
+                            .as_str()
+                            .unwrap_or_default()
+                            .to_lowercase()
+                            .contains(&query)
+                    }))
+        })
+        .collect();
+    matching.sort_by(|a, b| {
+        let order = match q.order.as_str() {
+            "downloads" => b["downloads"].as_u64().cmp(&a["downloads"].as_u64()),
+            "rating" => b["rating"].as_u64().cmp(&a["rating"].as_u64()),
+            "newest" => b["created"].as_str().cmp(&a["created"].as_str()),
+            _ => b["updated"].as_str().cmp(&a["updated"].as_str()),
+        };
+        order.then_with(|| a["source_url"].as_str().cmp(&b["source_url"].as_str()))
+    });
+    let start = (q.page as usize - 1) * 24;
+    json!({"items":matching.iter().skip(start).take(24).collect::<Vec<_>>(),
+        "categories":categories.into_iter().map(|c| json!({"id":c,"name":c})).collect::<Vec<_>>(),
+        "has_more":matching.len()>start+24})
+}
 fn normalize_thunderstore(data: &Value, community: &str) -> Vec<Value> {
     data["packages"].as_array().into_iter().flatten().filter(|p|p["is_nsfw"]!=true && p["is_deprecated"]!=true).take(24).map(|p|json!({"name":p["package_name"],"description":p["description"],"authors":p["team_name"],"author_url":format!("https://thunderstore.io/c/{community}/p/{}/",p["namespace"].as_str().unwrap_or_default()),"source_url":format!("https://thunderstore.io/c/{community}/p/{}/{}/",p["namespace"].as_str().unwrap_or_default(),p["package_name"].as_str().unwrap_or_default()),"icon_url":p["image_src"],"downloads":p["download_count"],"rating":p["rating_score"],"rating_label":"upvotes","updated":p["last_updated"]})).collect()
 }
 #[cfg(test)]
 mod tests {
+    use super::{Value, json};
+    #[test]
+    fn public_index_filters_sorts_and_pages_without_losing_attribution() {
+        let packages: Vec<Value> = (0..50).map(|n| json!({
+            "name":format!("Mod{n:02}"),"owner":"Author","rating_score":n,
+            "categories":[if n % 2 == 0 { "Tools" } else { "Cards" }],
+            "has_nsfw_content":n==49,"is_deprecated":n==48,
+            "versions":[{"is_active":true,"description":"Description","downloads":n,"icon":"https://ccdn.thunderstore.io/icon.png"},{"downloads":10}]
+        })).collect();
+        let rows = super::normalize_public_list(&json!(packages), "rounds").unwrap();
+        assert_eq!(rows.len(), 48);
+        let mut q = super::Search {
+            provider: "thunderstore".into(),
+            game: "rounds".into(),
+            q: String::new(),
+            order: "downloads".into(),
+            category: String::new(),
+            version: String::new(),
+            loader: String::new(),
+            content_type: String::new(),
+            page: 1,
+        };
+        let first = super::public_list_page(&rows, &q);
+        assert_eq!(first["items"].as_array().unwrap().len(), 24);
+        assert_eq!(first["items"][0]["name"], "Mod47");
+        assert_eq!(first["items"][0]["downloads"], 57);
+        assert_eq!(first["has_more"], true);
+        assert_eq!(
+            first["items"][0]["source_url"],
+            "https://thunderstore.io/c/rounds/p/Author/Mod47/"
+        );
+        q.page = 2;
+        let second = super::public_list_page(&rows, &q);
+        assert_eq!(second["items"][0]["name"], "Mod23");
+        assert_eq!(second["has_more"], false);
+        q.page = 1;
+        q.category = "Tools".into();
+        q.q = "mod02".into();
+        let filtered = super::public_list_page(&rows, &q);
+        assert_eq!(filtered["items"].as_array().unwrap().len(), 1);
+        assert_eq!(filtered["items"][0]["name"], "Mod02");
+        assert!(super::normalize_public_list(&json!({}), "rounds").is_err());
+    }
+    #[tokio::test]
+    #[ignore = "live provider metadata only"]
+    async fn live_public_thunderstore_browsing() {
+        for game in ["bopl-battle", "rounds"] {
+            let mut q = super::Search {
+                provider: "thunderstore".into(),
+                game: game.into(),
+                q: String::new(),
+                order: "downloads".into(),
+                category: String::new(),
+                version: String::new(),
+                loader: String::new(),
+                content_type: String::new(),
+                page: 1,
+            };
+            let first = super::fetch(&q).await.unwrap();
+            assert_eq!(first["items"].as_array().unwrap().len(), 24);
+            q.page = 2;
+            let second = super::fetch(&q).await.unwrap();
+            assert_eq!(second["items"].as_array().unwrap().len(), 24);
+            assert_ne!(
+                first["items"][0]["source_url"],
+                second["items"][0]["source_url"]
+            );
+            println!(
+                "{game}: 24 listings per page, distinct pages, {} categories",
+                first["categories"].as_array().unwrap().len()
+            );
+        }
+    }
     #[tokio::test]
     async fn browsing_cached_metadata_never_imports_archives() {
         use crate::tests::{account, call, fixture, value};
