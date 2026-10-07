@@ -31,7 +31,7 @@ try {
     }
     if ($Server) {
         Invoke-CannaCheck 'Server tests and strict lint (isolated databases)' {
-            & ssh -i $Identity -o BatchMode=yes $Server 'cd /home/canna-admin/canna-server && /home/canna-admin/.cargo/bin/cargo test --release --locked -- --test-threads=1 && /home/canna-admin/.cargo/bin/cargo clippy --release --all-targets --locked -- -D warnings'
+            & ssh -i $Identity -o BatchMode=yes $Server 'cd /home/canna-admin/canna-server && for f in deploy/*.sh; do bash -n "$f" || exit 1; done && /home/canna-admin/.cargo/bin/cargo test --release --locked -- --test-threads=1 && /home/canna-admin/.cargo/bin/cargo clippy --release --all-targets --locked -- -D warnings'
         }
     }
     $cannaReport=Join-Path $cannaRoot 'target/workflow-results.json'

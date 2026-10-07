@@ -28,7 +28,7 @@ try {
     }
     $cannaCommit = Invoke-CannaApi "git/commits/$($cannaRef.object.sha)"
     # Explicit source allowlist. Credential files, game assemblies, caches and build output are excluded.
-    $cannaFiles = @('Cargo.toml', 'Cargo.lock', 'build.rs', 'build.ps1', '.gitignore', 'README.md', 'AGENTS.md', 'LICENSE', 'SECURITY.md')
+    $cannaFiles = @('Cargo.toml', 'Cargo.lock', 'build.rs', 'build.ps1', '.gitignore', '.gitattributes', 'README.md', 'AGENTS.md', 'LICENSE', 'SECURITY.md')
     foreach ($cannaFolder in @('src', 'scripts', 'examples', 'repository-template', 'server/src', 'server/web', 'server/deploy')) {
         $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -Recurse -File | Where-Object { $_.Extension -ne ".pyc" -and $_.FullName -notmatch "[\\/]__pycache__[\\/]" } | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
     }
@@ -42,6 +42,9 @@ try {
     $cannaEntries = @()
     foreach ($cannaFile in $cannaFiles) {
         $cannaBytes = [IO.File]::ReadAllBytes((Join-Path $cannaRoot $cannaFile))
+        if ($cannaFile.EndsWith('.sh')) {
+            $cannaBytes = [Text.Encoding]::UTF8.GetBytes([Text.Encoding]::UTF8.GetString($cannaBytes).Replace("`r`n", "`n"))
+        }
         $cannaBlobPrefix = [Text.Encoding]::UTF8.GetBytes("blob $($cannaBytes.Length)`0")
         $cannaGitBytes = [byte[]]::new($cannaBlobPrefix.Length + $cannaBytes.Length)
         [Array]::Copy($cannaBlobPrefix, 0, $cannaGitBytes, 0, $cannaBlobPrefix.Length)
