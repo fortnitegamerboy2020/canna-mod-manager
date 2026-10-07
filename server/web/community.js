@@ -179,7 +179,7 @@ async function loadAdmin() {
   $('sectionmanager').hidden=currentUser.role !== 'owner';
   if(currentUser.role === 'owner') await loadSectionEditor();
   $('ownercontrols').hidden=currentUser.role !== 'owner';
-  if (currentUser.role === 'owner') $('ownercontrols').append($('invitationcontrols'));
+  if (currentUser.role === 'owner') $('ownercontrols').prepend($('invitationcontrols'));
   await selectAdminTab(adminTab);
 }
 async function loadAdminMembers(){

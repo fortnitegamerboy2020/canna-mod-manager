@@ -165,6 +165,10 @@ pub async fn register(
     )?;
     let id = tx.last_insert_rowid();
     tx.execute(
+        "UPDATE invitation_history SET status='used',redeemed_by=?2,resolved=?3 WHERE hash=?1",
+        params![invite_hash, id, now()],
+    )?;
+    tx.execute(
         "INSERT INTO codes(challenge,user_id,hash,kind,expires) VALUES(?1,?2,?3,'verify',?4)",
         params![challenge, id, code_hash(&challenge, &code), now() + 600],
     )?;

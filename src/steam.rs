@@ -10,6 +10,58 @@ enum Value {
     Text(String),
     Map(BTreeMap<String, Value>),
 }
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SteamVersion {
+    pub branch: String,
+    pub build: String,
+}
+pub fn installed_version(game: &InstalledGame) -> Option<SteamVersion> {
+    let apps = game.path.parent()?.parent()?;
+    let raw =
+        std::fs::read_to_string(apps.join(format!("appmanifest_{}.acf", game.app_id))).ok()?;
+    manifest_version(&raw)
+}
+fn manifest_version(raw: &str) -> Option<SteamVersion> {
+    let parsed = parse(raw).ok()?;
+    let app = parsed.get("appstate")?.map()?;
+    let branch = app
+        .get("userconfig")
+        .and_then(Value::map)
+        .and_then(|m| m.get("betakey"))
+        .and_then(Value::text)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("public");
+    let build = app
+        .get("buildid")
+        .and_then(Value::text)
+        .filter(|s| s.chars().all(|c| c.is_ascii_digit()))
+        .unwrap_or_default();
+    Some(SteamVersion {
+        branch: branch.to_owned(),
+        build: build.to_owned(),
+    })
+}
+#[cfg(test)]
+mod branch_tests {
+    #[test]
+    fn branches_and_builds_are_manifest_data_not_guessed_release_versions() {
+        for branch in ["public", "previous", "public_beta"] {
+            let raw = format!(
+                r#""AppState" {{ "BuildID" "12345" "UserConfig" {{ "BetaKey" "{branch}" }} }}"#
+            );
+            let v = super::manifest_version(&raw).unwrap();
+            assert_eq!(v.branch, branch);
+            assert_eq!(v.build, "12345");
+        }
+        assert_eq!(
+            super::manifest_version(r#""AppState" { "buildid" "42" }"#)
+                .unwrap()
+                .branch,
+            "public"
+        );
+        assert!(super::manifest_version("broken").is_none());
+    }
+}
 impl Value {
     fn map(&self) -> Option<&BTreeMap<String, Value>> {
         if let Self::Map(m) = self {

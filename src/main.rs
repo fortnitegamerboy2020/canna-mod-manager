@@ -89,6 +89,8 @@ struct Canna {
     cached_at: Option<u64>,
     selected: u32,
     scanning: bool,
+    last_steam_scan: std::time::Instant,
+    steam_was_focused: bool,
     syncing: bool,
     scan_status: String,
     repo_status: String,
@@ -225,6 +227,8 @@ impl Canna {
             cached_at: None,
             selected: 1686940,
             scanning: false,
+            last_steam_scan: std::time::Instant::now(),
+            steam_was_focused: true,
             syncing: false,
             scan_status: String::new(),
             repo_status: "Connect your Canna account in Settings".into(),
@@ -289,6 +293,7 @@ impl Canna {
             return;
         }
         self.scanning = true;
+        self.last_steam_scan = std::time::Instant::now();
         self.scan_status = "Scanning Steam libraries…".into();
         let path = self.settings.steam_path.clone();
         let tx = self.tx.clone();
@@ -435,6 +440,17 @@ impl Canna {
                 }
                 Event::Scanned(scan) => {
                     self.scanning = false;
+                    let changed = self.games.len() != scan.games.len()
+                        || scan.games.iter().any(|g| {
+                            self.games
+                                .iter()
+                                .find(|old| old.app_id == g.app_id)
+                                .is_none_or(|old| {
+                                    old.path != g.path
+                                        || old.loader != g.loader
+                                        || old.plugins != g.plugins
+                                })
+                        });
                     for g in &scan.games {
                         if !self.textures.contains_key(&g.app_id)
                             && let Some(b) = &g.icon
@@ -450,8 +466,14 @@ impl Canna {
                     );
                     self.games = scan.games;
                     self.libraries = scan.libraries;
-                    self.warnings.extend(scan.warnings);
-                    self.console.record(&self.scan_status, &self.token);
+                    for warning in scan.warnings {
+                        if !self.warnings.contains(&warning) {
+                            self.warnings.push(warning);
+                        }
+                    }
+                    if changed {
+                        self.console.record(&self.scan_status, &self.token);
+                    }
                 }
                 Event::Cached(source, result) => {
                     if self.active_source.as_ref() != Some(&source) {
@@ -681,6 +703,7 @@ impl Canna {
             }
         });
         if self.provider_browser.mode != 1 {
+            self.provider_browser.observe_installations(&self.games);
             if self.token.is_empty() && ui.button("Sign in & connect account").clicked() {
                 self.website.start_sign_in();
             }
@@ -1609,6 +1632,17 @@ impl Canna {
 }
 impl eframe::App for Canna {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let focused = ctx.input(|i| i.viewport().focused.unwrap_or(true));
+        if !self.scanning
+            && (self.last_steam_scan.elapsed() >= std::time::Duration::from_secs(30)
+                || focused
+                    && !self.steam_was_focused
+                    && self.last_steam_scan.elapsed() >= std::time::Duration::from_secs(3))
+        {
+            self.scan(ctx);
+        }
+        self.steam_was_focused = focused;
+        ctx.request_repaint_after(std::time::Duration::from_secs(30));
         if self.website.update(ctx) {
             self.pack_ui = pack_ui::PackUi::new();
             self.token = website::session();
@@ -1681,6 +1715,12 @@ fn main() -> eframe::Result {
             println!("Library: {}", p.display());
         }
         for g in scan.games {
+            if let Some(v) = steam::installed_version(&g) {
+                println!(
+                    "Steam version: {} | branch={} | build={}",
+                    g.name, v.branch, v.build
+                );
+            }
             println!(
                 "{} | {} | {} | {} plugins | {}",
                 g.app_id,

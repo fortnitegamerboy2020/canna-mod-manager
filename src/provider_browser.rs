@@ -97,6 +97,9 @@ pub struct Browser {
     imported_id: String,
     pending_pack: Option<String>,
     queued_pack_additions: Vec<(String, String)>,
+    steam_version: Option<crate::steam::SteamVersion>,
+    checked_game: String,
+    checked_at: std::time::Instant,
 }
 impl Default for Browser {
     fn default() -> Self {
@@ -130,6 +133,9 @@ impl Default for Browser {
             imported_id: String::new(),
             pending_pack: None,
             queued_pack_additions: Vec::new(),
+            steam_version: None,
+            checked_game: String::new(),
+            checked_at: std::time::Instant::now(),
         }
     }
 }
@@ -142,6 +148,21 @@ fn client() -> Result<reqwest::blocking::Client> {
 fn download_button() -> egui::Button<'static> {
     egui::Button::new(egui::RichText::new("Download").color(egui::Color32::from_rgb(16, 28, 19)))
         .fill(egui::Color32::from_rgb(160, 215, 133))
+}
+fn branch_compatible(item: &Value, installed: Option<&crate::steam::SteamVersion>) -> bool {
+    let Some(v) = installed else {
+        return true;
+    };
+    [
+        ("steam_branches", v.branch.as_str()),
+        ("steam_build_ids", v.build.as_str()),
+    ]
+    .iter()
+    .all(|(key, value)| {
+        item[*key]
+            .as_array()
+            .is_none_or(|a| a.is_empty() || a.iter().any(|x| x.as_str() == Some(value)))
+    })
 }
 fn request(
     client: &reqwest::blocking::Client,
@@ -488,6 +509,18 @@ impl Browser {
         self.filters.page = 1;
         self.loaded = false;
     }
+    pub fn observe_installations(&mut self, games: &[crate::model::InstalledGame]) {
+        if self.checked_game == self.filters.game
+            && self.checked_at.elapsed() < Duration::from_secs(30)
+        {
+            return;
+        }
+        self.checked_game = self.filters.game.clone();
+        self.checked_at = std::time::Instant::now();
+        self.steam_version = crate::game_profiles::by_community(&self.filters.game)
+            .and_then(|p| games.iter().find(|g| g.app_id == p.app_id))
+            .and_then(crate::steam::installed_version);
+    }
 
     fn start(
         &mut self,
@@ -623,6 +656,9 @@ impl Browser {
         std::mem::take(&mut self.changed)
     }
     fn browse(&mut self, ctx: &egui::Context) {
+        if self.job.is_some() {
+            return;
+        }
         self.loaded = true;
         clear_artwork(ctx, &self.page);
         self.page = Value::Null;
@@ -660,6 +696,18 @@ impl Browser {
             return;
         }
         ui.heading("Browse mods");
+        if let Some(v) = &self.steam_version {
+            ui.label(format!(
+                "Installed Steam branch: {} · Build: {}",
+                v.branch,
+                if v.build.is_empty() {
+                    "unknown"
+                } else {
+                    &v.build
+                }
+            ));
+            ui.label("Unlabelled mods have unknown branch compatibility. Steam build IDs are not game release version numbers.");
+        }
         ui.add_enabled_ui(self.job.is_none(), |ui| {
             let previous = target.clone();
             ui.horizontal_wrapped(|ui| {
@@ -936,11 +984,12 @@ impl Browser {
                             ));
                             ui.horizontal_wrapped(|ui| {
                                 if ui
-                                    .add_enabled(self.job.is_none(), download_button())
+                                    .add_enabled(self.job.is_none() && branch_compatible(item,self.steam_version.as_ref()), download_button())
                                     .clicked()
                                 {
                                     download = Some(item.clone());
                                 }
+                                if !branch_compatible(item,self.steam_version.as_ref()){ui.label("Declared requirements do not match the installed Steam branch/build.");}
                                 ui.label(format!("{} downloads", item["downloads"]));
                                 if !item["rating"].is_null() {
                                     ui.label(format!(
@@ -1309,7 +1358,11 @@ impl Browser {
                             }
                             ui.checkbox(&mut self.optional, "Include optional dependencies");
                             import = ui
-                                .add_enabled(!self.release.is_empty(), download_button())
+                                .add_enabled(
+                                    !self.release.is_empty()
+                                        && branch_compatible(&project, self.steam_version.as_ref()),
+                                    download_button(),
+                                )
                                 .clicked();
                         });
                         self.feedback(ui);
@@ -1354,6 +1407,26 @@ impl Browser {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn declared_steam_branches_and_builds_must_match_but_unknowns_remain_unknown() {
+        let v = crate::steam::SteamVersion {
+            branch: "previous".into(),
+            build: "123".into(),
+        };
+        assert!(branch_compatible(&json!({}), Some(&v)));
+        assert!(branch_compatible(
+            &json!({"steam_branches":["previous"],"steam_build_ids":["123"]}),
+            Some(&v)
+        ));
+        assert!(!branch_compatible(
+            &json!({"steam_branches":["public"]}),
+            Some(&v)
+        ));
+        assert!(!branch_compatible(
+            &json!({"steam_build_ids":["124"]}),
+            Some(&v)
+        ));
+    }
     #[test]
     fn filters_encode_search_and_never_request_archives() {
         let f = Filters {
@@ -1640,6 +1713,34 @@ mod tests {
 pub fn live_check() -> Result<()> {
     let token = crate::website::session();
     let c = client()?;
+    let history = request(
+        &c,
+        &token,
+        reqwest::Method::GET,
+        api("invites?sort=most&page=1"),
+        None,
+    )?;
+    println!(
+        "Owner invitation history: {} entries on page, {} total (codes omitted)",
+        history["items"].as_array().map(Vec::len).unwrap_or(0),
+        history["total"]
+    );
+    let mods = request(&c, &token, reqwest::Method::GET, api("mods"), None)?;
+    for m in mods
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|m| matches!(text(m, "name"), "ArrowWall" | "BiggerLazerPush"))
+    {
+        println!(
+            "{}: creator={}, uploader={}",
+            m["name"], m["author"], m["uploader"]
+        );
+        ensure!(
+            m["author"] != m["uploader"],
+            "Original creator attribution missing"
+        );
+    }
     for game in ["bopl-battle", "rounds"] {
         for page in [1, 2] {
             let f = Filters {

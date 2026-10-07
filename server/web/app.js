@@ -36,7 +36,7 @@ function openModDetails(item) {
   const dialog=document.createElement('dialog');dialog.className='moddetaildialog';
   const close=document.createElement('button');close.textContent='Close';close.addEventListener('click',()=>dialog.close());
   const title=document.createElement('h2');title.textContent=item.name;
-  const meta=document.createElement('p');meta.textContent=`${item.version || 'Modpack'} · ${libraryGameName(item)} · ${item.details?.authors || item.author || ''}`;
+  const meta=document.createElement('p');meta.textContent=`${item.version || 'Modpack'} · ${libraryGameName(item)} · ${item.details?.authors || 'Creator not recorded'}`;
   const description=document.createElement('p');description.className='moddescription';description.textContent=item.description || 'No description provided.';
   dialog.append(close,title,meta,description);
   for(const [label,key] of [['Minecraft versions','game_versions'],['Loaders','loaders'],['Required dependencies','dependencies']]) {
@@ -52,10 +52,10 @@ function entry(item, kind) {
   const info = document.createElement('div');
   const external=!!item.details?.external_only;
   if(item.details?.icon_data) {const img=document.createElement('img');img.className='modart';img.src='data:image/jpeg;base64,'+item.details.icon_data;img.alt=item.name+' original artwork';img.loading='lazy';row.append(img);}
-  else if(item.details?.icon_url && /^https:\/\/(cdn\.thunderstore\.io|gcdn\.thunderstore\.io|cdn\.modrinth\.com|media\.forgecdn\.net|images\.steamusercontent\.com)\//.test(item.details.icon_url)){const img=document.createElement('img');img.className='modart';img.src=item.details.icon_url;img.alt=item.name+' original artwork';img.loading='lazy';img.referrerPolicy='no-referrer';row.append(img);}
+  else if(item.details?.icon_url && /^https:\/\/(cdn\.thunderstore\.io|ccdn\.thunderstore\.io|gcdn\.thunderstore\.io|cdn\.modrinth\.com|media\.forgecdn\.net|images\.steamusercontent\.com)\//.test(item.details.icon_url)){const img=document.createElement('img');img.className='modart';img.src=item.details.icon_url;img.alt=item.name+' original artwork';img.loading='lazy';img.referrerPolicy='no-referrer';row.append(img);}
   const title = document.createElement('strong'); title.textContent = item.name;
-  const detail = document.createElement('p'); detail.textContent = `${item.version || 'Modpack'} · ${libraryGameName(item)} · ${item.details?.authors || item.author}`;
-  info.append(title, detail);
+  const detail = document.createElement('p'); detail.textContent = `${item.version || 'Modpack'} · ${libraryGameName(item)} · ${item.details?.authors || (kind==='packs'?item.author:'Creator not recorded')}`;
+  info.append(title, detail);if(kind==='mods' && item.uploader) {const uploader=document.createElement('small');uploader.textContent='Added by '+item.uploader;info.append(uploader);}
   if(item.details?.author_links?.length) {const authors=document.createElement('p');authors.append('By ');for(const author of item.details.author_links){const link=document.createElement('a');link.textContent=author.name;link.href=author.url;link.target='_blank';link.rel='noopener noreferrer';authors.append(link,' ');}info.append(authors);}
   if(item.description) {const description=document.createElement('p');description.className='moddescription modpreview';description.textContent=item.description;info.append(description);}
   const more=document.createElement('button');more.textContent='Show more';more.addEventListener('click',()=>openModDetails(item));info.append(more);
@@ -118,11 +118,11 @@ async function inviteAction(id,callback) {
   try {await callback();$('inviteout').focus();}catch(error){$('invitestatus').textContent=error.message;message(error.message);}finally {btn.disabled=id==='newinvite' && !currentUser.can_invite;}
 }
 $('newinvite').addEventListener('click',()=>inviteAction('newinvite',async()=>{
-  const result=await json('invites',{});$('inviteout').value=result.invite;$('waveid').value='';$('revokewave').disabled=true;await refresh();$('invitestatus').textContent='Invitation created. Copy the code below and give it to one person. It expires in seven days.';
+  const result=await json('invites',{});$('inviteout').value=result.invite;$('waveid').value='';$('revokewave').disabled=true;await refresh();if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent='Invitation created. Copy the code below and give it to one person. It expires in seven days.';
 }));
 $('newwave').addEventListener('click',()=>inviteAction('newwave',async()=>{
   const count=Number($('wavecount').value);if(!Number.isInteger(count)||count<1||count>50)throw new Error('Choose 1–50 invitations.');
-  const wave=await json('invite-waves',{count});$('inviteout').value=wave.invites.join('\n');$('waveid').value=wave.wave;$('revokewave').disabled=false;$('invitestatus').textContent='Invite wave created. Copy the codes below, one for each person. They expire in seven days.';
+  const wave=await json('invite-waves',{count,mode:$('invitemode')?.value||'wave',label:$('invitelabel')?.value||''});$('inviteout').value=wave.invites.join('\n');$('waveid').value=wave.wave;$('revokewave').disabled=!wave.wave;if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent='Invitations created and saved in history. Copy one code for each person. They expire in seven days.';
 }));
 $('revokewave').addEventListener('click',()=>action(async()=>{const result=await(await api(`invite-waves/${$('waveid').value}`,{method:'DELETE'})).json();$('inviteout').value='';$('revokewave').disabled=true;message(`${result.revoked} unused invitations revoked. Existing accounts remain active.`);}));
 $('upload').addEventListener('submit',event=>{event.preventDefault();action(async()=>{

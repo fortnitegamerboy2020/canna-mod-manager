@@ -8,7 +8,32 @@ pub fn recommendations() -> Vec<Value> {
         .expect("Curated Source catalog")
 }
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
-    db.execute_batch("CREATE TABLE IF NOT EXISTS game_assets(id TEXT PRIMARY KEY,alias TEXT UNIQUE NOT NULL,sha256 TEXT NOT NULL,size INTEGER NOT NULL,game_id INTEGER NOT NULL,kind TEXT NOT NULL);")
+    db.execute_batch("CREATE TABLE IF NOT EXISTS game_assets(id TEXT PRIMARY KEY,alias TEXT UNIQUE NOT NULL,sha256 TEXT NOT NULL,size INTEGER NOT NULL,game_id INTEGER NOT NULL,kind TEXT NOT NULL);")?;
+    let rows=db.prepare("SELECT d.mod_id,d.data,m.description FROM mod_details d JOIN mods m ON m.id=d.mod_id WHERE json_extract(d.data,'$.provider')='catalog'")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?)))?.collect::<Result<Vec<_>,_>>()?;
+    for (id, raw, description) in rows {
+        let Ok(mut data) = serde_json::from_str::<Value>(&raw) else {
+            continue;
+        };
+        if data["authors"].as_str().is_some_and(|s| !s.is_empty()) {
+            continue;
+        }
+        if let Some((_, author)) = description.rsplit_once("Author: ") {
+            let author = author
+                .split(". Canna extension:")
+                .next()
+                .unwrap_or(author)
+                .trim()
+                .trim_end_matches('.');
+            if !author.is_empty() && author.len() <= 120 {
+                data["authors"] = json!(author);
+                db.execute(
+                    "UPDATE mod_details SET data=?1 WHERE mod_id=?2",
+                    params![data.to_string(), id],
+                )?;
+            }
+        }
+    }
+    Ok(())
 }
 pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
     app.auth(&headers)?;
@@ -274,6 +299,23 @@ pub async fn audit(app: &App) -> anyhow::Result<()> {
 }
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn legacy_catalog_credits_original_creator_and_preserves_extension_notes() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE mods(id TEXT,description TEXT); CREATE TABLE mod_details(mod_id TEXT,data TEXT); INSERT INTO mods VALUES('arrow','Example. Author: WackyModer.'),('extension','Author: Obelous. Canna extension: F9 controls.'); INSERT INTO mod_details VALUES('arrow','{\"provider\":\"catalog\"}'),('extension','{\"provider\":\"catalog\"}');").unwrap();
+        super::initialize(&db).unwrap();
+        for (id, author) in [("arrow", "WackyModer"), ("extension", "Obelous")] {
+            let data: String = db
+                .query_row("SELECT data FROM mod_details WHERE mod_id=?1", [id], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            assert_eq!(
+                serde_json::from_str::<Value>(&data).unwrap()["authors"],
+                author
+            );
+        }
+    }
     use super::*;
     use crate::tests::{account, call, fixture, value};
     #[tokio::test]

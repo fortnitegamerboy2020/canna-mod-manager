@@ -58,7 +58,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.29 adds green Download buttons to provider listings. Add Mods selects the current modpack and game, exposes the target selector, and adds approved downloaded mods and required dependencies to that pack. Minecraft requests a release choice when compatibility filters are unset. Official generic BepInExPack 5.4.2305 package layout and x64 proxy validated for Bopl Battle.
+Canna 0.2.30 automatically refreshes installed Steam games and displays installed branches/build IDs in Discover, without inventing compatibility for unlabelled mods. Server 0.3.47 adds owner invitation history, search, sorting, batch/wave generation, revocation and logs, and distinguishes original creators from uploaders.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

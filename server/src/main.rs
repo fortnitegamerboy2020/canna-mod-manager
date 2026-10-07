@@ -32,6 +32,7 @@ mod email;
 mod external;
 mod game_profiles;
 mod handoff;
+mod invitations;
 mod lists;
 mod live;
 mod lounge;
@@ -155,6 +156,7 @@ impl App {
             CREATE TABLE IF NOT EXISTS topics(id TEXT PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), app_id INTEGER NOT NULL, category TEXT NOT NULL, title TEXT NOT NULL, pinned INTEGER NOT NULL DEFAULT 0, locked INTEGER NOT NULL DEFAULT 0, created INTEGER NOT NULL, updated INTEGER NOT NULL, mod_id TEXT REFERENCES mods(id) ON DELETE SET NULL);
             CREATE TABLE IF NOT EXISTS posts(id TEXT PRIMARY KEY, topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, created INTEGER NOT NULL);")?;
         sections::initialize(&db)?;
+        invitations::initialize(&db)?;
         lounge::initialize(&db)?;
         cannabot::initialize(&db)?;
         external::initialize(&db)?;
@@ -415,12 +417,17 @@ async fn invite(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum
         "INSERT INTO invites(hash,admin,expires,issued_by) VALUES(?1,0,?2,?3)",
         params![digest(&raw), now() + 7 * 86400, issuer],
     )?;
+    invitations::remember(&tx, &raw, issuer, now() + 7 * 86400, None, "")?;
     tx.commit()?;
     Ok(axum::Json(json!({"invite":raw,"expires_in":7*86400})))
 }
 #[derive(Deserialize)]
 struct Wave {
     count: u32,
+    #[serde(default)]
+    mode: String,
+    #[serde(default)]
+    label: String,
 }
 async fn invite_wave(
     State(app): State<Shared>,
@@ -437,7 +444,14 @@ async fn invite_wave(
     if !(1..=50).contains(&input.count) {
         return Err(bad("Choose between 1 and 50 invitations"));
     }
-    let wave = Uuid::new_v4().to_string();
+    if !matches!(input.mode.as_str(), "" | "wave" | "codes") || input.label.chars().count() > 80 {
+        return Err(bad("Invalid invitation generation options"));
+    }
+    let wave = if input.mode == "codes" {
+        String::new()
+    } else {
+        Uuid::new_v4().to_string()
+    };
     let expires = now() + 7 * 86400;
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction()?;
@@ -451,7 +465,20 @@ async fn invite_wave(
         let raw = token();
         tx.execute(
             "INSERT INTO invites(hash,admin,expires,issued_by,wave) VALUES(?1,0,?2,?3,?4)",
-            params![digest(&raw), expires, issuer, wave],
+            params![
+                digest(&raw),
+                expires,
+                issuer,
+                if wave.is_empty() { None } else { Some(&wave) }
+            ],
+        )?;
+        invitations::remember(
+            &tx,
+            &raw,
+            issuer,
+            expires,
+            if wave.is_empty() { None } else { Some(&wave) },
+            &input.label,
         )?;
         codes.push(raw);
     }
@@ -471,11 +498,19 @@ async fn revoke_wave(
             "Only the owner can revoke invite waves",
         ));
     }
-    let removed = app
-        .db
-        .lock()
-        .unwrap()
-        .execute("DELETE FROM invites WHERE wave=?1", [wave])?;
+    if Uuid::parse_str(&wave).is_err() {
+        return Err(bad("Invalid wave ID"));
+    }
+    let actor = app.auth(&headers)?.0;
+    let mut db = app.db.lock().unwrap();
+    let tx = db.transaction()?;
+    tx.execute("UPDATE invitation_history SET status='revoked',resolved=?2 WHERE wave=?1 AND status='active' AND expires>?2",params![wave,now()])?;
+    let removed = tx.execute("DELETE FROM invites WHERE wave=?1", [&wave])?;
+    tx.execute(
+        "INSERT INTO audit(actor,action,target,created) VALUES(?1,'invite-wave-revoked',?2,?3)",
+        params![actor, wave, now()],
+    )?;
+    tx.commit()?;
     Ok(axum::Json(json!({"revoked":removed})))
 }
 #[derive(Deserialize)]
@@ -611,6 +646,12 @@ async fn mods(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::
         .map(|mut m| {
             let details =
                 external::details(&db, m["id"].as_str().unwrap()).unwrap_or_else(|_| json!({}));
+            m["uploader"] = m["author"].clone();
+            m["author"] = json!(
+                details["authors"]
+                    .as_str()
+                    .unwrap_or("Creator not recorded")
+            );
             m["details"] = details;
             m["review_status"] = json!(
                 if security::approved(&db, m["id"].as_str().unwrap()).is_ok() {
@@ -1076,7 +1117,8 @@ fn router(app: Shared) -> Router {
             "/api/v1/posts/{id}",
             axum::routing::delete(community::delete_post),
         )
-        .route("/api/v1/invites", post(invite))
+        .route("/api/v1/invites", post(invite).get(invitations::list))
+        .route("/api/v1/invites/{id}", axum::routing::delete(invitations::revoke))
         .route("/api/v1/invite-waves", post(invite_wave))
         .route(
             "/api/v1/invite-waves/{id}",
