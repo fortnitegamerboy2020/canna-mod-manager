@@ -205,6 +205,17 @@ fn post(
     }
     Ok(r)
 }
+pub(crate) fn receive_ticket(ticket: &str) -> Result<String> {
+    ensure_ticket(ticket)?;
+    fetch(ticket)
+}
+fn ensure_ticket(ticket: &str) -> Result<()> {
+    anyhow::ensure!(
+        ticket.len() == 64 && ticket.bytes().all(|b| b.is_ascii_hexdigit()),
+        "Invalid download ticket"
+    );
+    Ok(())
+}
 fn fetch(ticket: &str) -> Result<String> {
     let client = reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
@@ -364,6 +375,7 @@ pub fn instance(ticket: Option<String>) -> Option<Receiver<String>> {
     }
 }
 pub struct Website {
+    pub discover_requested: bool,
     pairing: Option<Receiver<PairEvent>>,
     heartbeat: Option<Receiver<(String, bool)>>,
     last_heartbeat: std::time::Instant,
@@ -389,6 +401,7 @@ impl Default for Website {
             tickets: None,
             pending: Default::default(),
             result: None,
+            discover_requested: false,
             open: std::env::args().any(|a| a == "--downloads"),
             status: String::new(),
             items: records(),
@@ -611,8 +624,7 @@ impl Website {
         ui.add_space(12.0);
         ui.horizontal(|ui| {
             if ui.button("Browse mods").clicked() {
-                ui.ctx()
-                    .open_url(egui::OpenUrl::new_tab("https://cannamods.vip/"));
+                self.discover_requested = true;
             }
             if ui.button("Open downloads folder").clicked() {
                 self.status = match std::fs::create_dir_all(root()).and_then(|_| {

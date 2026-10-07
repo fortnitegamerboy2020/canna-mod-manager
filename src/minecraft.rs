@@ -54,6 +54,188 @@ fn save(i: &Instance) -> Result<()> {
     std::fs::write(dir(i).join("instance.json"), serde_json::to_vec_pretty(i)?)?;
     Ok(())
 }
+fn content_compatible(instance: &Instance, item: &crate::model::ModInfo) -> bool {
+    let p = &item.provenance;
+    let supports = |key: &str, value: &str| {
+        p[key]
+            .as_array()
+            .is_none_or(|a| a.is_empty() || a.iter().any(|v| v.as_str() == Some(value)))
+    };
+    supports("game_versions", &instance.version)
+        && (item.content_type != "mod" || supports("loaders", &instance.loader))
+}
+pub fn content_target_ui(
+    ui: &mut egui::Ui,
+    item: &crate::model::ModInfo,
+    selected: &mut String,
+    world: &mut String,
+    ready: bool,
+) -> Option<(Instance, String)> {
+    let all = instances();
+    egui::ComboBox::from_id_salt("provider-minecraft-instance")
+        .selected_text(
+            all.iter()
+                .find(|i| i.id == *selected)
+                .map(|i| i.name.as_str())
+                .unwrap_or("Choose a Minecraft instance"),
+        )
+        .show_ui(ui, |ui| {
+            for i in &all {
+                if content_compatible(i, item) {
+                    ui.selectable_value(
+                        selected,
+                        i.id.clone(),
+                        format!("{} · {} · {}", i.name, i.version, i.loader),
+                    );
+                }
+            }
+        });
+    let instance = all
+        .iter()
+        .find(|i| i.id == *selected && content_compatible(i, item))?;
+    if item.content_type == "datapack" {
+        let worlds = std::fs::read_dir(dir(instance).join("saves"))
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|e| e.path().is_dir())
+            .filter_map(|e| e.file_name().into_string().ok())
+            .collect::<Vec<_>>();
+        egui::ComboBox::from_id_salt("provider-minecraft-world")
+            .selected_text(if world.is_empty() {
+                "Choose a world"
+            } else {
+                world.as_str()
+            })
+            .show_ui(ui, |ui| {
+                for name in &worlds {
+                    ui.selectable_value(world, name.clone(), name);
+                }
+            });
+        if !worlds.contains(world) {
+            return None;
+        }
+    }
+    if ui
+        .add_enabled(
+            ready,
+            egui::Button::new(format!("Install {} into instance", item.name)),
+        )
+        .clicked()
+    {
+        Some((instance.clone(), world.clone()))
+    } else {
+        None
+    }
+}
+fn content_plan(
+    instance: &Instance,
+    world: &str,
+    game: &crate::model::GameInfo,
+    item: &crate::model::ModInfo,
+    mut fetch: impl FnMut(&crate::model::ModInfo) -> Result<Vec<u8>>,
+) -> Result<Vec<(PathBuf, String, Vec<u8>)>> {
+    use sha2::Digest;
+    anyhow::ensure!(
+        crate::repository::valid_slug(&instance.id),
+        "Invalid instance ID"
+    );
+    anyhow::ensure!(game.app_id == u32::MAX, "This content is not for Minecraft");
+    let mut queue = vec![item.clone()];
+    let mut seen = std::collections::BTreeSet::new();
+    let mut files = Vec::new();
+    let mut total = 0;
+    while let Some(m) = queue.pop() {
+        if !seen.insert(m.file.clone()) {
+            continue;
+        }
+        anyhow::ensure!(seen.len() <= 128, "Too many dependencies");
+        anyhow::ensure!(
+            content_compatible(instance, &m),
+            "{} does not support this instance's game version or loader",
+            m.name
+        );
+        for name in &m.dependencies {
+            queue.push(
+                game.mods
+                    .iter()
+                    .find(|d| d.name == *name && content_compatible(instance, d))
+                    .cloned()
+                    .with_context(|| {
+                        format!("Required compatible dependency {name} is unavailable")
+                    })?,
+            );
+        }
+        let folder = match m.content_type.as_str() {
+            "mod" => dir(instance).join("mods"),
+            "shader" => dir(instance).join("shaderpacks"),
+            "resourcepack" => dir(instance).join("resourcepacks"),
+            "datapack" => {
+                anyhow::ensure!(
+                    !world.is_empty()
+                        && world != "."
+                        && world != ".."
+                        && !world.contains(['/', '\\', ':'])
+                        && dir(instance).join("saves").join(world).is_dir(),
+                    "Choose an existing instance world"
+                );
+                dir(instance).join("saves").join(world).join("datapacks")
+            }
+            _ => bail!("This content type does not have a Minecraft installer"),
+        };
+        let bytes = fetch(&m)?;
+        total += bytes.len();
+        anyhow::ensure!(
+            total <= 256 * 1024 * 1024,
+            "Content dependency graph exceeds 256 MiB"
+        );
+        anyhow::ensure!(
+            format!("{:x}", sha2::Sha256::digest(&bytes)).eq_ignore_ascii_case(&m.sha256),
+            "Checksum mismatch for {}",
+            m.name
+        );
+        let filename = m.provenance["filename"]
+            .as_str()
+            .context("Provider filename is missing")?;
+        anyhow::ensure!(
+            safe_component(filename) && (filename.ends_with(".jar") || filename.ends_with(".zip")),
+            "Unsupported content filename"
+        );
+        files.push((folder, filename.to_owned(), bytes));
+    }
+    Ok(files)
+}
+pub fn install_catalog_content(
+    instance: &Instance,
+    world: &str,
+    game: &crate::model::GameInfo,
+    item: &crate::model::ModInfo,
+    token: &str,
+) -> Result<String> {
+    let c = client()?;
+    let files = content_plan(instance, world, game, item, |m| {
+        crate::repository::fetch_optional(
+            &c,
+            &crate::model::Settings::default(),
+            token,
+            &m.file,
+            128 * 1024 * 1024,
+        )?
+        .context("Mod was removed")
+    })?;
+    let count = files.len();
+    for (folder, name, bytes) in files {
+        std::fs::create_dir_all(&folder)?;
+        let pending = folder.join(format!("{name}.canna-pending"));
+        std::fs::write(&pending, bytes)?;
+        std::fs::rename(&pending, folder.join(name))?;
+    }
+    Ok(format!(
+        "Installed {count} content files into {}. Restart the instance to load them.",
+        instance.name
+    ))
+}
+
 fn client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(120))
@@ -1080,5 +1262,86 @@ mod tests {
             ),
             vec!["1.21.1"]
         );
+    }
+}
+
+#[cfg(test)]
+mod native_content_tests {
+    use super::*;
+    fn item(name: &str, dependencies: Vec<String>) -> crate::model::ModInfo {
+        use sha2::Digest;
+        serde_json::from_value(json!({"name":name,"version":"1","content_type":"mod","file":format!("Mods/{name}.zip"),"sha256":format!("{:x}",sha2::Sha256::digest(b"fixture")),"dependencies":dependencies,"provenance":{"filename":format!("{name}.jar"),"loaders":["fabric"],"game_versions":["1.21.1"]}})).unwrap()
+    }
+    fn instance() -> Instance {
+        Instance {
+            id: "fixture".into(),
+            name: "Fixture".into(),
+            version: "1.21.1".into(),
+            loader: "fabric".into(),
+            loader_version: String::new(),
+            java: String::new(),
+            memory: 1024,
+        }
+    }
+    #[test]
+    fn dependency_plan_is_recursive_verified_and_confined_to_instance() {
+        let root = item("root", vec!["dep".into()]);
+        let dep = item("dep", vec!["leaf".into()]);
+        let leaf = item("leaf", vec![]);
+        let mut game = serde_json::from_value::<crate::model::GameInfo>(
+            json!({"app_id":u32::MAX,"name":"Minecraft","folder":"minecraft"}),
+        )
+        .unwrap();
+        game.mods = vec![root.clone(), dep, leaf];
+        let i = instance();
+        let mut fetched = Vec::new();
+        let plan = content_plan(&i, "", &game, &root, |m| {
+            fetched.push(m.name.clone());
+            Ok(b"fixture".to_vec())
+        })
+        .unwrap();
+        assert_eq!(fetched, vec!["root", "dep", "leaf"]);
+        assert_eq!(plan.len(), 3);
+        assert!(
+            plan.iter()
+                .all(|(folder, name, _)| folder == &dir(&i).join("mods") && name.ends_with(".jar"))
+        );
+        assert!(
+            content_plan(&i, "", &game, &root, |_| Ok(b"tampered".to_vec()))
+                .unwrap_err()
+                .to_string()
+                .contains("Checksum")
+        );
+    }
+    #[test]
+    fn wrong_loader_version_and_paths_fail_before_network_or_writes() {
+        let m = item("root", vec![]);
+        let game = serde_json::from_value::<crate::model::GameInfo>(
+            json!({"app_id":u32::MAX,"name":"Minecraft","folder":"minecraft"}),
+        )
+        .unwrap();
+        let mut i = instance();
+        i.loader = "forge".into();
+        assert!(
+            content_plan(&i, "", &game, &m, |_| panic!(
+                "must not fetch incompatible content"
+            ))
+            .is_err()
+        );
+        i.loader = "fabric".into();
+        i.version = "1.20.1".into();
+        assert!(!content_compatible(&i, &m));
+        i = instance();
+        i.id = "../outside".into();
+        assert!(
+            content_plan(&i, "", &game, &m, |_| panic!(
+                "must not fetch unsafe target"
+            ))
+            .is_err()
+        );
+        i = instance();
+        let mut unsafe_item = m;
+        unsafe_item.provenance["filename"] = json!("../outside.jar");
+        assert!(content_plan(&i, "", &game, &unsafe_item, |_| Ok(b"fixture".to_vec())).is_err());
     }
 }

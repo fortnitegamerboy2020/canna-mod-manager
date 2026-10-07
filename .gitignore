@@ -15,3 +15,5 @@ __pycache__/
 
 # Local agent instructions are never published.
 AGENTS.md
+
+/target-desktop-update/

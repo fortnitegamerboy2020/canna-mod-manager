@@ -76,6 +76,36 @@ enum Action {
     SaveGroup,
 }
 impl PackUi {
+    pub fn provider_target(&self, ui: &mut egui::Ui, target: &mut Option<String>) {
+        egui::ComboBox::from_id_salt("provider-target-pack")
+            .selected_text(
+                self.packs
+                    .iter()
+                    .find(|p| Some(&p.id) == target.as_ref())
+                    .map(|p| p.name.as_str())
+                    .unwrap_or("Choose a modpack to add downloaded mods"),
+            )
+            .show_ui(ui, |ui| {
+                for pack in &self.packs {
+                    ui.selectable_value(
+                        target,
+                        Some(pack.id.clone()),
+                        format!("{} · {}", pack.name, pack.game.name),
+                    );
+                }
+            });
+    }
+    pub fn provider_add(
+        &mut self,
+        id: &str,
+        game: &GameInfo,
+        source: Option<&Source>,
+        item: crate::model::ModInfo,
+    ) -> anyhow::Result<String> {
+        self.add_catalog_mod(id, game, source, item)?;
+        Ok("Saved to modpack. Apply modpack or Launch modded to install its enabled mods.".into())
+    }
+
     pub fn discover(
         &mut self,
         ui: &mut egui::Ui,

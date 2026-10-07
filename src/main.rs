@@ -11,6 +11,7 @@ mod model;
 mod modpacks;
 mod owned_game;
 mod pack_ui;
+mod provider_browser;
 mod repository;
 mod runtime;
 mod skin_catalog;
@@ -57,6 +58,7 @@ struct Canna {
     owned_games: BTreeMap<u32, owned_game::OwnedGame>,
     discover_page: bool,
     discover: pack_ui::DiscoverState,
+    provider_browser: provider_browser::Browser,
     console_page: bool,
     console: console::Console,
     console_polling: bool,
@@ -133,6 +135,9 @@ impl Canna {
         Self::new_with_context(&cc.egui_ctx, true)
     }
     fn new_with_context(ctx: &egui::Context, start_jobs: bool) -> Self {
+        let provider_preview = std::env::var_os("CANNA_SCREENSHOT").is_some()
+            && std::env::args().any(|a| a == "--provider-browser-preview");
+        let start_jobs = start_jobs && !provider_preview;
         let mut style = (*ctx.style()).clone();
         style.visuals = egui::Visuals::dark();
         ui_helpers::apply_corner_radii(&mut style.visuals);
@@ -178,6 +183,7 @@ impl Canna {
             owned_games: BTreeMap::new(),
             discover_page: std::env::args().any(|arg| arg == "--discover"),
             discover: Default::default(),
+            provider_browser: Default::default(),
             update_status: String::new(),
             pending_update: None,
             console_page: std::env::args().any(|arg| arg == "--console"),
@@ -243,6 +249,7 @@ impl Canna {
         if app.screenshot.is_some() && std::env::args().any(|a| a == "--discover-game-preview") {
             app.discover_page = true;
             app.discover.game = 1686940;
+            app.provider_browser.mode = 1;
             app.catalog[0].mods = vec![model::ModInfo {
                 provenance: serde_json::Value::Null,
                 content_type: String::new(),
@@ -255,6 +262,11 @@ impl Canna {
                 local_file: String::new(),
                 dependencies: vec![],
             }];
+        }
+        if provider_preview {
+            app.token = "ui-fixture".into();
+            app.discover_page = true;
+            app.provider_browser.preview_fixture();
         }
         if start_jobs {
             app.update_status = "Checking for Canna updates…".into();
@@ -653,6 +665,36 @@ impl Canna {
     }
     fn discover_ui(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(&mut self.provider_browser.mode, 0, "Browse providers");
+            ui.selectable_value(
+                &mut self.provider_browser.mode,
+                1,
+                "Community mods & modpacks",
+            );
+            ui.selectable_value(&mut self.provider_browser.mode, 2, "Subscriptions");
+            if !self.token.is_empty()
+                && ui
+                    .add_enabled(!self.syncing, egui::Button::new("Refresh library"))
+                    .clicked()
+            {
+                self.sync(ui.ctx());
+            }
+        });
+        if self.provider_browser.mode != 1 {
+            if self.token.is_empty() && ui.button("Sign in & connect account").clicked() {
+                self.website.start_sign_in();
+            }
+            self.provider_browser.show(
+                ui,
+                &self.catalog,
+                self.active_source.as_ref(),
+                &mut self.pack_ui,
+                &mut self.discover.target,
+            );
+            return;
+        }
+
+        ui.horizontal_wrapped(|ui| {
             if self.token.is_empty()
                 || self.repo_status.contains("expired")
                 || self.repo_status.contains("revoked")
@@ -886,6 +928,8 @@ impl Canna {
             ctx.request_repaint_after(std::time::Duration::from_secs(1));
         }
         if let Some(id) = self.pack_ui.discover_pack.take() {
+            self.provider_browser
+                .select_game(self.pack_ui.pack_game(&id).unwrap_or(0));
             self.discover.game = self.pack_ui.pack_game(&id).unwrap_or(0);
             self.discover.target = Some(id);
             self.discover_page = true;
@@ -893,6 +937,7 @@ impl Canna {
         }
         if self.pending_update.is_some()
             && !self.runtime_busy
+            && !self.provider_browser.busy()
             && !self.website.busy()
             && !self.minecraft.busy()
             && !self.skins.busy()
@@ -1569,11 +1614,28 @@ impl eframe::App for Canna {
             self.token = website::session();
             self.sync(ctx);
         }
+        if self.provider_browser.update(ctx, &self.token) {
+            self.website.refresh_downloads();
+            self.sync(ctx);
+        }
+        if self.website.discover_requested {
+            self.website.discover_requested = false;
+            self.website.open = false;
+            self.discover_page = true;
+            self.modpacks_page = false;
+            self.console_page = false;
+            self.minecraft_page = false;
+            self.skins.open = false;
+            self.provider_browser.mode = 0;
+        }
         self.skins.update(ctx);
         self.render(ctx);
         self.minecraft.ui(ctx);
         if self.pack_ui.mod_details_window(ctx) {
             self.website.refresh_downloads();
+        }
+        if self.discover_page {
+            self.provider_browser.modal(ctx);
         }
         chrome::resize_handles(ctx);
         if self.minecraft.discover_requested {
@@ -1581,6 +1643,7 @@ impl eframe::App for Canna {
             self.minecraft_page = false;
             self.discover_page = true;
             self.discover.game = u32::MAX;
+            self.provider_browser.select_game(u32::MAX);
         }
     }
     fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
@@ -1588,6 +1651,16 @@ impl eframe::App for Canna {
     }
 }
 fn main() -> eframe::Result {
+    #[cfg(debug_assertions)]
+    if std::env::args().any(|a| a == "--provider-smoke-test") {
+        match provider_browser::live_check() {
+            Ok(()) => return Ok(()),
+            Err(e) => {
+                eprintln!("Native provider check: {e}");
+                std::process::exit(1);
+            }
+        }
+    }
     #[cfg(debug_assertions)]
     if std::env::args().any(|a| a == "--updater-smoke-test") {
         let ready = updater::check("0.1.0")

@@ -58,7 +58,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.25 adds preview Steam/BepInEx profiles for 185 Thunderstore games, compatible reviewed loader lookup, plugin/patcher routing and preserved user configs. The community adds provider search, pagination and filters, plus a seven-day archive cache that preserves listings and retrieves expired pinned files with their original checksums. Thunderstore browsing is currently blocked by provider HTTP 403; other game families and full in-game compatibility remain unverified.
+Canna 0.2.26 adds native provider browsing and subscriptions in desktop Discover. Browse metadata with game/source/category/sort/version/loader filters and pages, select a release, download verified archives and add them to Steam modpacks without opening the website. Approved Minecraft content and dependencies can be installed into compatible managed instances. Community catalog navigation remains available. Provider credentials stay on the server. Thunderstore currently returns HTTP 403; broad game support remains a preview and Minecraft login/launch still depends on API approval.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(
