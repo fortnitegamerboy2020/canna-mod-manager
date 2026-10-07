@@ -24,23 +24,26 @@ use zeroize::Zeroizing;
 mod admin_tools;
 mod cannabot;
 mod catalog;
-mod mod_updates;
-mod source_packages;
 mod community;
 mod crypto;
 mod curseforge;
 mod devices;
 mod email;
 mod external;
+mod game_profiles;
 mod handoff;
 mod lists;
 mod live;
 mod lounge;
+mod mod_updates;
 mod notifications;
 mod profiles;
+mod provider_browse;
+mod provider_cache;
 mod scans;
 mod sections;
 mod security;
+mod source_packages;
 mod support;
 mod twofactor;
 mod updates;
@@ -154,6 +157,8 @@ impl App {
         lounge::initialize(&db)?;
         cannabot::initialize(&db)?;
         external::initialize(&db)?;
+        provider_cache::initialize(&db)?;
+        provider_browse::initialize(&db)?;
         support::initialize(&db)?;
         catalog::initialize(&db)?;
         mod_updates::initialize(&db)?;
@@ -571,8 +576,15 @@ async fn upload(
                 size as i64
             ],
         )?;
-        let approved=false;
-        tx.execute("INSERT INTO mod_details VALUES(?1,?2,?3)",params![id,format!("uploaded:{id}"),json!({"provider":"uploaded","manual_review_required":true}).to_string()])?;
+        let approved = false;
+        tx.execute(
+            "INSERT INTO mod_details VALUES(?1,?2,?3)",
+            params![
+                id,
+                format!("uploaded:{id}"),
+                json!({"provider":"uploaded","manual_review_required":true}).to_string()
+            ],
+        )?;
         tx.execute(
             "INSERT INTO mod_reviews(mod_id,approved) VALUES(?1,?2)",
             params![id, approved],
@@ -609,10 +621,10 @@ async fn mods(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::
         })
         .collect();
     // Keep a working approved release visible while an update awaits analysis.
-    entries.sort_by_key(|m|m["review_status"]!="approved");
-    let mut seen=std::collections::HashSet::new();
-    entries.retain(|m|catalog::project_key(&m["details"]).is_none_or(|key|seen.insert(key)));
-    entries.sort_by(|a,b|a["name"].as_str().cmp(&b["name"].as_str()));
+    entries.sort_by_key(|m| m["review_status"] != "approved");
+    let mut seen = std::collections::HashSet::new();
+    entries.retain(|m| catalog::project_key(&m["details"]).is_none_or(|key| seen.insert(key)));
+    entries.sort_by(|a, b| a["name"].as_str().cmp(&b["name"].as_str()));
     entries.extend(catalog::recommendations());
     Ok(axum::Json(json!(entries)))
 }
@@ -631,6 +643,7 @@ async fn download(
         .optional()?;
     let size = size.ok_or(ApiError(StatusCode::NOT_FOUND, "Mod not found"))?;
     security::approved(&app.db.lock().unwrap(), &id)?;
+    provider_cache::ensure(&app, &id).await?;
     let file = tokio::fs::File::open(app.files.join(format!("{id}.zip"))).await?;
     Ok((
         [
@@ -857,6 +870,13 @@ async fn live_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/live.js")))
 }
+async fn provider_browser_script(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+) -> ApiResult<Response> {
+    app.auth(&headers)?;
+    Ok(asset(include_str!("../web/provider-browser.js")))
+}
 async fn library_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/library.js")))
@@ -933,6 +953,7 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/announcement", get(lounge::announcement))
         .route("/api/v1/admin/announcement", post(lounge::announce))
         .route("/library.js", get(library_script))
+        .route("/provider-browser.js", get(provider_browser_script))
         .route("/api/v1/events", get(live::events))
         .route("/api/v1/admin/overview", get(admin_tools::overview))
         .route("/api/v1/admin/mod-reviews", get(admin_tools::reviews))
@@ -1065,6 +1086,8 @@ fn router(app: Shared) -> Router {
         )
         .route("/api/v1/catalog", get(catalog::list))
         .route("/api/v1/catalog/file", get(catalog::file))
+        .route("/api/v1/providers/games", get(provider_browse::games))
+        .route("/api/v1/providers/search", get(provider_browse::search))
         .route("/api/v1/mods/external/preview", post(external::preview))
         .route("/api/v1/mods/external/import", post(external::import))
         .route("/api/v1/desktop/connect", post(handoff::connect))
@@ -1160,18 +1183,35 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     if std::env::args().any(|a| a == "--rescan-uncertain-denials") {
-        let count=scans::requeue_uncertain_denials(&mut app.db.lock().unwrap())?;
+        let count = scans::requeue_uncertain_denials(&mut app.db.lock().unwrap())?;
         println!("Queued {count} uncertain packing denials for corrected analysis");
         return Ok(());
     }
     if std::env::args().any(|a| a == "--rescan-curated-source") {
-        let db=app.db.lock().unwrap();
+        let db = app.db.lock().unwrap();
         let count=db.execute("DELETE FROM mod_scans WHERE mod_id IN (SELECT mod_id FROM mod_details WHERE origin LIKE 'github:originalgrego/L4D2-Practice-Script:%' OR origin LIKE 'github:jpobzy/L4dAutoConfig:%' OR origin LIKE 'github:jpobzy/L4dRemovedMainMenuMusic:%')",[])?;
-        println!("Queued {count} curated Source packages for reanalysis");return Ok(());
+        println!("Queued {count} curated Source packages for reanalysis");
+        return Ok(());
     }
     if std::env::args().any(|a| a == "--catalog-status") {
-        let db=app.db.lock().unwrap();let mut stmt=db.prepare("SELECT m.name,m.version,COALESCE(s.status,'pending'),COALESCE(s.report,'{}') FROM mods m LEFT JOIN mod_scans s ON s.mod_id=m.id ORDER BY m.name")?;
-        for row in stmt.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,String>(2)?,r.get::<_,String>(3)?)))? {let (name,version,status,raw)=row?;let report:Value=serde_json::from_str(&raw).unwrap_or_default();println!("{}",json!({"name":name,"version":version,"status":status,"source_files":report["files"].as_array().map_or(0,Vec::len),"findings":report["findings"]}));}return Ok(());
+        let db = app.db.lock().unwrap();
+        let mut stmt=db.prepare("SELECT m.name,m.version,COALESCE(s.status,'pending'),COALESCE(s.report,'{}') FROM mods m LEFT JOIN mod_scans s ON s.mod_id=m.id ORDER BY m.name")?;
+        for row in stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+                r.get::<_, String>(3)?,
+            ))
+        })? {
+            let (name, version, status, raw) = row?;
+            let report: Value = serde_json::from_str(&raw).unwrap_or_default();
+            println!(
+                "{}",
+                json!({"name":name,"version":version,"status":status,"source_files":report["files"].as_array().map_or(0,Vec::len),"findings":report["findings"]})
+            );
+        }
+        return Ok(());
     }
     if std::env::args().any(|a| a == "--check-storage") {
         let integrity: String =
@@ -1199,6 +1239,7 @@ async fn main() -> anyhow::Result<()> {
     scans::start(app.clone());
     notifications::start(app.clone());
     mod_updates::start(app.clone());
+    provider_cache::start(app.clone());
     axum::serve(
         listener,
         router(app).into_make_service_with_connect_info::<std::net::SocketAddr>(),
@@ -1305,8 +1346,12 @@ mod tests {
         let text = page_text(response).await;
         let data: Value = serde_json::from_str(&text).unwrap();
         let games = data["games"].as_array().unwrap();
-        assert_eq!(games.len(), 5);
-        assert!(games.iter().any(|game|game["app_id"]==550 && game["framework"]=="source-vpk"));
+        assert!(games.len() > 150);
+        assert!(
+            games
+                .iter()
+                .any(|game| game["app_id"] == 550 && game["framework"] == "source-vpk")
+        );
         let mc = games.iter().find(|g| g["app_id"] == u32::MAX).unwrap();
         assert_eq!(mc["name"], "Minecraft");
         assert_eq!(mc["mods"][0]["content_type"], "shader");
@@ -1482,6 +1527,9 @@ mod tests {
         let (_dir, app) = fixture();
         for path in [
             "/api/v1/mods",
+            "/api/v1/providers/games",
+            "/api/v1/providers/search?provider=thunderstore&game=rounds",
+            "/provider-browser.js",
             "/api/v1/packs",
             "/api/v1/me",
             "/api/v1/packs/../../etc/passwd",
@@ -1785,7 +1833,13 @@ mod tests {
             .await,
         )
         .await;
-        assert!(catalog["games"].as_array().unwrap().iter().all(|game| game["mods"].as_array().unwrap().iter().all(|item|item["provenance"]["external_only"]==true)));
+        assert!(catalog["games"].as_array().unwrap().iter().all(|game| {
+            game["mods"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["provenance"]["external_only"] == true)
+        }));
         assert_eq!(
             call(
                 app.clone(),

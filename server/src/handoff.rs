@@ -315,6 +315,7 @@ pub async fn transfer(
                 .unwrap()
                 .query_row("SELECT size FROM mods WHERE id=?1", [&id], |r| r.get(0))?;
         security::approved(&app.db.lock().unwrap(), &id)?;
+        provider_cache::ensure(&app, &id).await?;
         let file = tokio::fs::File::open(app.files.join(format!("{id}.zip"))).await?;
         Ok((
             [

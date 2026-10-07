@@ -172,5 +172,11 @@ pub fn supported_catalog() -> Vec<GameInfo> {
             mod_folder_status: String::new(),
         });
     }
+    for profile in crate::game_profiles::games() {
+        if games.iter().any(|g| g.app_id == profile.app_id) {
+            continue;
+        }
+        games.push(GameInfo {app_id:profile.app_id,name:profile.name.clone(),folder:profile.folder.clone(),description:"Thunderstore BepInEx profile · preview. Requires a compatible reviewed loader and supported package layout.".into(),icon:String::new(),mods:vec![],mod_folder_status:"Game profile available".into()});
+    }
     games
 }

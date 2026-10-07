@@ -58,7 +58,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.24 adds Source console log capture for Left 4 Dead and Left 4 Dead 2, including engine messages, script prints and plugin output. Both launch modes enable logging; modded launches retain -insecure. Launch status now reports Source output instead of waiting for BepInEx.
+Canna 0.2.25 adds preview Steam/BepInEx profiles for 185 Thunderstore games, compatible reviewed loader lookup, plugin/patcher routing and preserved user configs. The community adds provider search, pagination and filters, plus a seven-day archive cache that preserves listings and retrieves expired pinned files with their original checksums. Thunderstore browsing is currently blocked by provider HTTP 403; other game families and full in-game compatibility remain unverified.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

@@ -1,0 +1,2146 @@
+{
+  "source": "https://github.com/ebkr/r2modmanPlus",
+  "revision": "64a6e9425a80da17274f0a096294b91d9529debe",
+  "license": "MIT",
+  "games": [
+    {
+      "app_id": 1966900,
+      "name": "20 Minutes Till Dawn",
+      "community": "20-minutes-till-dawn",
+      "folder": "20-minutes-till-dawn",
+      "data_folder": "MinutesTillDawn_Data",
+      "executables": [
+        "MinutesTillDawn.exe"
+      ]
+    },
+    {
+      "app_id": 2784470,
+      "name": "9 Kings",
+      "community": "9-kings",
+      "folder": "9-kings",
+      "data_folder": "9Kings_Data",
+      "executables": [
+        "9Kings.exe"
+      ]
+    },
+    {
+      "app_id": 2820700,
+      "name": "A Gentlemen's Dispute",
+      "community": "a-gentlemens-dispute",
+      "folder": "a-gentlemens-dispute",
+      "data_folder": "A Gentlemen's Dispute_Data",
+      "executables": [
+        "A Gentlemen's Dispute.exe",
+        "AGentlemensDispute.app"
+      ]
+    },
+    {
+      "app_id": 1385380,
+      "name": "Across the Obelisk",
+      "community": "across-the-obelisk",
+      "folder": "across-the-obelisk",
+      "data_folder": "AcrossTheObelisk_Data",
+      "executables": [
+        "AcrossTheObelisk.exe"
+      ]
+    },
+    {
+      "app_id": 2286780,
+      "name": "Aeruta",
+      "community": "aeruta",
+      "folder": "aeruta",
+      "data_folder": "Aeruta_Data",
+      "executables": [
+        "Aeruta.exe"
+      ]
+    },
+    {
+      "app_id": 1584840,
+      "name": "AGAINST",
+      "community": "against",
+      "folder": "against",
+      "data_folder": "AGAINST_Data",
+      "executables": [
+        "AGAINST.exe"
+      ]
+    },
+    {
+      "app_id": 1336490,
+      "name": "Against the Storm",
+      "community": "against-the-storm",
+      "folder": "against-the-storm",
+      "data_folder": "Against the Storm_Data",
+      "executables": [
+        "Against the Storm.exe"
+      ]
+    },
+    {
+      "app_id": 2683150,
+      "name": "Ale & Tale Tavern",
+      "community": "ale-and-tale-tavern",
+      "folder": "ale-and-tale-tavern",
+      "data_folder": "Ale and Tale Tavern_Data",
+      "executables": [
+        "Ale and Tale Tavern.exe"
+      ]
+    },
+    {
+      "app_id": 1660080,
+      "name": "Aloft",
+      "community": "aloft",
+      "folder": "aloft",
+      "data_folder": "Aloft_Data",
+      "executables": [
+        "Aloft.exe"
+      ]
+    },
+    {
+      "app_id": 945360,
+      "name": "Among Us",
+      "community": "among-us",
+      "folder": "among-us",
+      "data_folder": "Among Us_Data",
+      "executables": [
+        "Among Us.exe"
+      ]
+    },
+    {
+      "app_id": 2773280,
+      "name": "ANEURISM IV",
+      "community": "aneurism-iv",
+      "folder": "aneurism-iv",
+      "data_folder": "ANEURISM IV_Data",
+      "executables": [
+        "ANEURISM IV.exe"
+      ]
+    },
+    {
+      "app_id": 1887840,
+      "name": "Another Crab's Treasure",
+      "community": "another-crabs-treasure",
+      "folder": "another-crabs-treasure",
+      "data_folder": "AnotherCrabsTreasure_Data",
+      "executables": [
+        "AnotherCrabsTreasure.exe"
+      ]
+    },
+    {
+      "app_id": 1447350,
+      "name": "Arcus Chroma",
+      "community": "arcus-chroma",
+      "folder": "arcus-chroma",
+      "data_folder": "Arcus Chroma_Data",
+      "executables": [
+        "Arcus Chroma.exe"
+      ]
+    },
+    {
+      "app_id": 1898300,
+      "name": "ASKA",
+      "community": "aska",
+      "folder": "aska",
+      "data_folder": "ASKA_Data",
+      "executables": [
+        "Aska.exe"
+      ]
+    },
+    {
+      "app_id": 2768430,
+      "name": "ATLYSS",
+      "community": "atlyss",
+      "folder": "atlyss",
+      "data_folder": "ATLYSS_Data",
+      "executables": [
+        "ATLYSS.exe"
+      ]
+    },
+    {
+      "app_id": 757320,
+      "name": "Atomicrops",
+      "community": "atomicrops",
+      "folder": "atomicrops",
+      "data_folder": "Atomicrops_Data",
+      "executables": [
+        "Atomicrops.exe"
+      ]
+    },
+    {
+      "app_id": 1125390,
+      "name": "Atrio: The Dark Wild",
+      "community": "atrio-the-dark-wild",
+      "folder": "atrio-the-dark-wild",
+      "data_folder": "Atrio_Data",
+      "executables": [
+        "Atrio.exe"
+      ]
+    },
+    {
+      "app_id": 1735700,
+      "name": "Back to the Dawn",
+      "community": "back-to-the-dawn",
+      "folder": "back-to-the-dawn",
+      "data_folder": "Back To The Dawn_Data",
+      "executables": [
+        "Back To The Dawn.exe"
+      ]
+    },
+    {
+      "app_id": 688420,
+      "name": "Bad North",
+      "community": "bad-north",
+      "folder": "bad-north",
+      "data_folder": "BadNorth_Data",
+      "executables": [
+        "BadNorth.exe"
+      ]
+    },
+    {
+      "app_id": 1170230,
+      "name": "Below the Stone",
+      "community": "below-the-stone",
+      "folder": "below-the-stone",
+      "data_folder": "Below The Stone_Data",
+      "executables": [
+        "Below The Stone.exe"
+      ]
+    },
+    {
+      "app_id": 622650,
+      "name": "Bendy and the Ink Machine",
+      "community": "bendy-and-the-ink-machine",
+      "folder": "bendy-and-the-ink-machine",
+      "data_folder": "Bendy and the Ink Machine_Data",
+      "executables": [
+        "Bendy and the Ink Machine.exe"
+      ]
+    },
+    {
+      "app_id": 2643810,
+      "name": "Betrayal Beach",
+      "community": "betrayal-beach",
+      "folder": "betrayal-beach",
+      "data_folder": "Betrayal Beach_Data",
+      "executables": [
+        "Betrayal Beach.exe"
+      ]
+    },
+    {
+      "app_id": 1353230,
+      "name": "Bomb Rush Cyberfunk",
+      "community": "bomb-rush-cyberfunk",
+      "folder": "bomb-rush-cyberfunk",
+      "data_folder": "Bomb Rush Cyberfunk_Data",
+      "executables": [
+        "Bomb Rush Cyberfunk.exe"
+      ]
+    },
+    {
+      "app_id": 1686940,
+      "name": "Bopl Battle",
+      "community": "bopl-battle",
+      "folder": "bopl-battle",
+      "data_folder": "BoplBattle_Data",
+      "executables": [
+        "BoplBattle.exe"
+      ]
+    },
+    {
+      "app_id": 580720,
+      "name": "Carrier Deck",
+      "community": "carrier-deck",
+      "folder": "carrier-deck",
+      "data_folder": "CD_Data",
+      "executables": [
+        "CD.exe"
+      ]
+    },
+    {
+      "app_id": 1188080,
+      "name": "Cats are Liquid - A Better Place",
+      "community": "cats-are-liquid",
+      "folder": "cats-are-liquid",
+      "data_folder": "CaL-ABP-Windows_Data",
+      "executables": [
+        "CaL-ABP-Windows.exe",
+        "CaL-ABP-Linux.x86_64",
+        "CaL-ABP-macOS.app"
+      ]
+    },
+    {
+      "app_id": 3548580,
+      "name": "Chill with You : Lo-Fi Story",
+      "community": "chill-with-you",
+      "folder": "chill-with-you",
+      "data_folder": "Chill With You_Data",
+      "executables": [
+        "Chill With You.exe"
+      ]
+    },
+    {
+      "app_id": 1188930,
+      "name": "Chrono Ark",
+      "community": "chrono-ark",
+      "folder": "chrono-ark",
+      "data_folder": "ChronoArk_Data",
+      "executables": [
+        "ChronoArk.exe"
+      ]
+    },
+    {
+      "app_id": 949230,
+      "name": "Cities: Skylines II",
+      "community": "cities-skylines-ii",
+      "folder": "cities-skylines-ii",
+      "data_folder": "CitiesSkylines2_Data",
+      "executables": [
+        "Cities2.exe"
+      ]
+    },
+    {
+      "app_id": 3314790,
+      "name": "CloverPit",
+      "community": "clover-pit",
+      "folder": "clover-pit",
+      "data_folder": "CloverPit_Data",
+      "executables": [
+        "CloverPit.exe"
+      ]
+    },
+    {
+      "app_id": 2881650,
+      "name": "Content Warning",
+      "community": "content-warning",
+      "folder": "content-warning",
+      "data_folder": "Content Warning_Data",
+      "executables": [
+        "Content Warning.exe"
+      ]
+    },
+    {
+      "app_id": 1621690,
+      "name": "Core Keeper",
+      "community": "core-keeper",
+      "folder": "core-keeper",
+      "data_folder": "CoreKeeper_Data",
+      "executables": [
+        "CoreKeeper.exe"
+      ]
+    },
+    {
+      "app_id": 1782210,
+      "name": "Crab Game",
+      "community": "crab-game",
+      "folder": "crab-game",
+      "data_folder": "Crab Game_Data",
+      "executables": [
+        "Crab Game.exe",
+        "Crab Game.x86_64"
+      ]
+    },
+    {
+      "app_id": 1787860,
+      "name": "Crawlspace",
+      "community": "crawlspace",
+      "folder": "crawlspace",
+      "data_folder": "Crawlspace_Data",
+      "executables": [
+        "Crawlspace.exe"
+      ]
+    },
+    {
+      "app_id": 2258670,
+      "name": "Crawlspace 2",
+      "community": "crawlspace-2",
+      "folder": "crawlspace-2",
+      "data_folder": "VRFighter_Data",
+      "executables": [
+        "VRFighter.exe"
+      ]
+    },
+    {
+      "app_id": 2737070,
+      "name": "Crime Simulator",
+      "community": "crime-simulator",
+      "folder": "crime-simulator",
+      "data_folder": "Crime Simulator_Data",
+      "executables": [
+        "Crime Simulator.exe"
+      ]
+    },
+    {
+      "app_id": 1313140,
+      "name": "Cult of the Lamb",
+      "community": "cult-of-the-lamb",
+      "folder": "cult-of-the-lamb",
+      "data_folder": "Cult Of The Lamb_Data",
+      "executables": [
+        "Cult Of The Lamb.exe"
+      ]
+    },
+    {
+      "app_id": 619540,
+      "name": "Darkwater",
+      "community": "darkwater",
+      "folder": "darkwater",
+      "data_folder": "Darkwater_Data",
+      "executables": [
+        "Darkwater.exe"
+      ]
+    },
+    {
+      "app_id": 3743090,
+      "name": "Deadly Delivery",
+      "community": "deadly-delivery",
+      "folder": "deadly-delivery",
+      "data_folder": "Deadly Delivery_Data",
+      "executables": [
+        "Deadly Delivery.exe"
+      ]
+    },
+    {
+      "app_id": 2321470,
+      "name": "Deep Rock Galactic: Survivor",
+      "community": "deep-rock-galactic-survivor",
+      "folder": "deep-rock-galactic-survivor",
+      "data_folder": "DRG Survivor_Data",
+      "executables": [
+        "DRG Survivor.exe"
+      ]
+    },
+    {
+      "app_id": 1091320,
+      "name": "DEPO : Death Epileptic Pixel Origins",
+      "community": "depo",
+      "folder": "depo",
+      "data_folder": "DEPO_Data",
+      "executables": [
+        "DEPO.exe"
+      ]
+    },
+    {
+      "app_id": 632470,
+      "name": "Disco Elysium",
+      "community": "disco-elysium",
+      "folder": "disco-elysium",
+      "data_folder": "disco_Data",
+      "executables": [
+        "disco.exe"
+      ]
+    },
+    {
+      "app_id": 233610,
+      "name": "Distance",
+      "community": "distance",
+      "folder": "distance",
+      "data_folder": "Distance_Data",
+      "executables": [
+        "Distance.exe"
+      ]
+    },
+    {
+      "app_id": 1562430,
+      "name": "DREDGE",
+      "community": "dredge",
+      "folder": "dredge",
+      "data_folder": "DREDGE_Data",
+      "executables": [
+        "DREDGE.exe"
+      ]
+    },
+    {
+      "app_id": 519860,
+      "name": "DUSK",
+      "community": "dusk",
+      "folder": "dusk",
+      "data_folder": "Dusk_Data",
+      "executables": [
+        "Dusk.exe"
+      ]
+    },
+    {
+      "app_id": 1366540,
+      "name": "Dyson Sphere Program",
+      "community": "dyson-sphere-program",
+      "folder": "dyson-sphere-program",
+      "data_folder": "DSPGAME_Data",
+      "executables": [
+        "DSPGAME.exe"
+      ]
+    },
+    {
+      "app_id": 3293010,
+      "name": "Easy Delivery Co",
+      "community": "easy-delivery-co",
+      "folder": "easy-delivery-co",
+      "data_folder": "EasyDeliveryCo_Data",
+      "executables": [
+        "EasyDeliveryCo.exe"
+      ]
+    },
+    {
+      "app_id": 2134320,
+      "name": "ENA: Dream BBQ",
+      "community": "ena-dream-bbq",
+      "folder": "ena-dream-bbq",
+      "data_folder": "ENA-4-DreamBBQ_Data",
+      "executables": [
+        "ENA-4-DreamBBQ.exe"
+      ]
+    },
+    {
+      "app_id": 311690,
+      "name": "Enter the Gungeon",
+      "community": "enter-the-gungeon",
+      "folder": "enter-the-gungeon",
+      "data_folder": "EtG_Data",
+      "executables": [
+        "EtG.exe"
+      ]
+    },
+    {
+      "app_id": 2382520,
+      "name": "Erenshor",
+      "community": "erenshor",
+      "folder": "erenshor",
+      "data_folder": "Erenshor_Data",
+      "executables": [
+        "Erenshor.exe"
+      ]
+    },
+    {
+      "app_id": 3679930,
+      "name": "Factory Planner",
+      "community": "factory-planner",
+      "folder": "factory-planner",
+      "data_folder": "Factory Planner_Data",
+      "executables": [
+        "Factory Planner.exe"
+      ]
+    },
+    {
+      "app_id": 2638370,
+      "name": "Five Nights at Freddy's: Into the Pit",
+      "community": "five-nights-at-freddys-into-the-pit",
+      "folder": "five-nights-at-freddys-into-the-pit",
+      "data_folder": "Five Nights at Freddy's Into the Pit_Data",
+      "executables": [
+        "Five Nights at Freddy's Into the Pit.exe",
+        "FNaFIntoThePit.exe"
+      ]
+    },
+    {
+      "app_id": 3551340,
+      "name": "Football Manager 26",
+      "community": "football-manager-26",
+      "folder": "football-manager-26",
+      "data_folder": "fm_Data",
+      "executables": [
+        "fm.exe"
+      ]
+    },
+    {
+      "app_id": 527230,
+      "name": "For The King",
+      "community": "for-the-king",
+      "folder": "for-the-king",
+      "data_folder": "FTK_Data",
+      "executables": [
+        "FTK.exe"
+      ]
+    },
+    {
+      "app_id": 1085510,
+      "name": "Garfield Kart - Furious Racing",
+      "community": "garfield-kart-furious-racing",
+      "folder": "garfield-kart-furious-racing",
+      "data_folder": "GarfieldKartFuriousRacing_Data",
+      "executables": [
+        "Garfield Kart Furious Racing.exe"
+      ]
+    },
+    {
+      "app_id": 2106670,
+      "name": "Gatekeeper",
+      "community": "gatekeeper",
+      "folder": "gatekeeper",
+      "data_folder": "Gatekeeper_Data",
+      "executables": [
+        "Gatekeeper.exe"
+      ]
+    },
+    {
+      "app_id": 2689120,
+      "name": "Gladio Mori",
+      "community": "gladio-mori",
+      "folder": "gladio-mori",
+      "data_folder": "Gladio Mori_Data",
+      "executables": [
+        "Gladio Mori.exe"
+      ]
+    },
+    {
+      "app_id": 1150760,
+      "name": "Gloomwood",
+      "community": "gloomwood",
+      "folder": "gloomwood",
+      "data_folder": "Gloomwood_Data",
+      "executables": [
+        "Gloomwood.exe"
+      ]
+    },
+    {
+      "app_id": 2482250,
+      "name": "Goblin Buster: Incremental Tower Defense",
+      "community": "goblin-buster",
+      "folder": "goblin-buster",
+      "data_folder": "Goblin Buster_Data",
+      "executables": [
+        "Goblin Buster.exe"
+      ]
+    },
+    {
+      "app_id": 1310330,
+      "name": "Goodbye Volcano High",
+      "community": "goodbye-volcano-high",
+      "folder": "goodbye-volcano-high",
+      "data_folder": "Goodbye Volcano High_Data",
+      "executables": [
+        "Goodbye Volcano High.exe"
+      ]
+    },
+    {
+      "app_id": 2027330,
+      "name": "GoreBox",
+      "community": "gorebox",
+      "folder": "gorebox",
+      "data_folder": "GoreBox_Data",
+      "executables": [
+        "GoreBox.exe"
+      ]
+    },
+    {
+      "app_id": 1205040,
+      "name": "Granny: Chapter Two",
+      "community": "granny-chapter-two",
+      "folder": "granny-chapter-two",
+      "data_folder": "Granny Chapter Two_Data",
+      "executables": [
+        "Granny Chapter Two.exe"
+      ]
+    },
+    {
+      "app_id": 1782330,
+      "name": "Green Hell VR",
+      "community": "green-hell-vr",
+      "folder": "green-hell-vr",
+      "data_folder": "GHVR_Data",
+      "executables": [
+        "GHVR.exe"
+      ]
+    },
+    {
+      "app_id": 605230,
+      "name": "Grey Hack",
+      "community": "grey-hack",
+      "folder": "grey-hack",
+      "data_folder": "Grey Hack_Data",
+      "executables": [
+        "Grey Hack.exe"
+      ]
+    },
+    {
+      "app_id": 493520,
+      "name": "GTFO",
+      "community": "gtfo",
+      "folder": "gtfo",
+      "data_folder": "GTFO_Data",
+      "executables": [
+        "GTFO.exe"
+      ]
+    },
+    {
+      "app_id": 3400930,
+      "name": "Guilty as Sock!",
+      "community": "guilty-as-sock",
+      "folder": "guilty-as-sock",
+      "data_folder": "StandaloneWindows64_Data",
+      "executables": [
+        "StandaloneWindows64.exe"
+      ]
+    },
+    {
+      "app_id": 450540,
+      "name": "H3VR",
+      "community": "h3vr",
+      "folder": "h3vr",
+      "data_folder": "h3vr_Data",
+      "executables": [
+        "h3vr.exe"
+      ]
+    },
+    {
+      "app_id": 3009850,
+      "name": "Hard Time III",
+      "community": "hard-time-3",
+      "folder": "hard-time-3",
+      "data_folder": "Hard Time III_Data",
+      "executables": [
+        "Hard Time III.exe"
+      ]
+    },
+    {
+      "app_id": 1030300,
+      "name": "Hollow Knight: Silksong",
+      "community": "hollow-knight-silksong",
+      "folder": "hollow-knight-silksong",
+      "data_folder": "Hollow Knight Silksong_Data",
+      "executables": [
+        "Hollow Knight Silksong.exe",
+        "Hollow Knight Silksong.app",
+        "Hollow Knight Silksong"
+      ]
+    },
+    {
+      "app_id": 2503770,
+      "name": "House of Legacy",
+      "community": "house-of-legacy",
+      "folder": "house-of-legacy",
+      "data_folder": "House of Legacy_Data",
+      "executables": [
+        "House of Legacy.exe"
+      ]
+    },
+    {
+      "app_id": 283160,
+      "name": "House of the Dying Sun",
+      "community": "hotds",
+      "folder": "hotds",
+      "data_folder": "dyingsun_Data",
+      "executables": [
+        "dyingsun.exe"
+      ]
+    },
+    {
+      "app_id": 477160,
+      "name": "Human Fall Flat",
+      "community": "human-fall-flat",
+      "folder": "human-fall-flat",
+      "data_folder": "Human_Data",
+      "executables": [
+        "Human.exe"
+      ]
+    },
+    {
+      "app_id": 1876590,
+      "name": "I Am Your Beast",
+      "community": "i-am-your-beast",
+      "folder": "i-am-your-beast",
+      "data_folder": "I Am Your Beast_Data",
+      "executables": [
+        "I Am Your Beast.exe"
+      ]
+    },
+    {
+      "app_id": 1092790,
+      "name": "Inscryption",
+      "community": "inscryption",
+      "folder": "inscryption",
+      "data_folder": "Inscryption_Data",
+      "executables": [
+        "Inscryption.exe"
+      ]
+    },
+    {
+      "app_id": 1242980,
+      "name": "KeyWe",
+      "community": "keywe",
+      "folder": "keywe",
+      "data_folder": "KeyWe_Data",
+      "executables": [
+        "KeyWe.exe"
+      ]
+    },
+    {
+      "app_id": 2318480,
+      "name": "Last Train Outta' Wormtown",
+      "community": "last-train-outta-wormtown",
+      "folder": "last-train-outta-wormtown",
+      "data_folder": "Last Train Out Of WormTown_Data",
+      "executables": [
+        "Last Train Out Of WormTown.exe"
+      ]
+    },
+    {
+      "app_id": 1335830,
+      "name": "Len's Island",
+      "community": "lens-island",
+      "folder": "lens-island",
+      "data_folder": "Len's Island_Data",
+      "executables": [
+        "Len's Island.exe"
+      ]
+    },
+    {
+      "app_id": 1966720,
+      "name": "Lethal Company",
+      "community": "lethal-company",
+      "folder": "lethal-company",
+      "data_folder": "Lethal Company_Data",
+      "executables": [
+        "Lethal Company.exe"
+      ]
+    },
+    {
+      "app_id": 553310,
+      "name": "Lethal League Blaze",
+      "community": "lethal-league-blaze",
+      "folder": "lethal-league-blaze",
+      "data_folder": "LLBlaze_Data",
+      "executables": [
+        "LLBlaze.exe",
+        "LLBlaze.x86_64",
+        "LLBlaze.x86",
+        "LLBlaze.app"
+      ]
+    },
+    {
+      "app_id": 1054340,
+      "name": "Logic World",
+      "community": "logic-world",
+      "folder": "logic-world",
+      "data_folder": "Logic_World_Data",
+      "executables": [
+        "Logic_World.exe"
+      ]
+    },
+    {
+      "app_id": 1931180,
+      "name": "Lost Skies",
+      "community": "lost-skies",
+      "folder": "lost-skies",
+      "data_folder": "LostSkies_Data",
+      "executables": [
+        "LostSkies.exe"
+      ]
+    },
+    {
+      "app_id": 2102670,
+      "name": "Lost Skies Island Creator",
+      "community": "lost-skies-ic",
+      "folder": "lost-skies-ic",
+      "data_folder": "IslandCreator_Data",
+      "executables": [
+        "IslandCreator.exe"
+      ]
+    },
+    {
+      "app_id": 2596100,
+      "name": "Lycans",
+      "community": "lycans",
+      "folder": "lycans",
+      "data_folder": "Lycans_Data",
+      "executables": [
+        "Lycans.exe"
+      ]
+    },
+    {
+      "app_id": 3716600,
+      "name": "Mage Arena",
+      "community": "mage-arena",
+      "folder": "mage-arena",
+      "data_folder": "MageArena_Data",
+      "executables": [
+        "MageArena.exe"
+      ]
+    },
+    {
+      "app_id": 268750,
+      "name": "Magicite",
+      "community": "magicite",
+      "folder": "magicite",
+      "data_folder": "Magicite_Data",
+      "executables": [
+        "Magicite.exe"
+      ]
+    },
+    {
+      "app_id": 2103140,
+      "name": "Magicraft",
+      "community": "magicraft",
+      "folder": "magicraft",
+      "data_folder": "Magicraft_Data",
+      "executables": [
+        "Magicraft.exe"
+      ]
+    },
+    {
+      "app_id": 3404470,
+      "name": "Maltese's Fluffy Onsen",
+      "community": "malteses-fluffy-onsen",
+      "folder": "malteses-fluffy-onsen",
+      "data_folder": "AnimalSpa_Data",
+      "executables": [
+        "AnimalSpa.exe"
+      ]
+    },
+    {
+      "app_id": 1226990,
+      "name": "Mechanica",
+      "community": "mechanica",
+      "folder": "mechanica",
+      "data_folder": "Mechanica_Data",
+      "executables": [
+        "Mechanica.exe"
+      ]
+    },
+    {
+      "app_id": 900010,
+      "name": "Meeple Station",
+      "community": "meeple-station",
+      "folder": "meeple-station",
+      "data_folder": "MeepleStation_Data",
+      "executables": [
+        "Meeple Station.exe"
+      ]
+    },
+    {
+      "app_id": 3405340,
+      "name": "Megabonk",
+      "community": "megabonk",
+      "folder": "megabonk",
+      "data_folder": "Megabonk_Data",
+      "executables": [
+        "Megabonk.exe",
+        "Megabonk.x86_64"
+      ]
+    },
+    {
+      "app_id": 3846120,
+      "name": "MineMogul",
+      "community": "mine-mogul",
+      "folder": "mine-mogul",
+      "data_folder": "MineMogul_Data",
+      "executables": [
+        "MineMogul.exe"
+      ]
+    },
+    {
+      "app_id": 2527500,
+      "name": "MiSide",
+      "community": "miside",
+      "folder": "miside",
+      "data_folder": "MiSideFull_Data",
+      "executables": [
+        "MiSideFull.exe"
+      ]
+    },
+    {
+      "app_id": 2742830,
+      "name": "Monster Train 2",
+      "community": "monster-train-2",
+      "folder": "monster-train-2",
+      "data_folder": "MonsterTrain2_Data",
+      "executables": [
+        "MonsterTrain2.exe"
+      ]
+    },
+    {
+      "app_id": 1625450,
+      "name": "Muck",
+      "community": "muck",
+      "folder": "muck",
+      "data_folder": "Muck_Data",
+      "executables": [
+        "Muck.exe",
+        "Muck.x86_64"
+      ]
+    },
+    {
+      "app_id": 2200780,
+      "name": "My Dream Setup",
+      "community": "my-dream-setup",
+      "folder": "my-dream-setup",
+      "data_folder": "MDS_Data",
+      "executables": [
+        "MDS.exe"
+      ]
+    },
+    {
+      "app_id": 3247750,
+      "name": "Mycopunk",
+      "community": "mycopunk",
+      "folder": "mycopunk",
+      "data_folder": "Mycopunk_Data",
+      "executables": [
+        "Mycopunk.exe"
+      ]
+    },
+    {
+      "app_id": 1268900,
+      "name": "Nearly Dead",
+      "community": "nearly-dead",
+      "folder": "nearly-dead",
+      "data_folder": "Nearly Dead_Data",
+      "executables": [
+        "Nearly Dead.exe"
+      ]
+    },
+    {
+      "app_id": 384490,
+      "name": "Necropolis",
+      "community": "necropolis",
+      "folder": "necropolis",
+      "data_folder": "Necropolis_Data",
+      "executables": [
+        "Necropolis.exe"
+      ]
+    },
+    {
+      "app_id": 1414850,
+      "name": "Nickelodeon All‑Star Brawl",
+      "community": "nasb",
+      "folder": "nasb",
+      "data_folder": "Nickelodeon All-Star Brawl_Data",
+      "executables": [
+        "Nickelodeon All-Star Brawl.exe"
+      ]
+    },
+    {
+      "app_id": 1809540,
+      "name": "Nine Sols",
+      "community": "nine-sols",
+      "folder": "nine-sols",
+      "data_folder": "Nine Sols_Data",
+      "executables": [
+        "NineSols.exe"
+      ]
+    },
+    {
+      "app_id": 2168680,
+      "name": "Nuclear Option",
+      "community": "nuclear-option",
+      "folder": "nuclear-option",
+      "data_folder": "NuclearOption_Data",
+      "executables": [
+        "NuclearOption.exe"
+      ]
+    },
+    {
+      "app_id": 1745680,
+      "name": "Odd Remedy",
+      "community": "odd-remedy",
+      "folder": "odd-remedy",
+      "data_folder": "OddRemedy_Data",
+      "executables": [
+        "OddRemedy.exe"
+      ]
+    },
+    {
+      "app_id": 2878420,
+      "name": "Old Market Simulator",
+      "community": "old-market-simulator",
+      "folder": "old-market-simulator",
+      "data_folder": "Old Market Simulator_Data",
+      "executables": [
+        "Old Market Simulator.exe"
+      ]
+    },
+    {
+      "app_id": 3707400,
+      "name": "On-Together: Virtual Co-Working",
+      "community": "on-together",
+      "folder": "on-together",
+      "data_folder": "On-Together_Data",
+      "executables": [
+        "On-Together.exe",
+        "OnTogether.exe"
+      ]
+    },
+    {
+      "app_id": 1022980,
+      "name": "Ostranauts",
+      "community": "ostranauts",
+      "folder": "ostranauts",
+      "data_folder": "Ostranauts_Data",
+      "executables": [
+        "Ostranauts.exe"
+      ]
+    },
+    {
+      "app_id": 794260,
+      "name": "Outward",
+      "community": "outward",
+      "folder": "outward",
+      "data_folder": "Outward_Data",
+      "executables": [
+        "Outward.exe"
+      ]
+    },
+    {
+      "app_id": 1859470,
+      "name": "PAC-MAN WORLD Re-PAC",
+      "community": "pac-man-world-re-pac",
+      "folder": "pac-man-world-re-pac",
+      "data_folder": "PAC-MAN WORLD Re-PAC_Data",
+      "executables": [
+        "PAC-MAN WORLD Re-PAC.exe"
+      ]
+    },
+    {
+      "app_id": 1982120,
+      "name": "Paper Animal Adventure",
+      "community": "paper-animal-adventure",
+      "folder": "paper-animal-adventure",
+      "data_folder": "Paper Animal Adventure_Data",
+      "executables": [
+        "Paper Animal Adventure.exe"
+      ]
+    },
+    {
+      "app_id": 1628610,
+      "name": "Paquerette Down the Bunburrows",
+      "community": "paquerette-down-the-bunburrows",
+      "folder": "paquerette-down-the-bunburrows",
+      "data_folder": "Paquerette Down the Bunburrows_Data",
+      "executables": [
+        "Paquerette Down the Bunburrows.exe"
+      ]
+    },
+    {
+      "app_id": 2383200,
+      "name": "PATAPON 1+2 REPLAY",
+      "community": "patapon-1-2-replay",
+      "folder": "patapon-1-2-replay",
+      "data_folder": "PATAPON12_REPLAY_Data",
+      "executables": [
+        "PATAPON12_REPLAY.exe"
+      ]
+    },
+    {
+      "app_id": 3527290,
+      "name": "PEAK",
+      "community": "peak",
+      "folder": "peak",
+      "data_folder": "PEAK_Data",
+      "executables": [
+        "PEAK.exe"
+      ]
+    },
+    {
+      "app_id": 2236070,
+      "name": "Peaks of Yore",
+      "community": "peaks-of-yore",
+      "folder": "peaks-of-yore",
+      "data_folder": "Peaks of Yore_Data",
+      "executables": [
+        "Peaks of Yore.exe"
+      ]
+    },
+    {
+      "app_id": 1296610,
+      "name": "Peglin",
+      "community": "peglin",
+      "folder": "peglin",
+      "data_folder": "Peglin_Data",
+      "executables": [
+        "Peglin.exe"
+      ]
+    },
+    {
+      "app_id": 3341650,
+      "name": "PIGFACE",
+      "community": "pigface",
+      "folder": "pigface",
+      "data_folder": "Pigface_Data",
+      "executables": [
+        "Pigface.exe"
+      ]
+    },
+    {
+      "app_id": 1409160,
+      "name": "Plasma",
+      "community": "plasma",
+      "folder": "plasma",
+      "data_folder": "Plasma_Data",
+      "executables": [
+        "Plasma.exe"
+      ]
+    },
+    {
+      "app_id": 1210320,
+      "name": "Potion Craft",
+      "community": "potion-craft",
+      "folder": "potion-craft",
+      "data_folder": "Potion Craft_Data",
+      "executables": [
+        "Potion Craft.exe"
+      ]
+    },
+    {
+      "app_id": 440310,
+      "name": "Project Arrhythmia",
+      "community": "project-arrhythmia",
+      "folder": "project-arrhythmia",
+      "data_folder": "Project Arrhythmia_Data",
+      "executables": [
+        "Project Arrhythmia.exe"
+      ]
+    },
+    {
+      "app_id": 252870,
+      "name": "Pulsar: Lost Colony",
+      "community": "pulsar-lost-colony",
+      "folder": "pulsar-lost-colony",
+      "data_folder": "PULSAR_LostColony_Data",
+      "executables": [
+        "PULSAR_LostColony.exe"
+      ]
+    },
+    {
+      "app_id": 3298460,
+      "name": "Pushing it! Together - Sisyphus Co-op",
+      "community": "pushing-it-together-sisyphus",
+      "folder": "pushing-it-together-sisyphus",
+      "data_folder": "Pushing it! Together_Data",
+      "executables": [
+        "Pushing it! Together.exe"
+      ]
+    },
+    {
+      "app_id": 3241660,
+      "name": "R.E.P.O.",
+      "community": "repo",
+      "folder": "repo",
+      "data_folder": "REPO_Data",
+      "executables": [
+        "REPO.exe"
+      ]
+    },
+    {
+      "app_id": 636480,
+      "name": "Ravenfield",
+      "community": "ravenfield",
+      "folder": "ravenfield",
+      "data_folder": "ravenfield_Data",
+      "executables": [
+        "ravenfield.exe"
+      ]
+    },
+    {
+      "app_id": 1129310,
+      "name": "Receiver 2",
+      "community": "receiver-2",
+      "folder": "receiver-2",
+      "data_folder": "Receiver2_Data",
+      "executables": [
+        "Receiver2.exe"
+      ]
+    },
+    {
+      "app_id": 2171630,
+      "name": "Return From Core",
+      "community": "return-from-core",
+      "folder": "return-from-core",
+      "data_folder": "Return From Core_Data",
+      "executables": [
+        "Return From Core.exe"
+      ]
+    },
+    {
+      "app_id": 653530,
+      "name": "Return of the Obra Dinn",
+      "community": "return-of-the-obra-dinn",
+      "folder": "return-of-the-obra-dinn",
+      "data_folder": "ObraDinn_Data",
+      "executables": [
+        "ObraDinn.exe"
+      ]
+    },
+    {
+      "app_id": 632360,
+      "name": "Risk of Rain 2",
+      "community": "riskofrain2",
+      "folder": "riskofrain2",
+      "data_folder": "Risk of Rain 2_Data",
+      "executables": [
+        "Risk of Rain 2.exe"
+      ]
+    },
+    {
+      "app_id": 2067920,
+      "name": "Rogue : Genesia",
+      "community": "rogue-genesia",
+      "folder": "rogue-genesia",
+      "data_folder": "Rogue Genesia_Data",
+      "executables": [
+        "Rogue Genesia.exe"
+      ]
+    },
+    {
+      "app_id": 1843760,
+      "name": "Rogue Tower",
+      "community": "rogue-tower",
+      "folder": "rogue-tower",
+      "data_folder": "Rogue Tower_Data",
+      "executables": [
+        "Rogue Tower.exe"
+      ]
+    },
+    {
+      "app_id": 1557740,
+      "name": "ROUNDS",
+      "community": "rounds",
+      "folder": "rounds",
+      "data_folder": "Rounds_Data",
+      "executables": [
+        "Rounds.exe"
+      ]
+    },
+    {
+      "app_id": 1764530,
+      "name": "Sailwind",
+      "community": "sailwind",
+      "folder": "sailwind",
+      "data_folder": "Sailwind_Data",
+      "executables": [
+        "Sailwind.exe"
+      ]
+    },
+    {
+      "app_id": 1279510,
+      "name": "Screw Drivers",
+      "community": "screw-drivers",
+      "folder": "screw-drivers",
+      "data_folder": "Screw Drivers_Data",
+      "executables": [
+        "Screw Drivers.exe"
+      ]
+    },
+    {
+      "app_id": 986130,
+      "name": "Shadows of Doubt",
+      "community": "shadows-of-doubt",
+      "folder": "shadows-of-doubt",
+      "data_folder": "ShadowsofDoubt_Data",
+      "executables": [
+        "Shadows of Doubt.exe"
+      ]
+    },
+    {
+      "app_id": 1939160,
+      "name": "Shadows Over Loathing",
+      "community": "shadows-over-loathing",
+      "folder": "shadows-over-loathing",
+      "data_folder": "ShadowsOverLoathing_Data",
+      "executables": [
+        "Shadows Over Loathing.exe"
+      ]
+    },
+    {
+      "app_id": 2162800,
+      "name": "Shapez 2",
+      "community": "shapez-2",
+      "folder": "shapez-2",
+      "data_folder": "shapez 2_Data",
+      "executables": [
+        "shapez 2.exe"
+      ]
+    },
+    {
+      "app_id": 1147560,
+      "name": "Skul: The Hero Slayer",
+      "community": "skul-the-hero-slayer",
+      "folder": "skul-the-hero-slayer",
+      "data_folder": "Skul_Data",
+      "executables": [
+        "Skul.exe"
+      ]
+    },
+    {
+      "app_id": 598060,
+      "name": "Slasher's Keep",
+      "community": "slashers-keep",
+      "folder": "slashers-keep",
+      "data_folder": "SlashersKeep_Data",
+      "executables": [
+        "SlashersKeep.exe"
+      ]
+    },
+    {
+      "app_id": 2765860,
+      "name": "Slipstream: Rogue Space",
+      "community": "slipstream-rogue-space",
+      "folder": "slipstream-rogue-space",
+      "data_folder": "Slipstream_Win_Data",
+      "executables": [
+        "Slipstream_Win.exe"
+      ]
+    },
+    {
+      "app_id": 1740300,
+      "name": "Smushi Come Home",
+      "community": "smushi-come-home",
+      "folder": "smushi-come-home",
+      "data_folder": "Smushi Come Home_Data",
+      "executables": [
+        "Smushi Come Home.exe"
+      ]
+    },
+    {
+      "app_id": 867210,
+      "name": "Songs of Conquest",
+      "community": "songs-of-conquest",
+      "folder": "songs-of-conquest",
+      "data_folder": "SongsOfConquest_Data",
+      "executables": [
+        "SongsOfConquest.exe"
+      ]
+    },
+    {
+      "app_id": 1326470,
+      "name": "Sons Of The Forest",
+      "community": "sons-of-the-forest",
+      "folder": "sons-of-the-forest",
+      "data_folder": "SonsOfTheForest_Data",
+      "executables": [
+        "SonsOfTheForest.exe"
+      ]
+    },
+    {
+      "app_id": 577690,
+      "name": "Spooky's Jump Scare Mansion: HD Renovation",
+      "community": "jump-scare-mansion",
+      "folder": "jump-scare-mansion",
+      "data_folder": "SpookyUnity_Data",
+      "executables": [
+        "SpookyUnity.exe",
+        "SpookyUnity.app"
+      ]
+    },
+    {
+      "app_id": 1948280,
+      "name": "Stacklands",
+      "community": "stacklands",
+      "folder": "stacklands",
+      "data_folder": "Stacklands_Data",
+      "executables": [
+        "Stacklands.exe"
+      ]
+    },
+    {
+      "app_id": 1380220,
+      "name": "Starsand",
+      "community": "starsand",
+      "folder": "starsand",
+      "data_folder": "Starsand_Data",
+      "executables": [
+        "Starsand.exe"
+      ]
+    },
+    {
+      "app_id": 1330000,
+      "name": "Stolen Realm",
+      "community": "stolen-realm",
+      "folder": "stolen-realm",
+      "data_folder": "Stolen Realm_Data",
+      "executables": [
+        "Stolen Realm.exe"
+      ]
+    },
+    {
+      "app_id": 2386720,
+      "name": "STRAFTAT",
+      "community": "straftat",
+      "folder": "straftat",
+      "data_folder": "STRAFTAT_Data",
+      "executables": [
+        "STRAFTAT.exe"
+      ]
+    },
+    {
+      "app_id": 264710,
+      "name": "Subnautica",
+      "community": "subnautica",
+      "folder": "subnautica",
+      "data_folder": "Subnautica_Data",
+      "executables": [
+        "Subnautica.exe"
+      ]
+    },
+    {
+      "app_id": 848450,
+      "name": "Subnautica: Below Zero",
+      "community": "subnautica-below-zero",
+      "folder": "subnautica-below-zero",
+      "data_folder": "SubnauticaZero_Data",
+      "executables": [
+        "SubnauticaZero.exe"
+      ]
+    },
+    {
+      "app_id": 3075800,
+      "name": "Subterranauts",
+      "community": "subterranauts",
+      "folder": "subterranauts",
+      "data_folder": "Subterranauts_Data",
+      "executables": [
+        "Subterranauts.exe"
+      ]
+    },
+    {
+      "app_id": 2846060,
+      "name": "Subterror",
+      "community": "subterror",
+      "folder": "subterror",
+      "data_folder": "Subterror_Data",
+      "executables": [
+        "Subterror.exe"
+      ]
+    },
+    {
+      "app_id": 2124120,
+      "name": "SULFUR",
+      "community": "sulfur",
+      "folder": "sulfur",
+      "data_folder": "Sulfur_Data",
+      "executables": [
+        "Sulfur.exe"
+      ]
+    },
+    {
+      "app_id": 1432860,
+      "name": "Sun Haven",
+      "community": "sun-haven",
+      "folder": "sun-haven",
+      "data_folder": "SunHaven_Data",
+      "executables": [
+        "Sun Haven.exe"
+      ]
+    },
+    {
+      "app_id": 2080690,
+      "name": "Sunkenland",
+      "community": "sunkenland",
+      "folder": "sunkenland",
+      "data_folder": "Sunkenland_Data",
+      "executables": [
+        "Sunkenland.exe"
+      ]
+    },
+    {
+      "app_id": 4069520,
+      "name": "Super Battle Golf",
+      "community": "super-battle-golf",
+      "folder": "super-battle-golf",
+      "data_folder": "Super Battle Golf_Data",
+      "executables": [
+        "Super Battle Golf.exe"
+      ]
+    },
+    {
+      "app_id": 2289750,
+      "name": "Super Fantasy Kingdom",
+      "community": "super-fantasy-kingdom",
+      "folder": "super-fantasy-kingdom",
+      "data_folder": "Super Fantasy Kingdom_Data",
+      "executables": [
+        "Super Fantasy Kingdom.exe"
+      ]
+    },
+    {
+      "app_id": 2709570,
+      "name": "Supermarket Together",
+      "community": "supermarket-together",
+      "folder": "supermarket-together",
+      "data_folder": "Supermarket Together_Data",
+      "executables": [
+        "Supermarket Together.exe"
+      ]
+    },
+    {
+      "app_id": 508440,
+      "name": "TABS",
+      "community": "totally-accurate-battle-simulator",
+      "folder": "totally-accurate-battle-simulator",
+      "data_folder": "TotallyAccurateBattleSimulator_Data",
+      "executables": [
+        "TotallyAccurateBattleSimulator.exe"
+      ]
+    },
+    {
+      "app_id": 720620,
+      "name": "TaleSpire",
+      "community": "talespire",
+      "folder": "talespire",
+      "data_folder": "TaleSpire_Data",
+      "executables": [
+        "TaleSpire.exe"
+      ]
+    },
+    {
+      "app_id": 2587450,
+      "name": "Tank Team",
+      "community": "tank-team",
+      "folder": "tank-team",
+      "data_folder": "Tank Team_Data",
+      "executables": [
+        "Tank Team.exe"
+      ]
+    },
+    {
+      "app_id": 3070070,
+      "name": "TCG Card Shop Simulator",
+      "community": "tcg-card-shop-simulator",
+      "folder": "tcg-card-shop-simulator",
+      "data_folder": "Card Shop Simulator_Data",
+      "executables": [
+        "Card Shop Simulator.exe"
+      ]
+    },
+    {
+      "app_id": 1457320,
+      "name": "Techtonica",
+      "community": "techtonica",
+      "folder": "techtonica",
+      "data_folder": "Techtonica_Data",
+      "executables": [
+        "Techtonica.exe"
+      ]
+    },
+    {
+      "app_id": 2060160,
+      "name": "The Farmer Was Replaced",
+      "community": "the-farmer-was-replaced",
+      "folder": "the-farmer-was-replaced",
+      "data_folder": "TheFarmerWasReplaced_Data",
+      "executables": [
+        "TheFarmerWasReplaced.exe"
+      ]
+    },
+    {
+      "app_id": 2096510,
+      "name": "The Ouroboros King",
+      "community": "the-ouroboros-king",
+      "folder": "the-ouroboros-king",
+      "data_folder": "The Ouroboros King_Data",
+      "executables": [
+        "The Ouroboros King.exe"
+      ]
+    },
+    {
+      "app_id": 1284190,
+      "name": "The Planet Crafter",
+      "community": "the-planet-crafter",
+      "folder": "the-planet-crafter",
+      "data_folder": "ThePlanetCrafter_Data",
+      "executables": [
+        "Planet Crafter.exe"
+      ]
+    },
+    {
+      "app_id": 2239150,
+      "name": "Thronefall",
+      "community": "thronefall",
+      "folder": "thronefall",
+      "data_folder": "Thronefall_Data",
+      "executables": [
+        "Thronefall.exe"
+      ]
+    },
+    {
+      "app_id": 1062090,
+      "name": "Timberborn",
+      "community": "timberborn",
+      "folder": "timberborn",
+      "data_folder": "Timberborn_Data",
+      "executables": [
+        "Timberborn.exe"
+      ]
+    },
+    {
+      "app_id": 1140150,
+      "name": "TouhouLostBranchOfLegend",
+      "community": "touhou-lost-branch-of-legend",
+      "folder": "touhou-lost-branch-of-legend",
+      "data_folder": "LBoL_Data",
+      "executables": [
+        "LBoL.exe"
+      ]
+    },
+    {
+      "app_id": 1059990,
+      "name": "Trombone Champ",
+      "community": "trombone-champ",
+      "folder": "trombone-champ",
+      "data_folder": "TromboneChamp_Data",
+      "executables": [
+        "TromboneChamp.exe"
+      ]
+    },
+    {
+      "app_id": 386940,
+      "name": "Ultimate Chicken Horse",
+      "community": "ultimate-chicken-horse",
+      "folder": "ultimate-chicken-horse",
+      "data_folder": "UltimateChickenHorse_Data",
+      "executables": [
+        "UltimateChickenHorse.exe"
+      ]
+    },
+    {
+      "app_id": 1229490,
+      "name": "ULTRAKILL",
+      "community": "ultrakill",
+      "folder": "ultrakill",
+      "data_folder": "ULTRAKILL_Data",
+      "executables": [
+        "ULTRAKILL.exe"
+      ]
+    },
+    {
+      "app_id": 3925760,
+      "name": "Unfair Flips",
+      "community": "unfair-flips",
+      "folder": "unfair-flips",
+      "data_folder": "Unfair Flips_Data",
+      "executables": [
+        "Unfair Flips.exe"
+      ]
+    },
+    {
+      "app_id": 1604030,
+      "name": "V Rising",
+      "community": "v-rising",
+      "folder": "v-rising",
+      "data_folder": "VRising_Data",
+      "executables": [
+        "VRising.exe"
+      ]
+    },
+    {
+      "app_id": 892970,
+      "name": "Valheim",
+      "community": "valheim",
+      "folder": "valheim",
+      "data_folder": "valheim_Data",
+      "executables": [
+        "valheim.exe",
+        "valheim.x86_64"
+      ]
+    },
+    {
+      "app_id": 843390,
+      "name": "Vertigo 2",
+      "community": "vertigo-2",
+      "folder": "vertigo-2",
+      "data_folder": "vertigo2_Data",
+      "executables": [
+        "vertigo2.exe"
+      ]
+    },
+    {
+      "app_id": 1448840,
+      "name": "Very Very Valet",
+      "community": "very-very-valet",
+      "folder": "very-very-valet",
+      "data_folder": "VeryVeryValet_Release_Data",
+      "executables": [
+        "VeryVeryValet_Release.exe"
+      ]
+    },
+    {
+      "app_id": 1063420,
+      "name": "Void Crew",
+      "community": "void-crew",
+      "folder": "void-crew",
+      "data_folder": "VoidCrew_Data",
+      "executables": [
+        "Void Crew.exe"
+      ]
+    },
+    {
+      "app_id": 667970,
+      "name": "VTOL VR",
+      "community": "vtol-vr",
+      "folder": "vtol-vr",
+      "data_folder": "VTOLVR_Data",
+      "executables": [
+        "VTOLVR.exe"
+      ]
+    },
+    {
+      "app_id": 1730700,
+      "name": "We Love Katamari REROLL+ Royal Reverie",
+      "community": "we-love-katamari-reroll-royal-reverie",
+      "folder": "we-love-katamari-reroll-royal-reverie",
+      "data_folder": "WeLoveKatamariRerollRoyalReverie_Data",
+      "executables": [
+        "WLKRR.exe"
+      ]
+    },
+    {
+      "app_id": 597220,
+      "name": "West of Loathing",
+      "community": "west-of-loathing",
+      "folder": "west-of-loathing",
+      "data_folder": "WestofLoathing_Data",
+      "executables": [
+        "West of Loathing.exe"
+      ]
+    },
+    {
+      "app_id": 3195790,
+      "name": "White Knuckle",
+      "community": "white-knuckle",
+      "folder": "white-knuckle",
+      "data_folder": "White Knuckle_Data",
+      "executables": [
+        "White Knuckle.exe"
+      ]
+    },
+    {
+      "app_id": 1811990,
+      "name": "Wildfrost",
+      "community": "wildfrost",
+      "folder": "wildfrost",
+      "data_folder": "Wildfrost_Data",
+      "executables": [
+        "Wildfrost.exe"
+      ]
+    },
+    {
+      "app_id": 445980,
+      "name": "Wizard of Legend",
+      "community": "wizard-of-legend",
+      "folder": "wizard-of-legend",
+      "data_folder": "WizardOfLegend_Data",
+      "executables": [
+        "WizardOfLegend.exe"
+      ]
+    },
+    {
+      "app_id": 1150530,
+      "name": "Wizard With A Gun",
+      "community": "wizard-with-a-gun",
+      "folder": "wizard-with-a-gun",
+      "data_folder": "wizardwithagun_Data",
+      "executables": [
+        "wizardwithagun.exe"
+      ]
+    },
+    {
+      "app_id": 3586660,
+      "name": "Word Play",
+      "community": "word-play",
+      "folder": "word-play",
+      "data_folder": "Word Play_Data",
+      "executables": [
+        "Word Play.exe"
+      ]
+    },
+    {
+      "app_id": 1620340,
+      "name": "Wrestling Empire",
+      "community": "wrestling-empire",
+      "folder": "wrestling-empire",
+      "data_folder": "Wrestling Empire_Data",
+      "executables": [
+        "Wrestling Empire.exe"
+      ]
+    },
+    {
+      "app_id": 3834090,
+      "name": "YAPYAP",
+      "community": "yapyap",
+      "folder": "yapyap",
+      "data_folder": "yapyap_Data",
+      "executables": [
+        "yapyap.exe"
+      ]
+    },
+    {
+      "app_id": 3121110,
+      "name": "Zort",
+      "community": "zort",
+      "folder": "zort",
+      "data_folder": "Zort_Data",
+      "executables": [
+        "Zort.exe"
+      ]
+    }
+  ],
+  "loaders": [
+    {
+      "package": "bbepis-BepInExPack",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "xiaoxiao921-BepInExPack",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "xiaoye97-BepInEx",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "denikson-BepInExPack_Valheim",
+      "root": "BepInExPack_Valheim"
+    },
+    {
+      "package": "1F31A-BepInEx_Valheim_Full",
+      "root": "BepInEx_Valheim_Full"
+    },
+    {
+      "package": "BepInEx-BepInExPack_GTFO",
+      "root": "BepInExPack_GTFO"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Outward",
+      "root": "BepInExPack_Outward"
+    },
+    {
+      "package": "bbepisTaleSpire-BepInExPack",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_H3VR",
+      "root": "BepInExPack_H3VR"
+    },
+    {
+      "package": "BepInEx-BepInExPack_ROUNDS",
+      "root": "BepInExPack_ROUNDS"
+    },
+    {
+      "package": "Zinal001-BepInExPack_MECHANICA",
+      "root": "BepInExPack_MECHANICA"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Muck",
+      "root": "BepInExPack_Muck"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Mycopunk",
+      "root": "BepInExPack_Mycopunk"
+    },
+    {
+      "package": "BepInEx-BepInExPack_LLBlaze",
+      "root": "BepInExPack_LLBlaze"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Timberborn",
+      "root": "BepInExPack_Timberborn"
+    },
+    {
+      "package": "BepInEx-BepInExPack_TABS",
+      "root": "BepInExPack_TABS"
+    },
+    {
+      "package": "BepInEx-BepInExPack_NASB",
+      "root": "BepInExPack_NASB"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Inscryption",
+      "root": "BepInExPack_Inscryption"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Starsand",
+      "root": "BepInExPack_Starsand"
+    },
+    {
+      "package": "BepInEx-BepInExPack_CaLABP",
+      "root": "BepInExPack_CaLABP"
+    },
+    {
+      "package": "BepInEx-BepInExPack_PotionCraft",
+      "root": "BepInExPack_PotionCraft"
+    },
+    {
+      "package": "BepInEx-BepInExPack_NearlyDead",
+      "root": "BepInExPack_NearlyDead"
+    },
+    {
+      "package": "BepInEx-BepInExPack_AGAINST",
+      "root": "BepInExPack_AGAINST"
+    },
+    {
+      "package": "bbepis-BepInEx_Rogue_Tower",
+      "root": ""
+    },
+    {
+      "package": "BepInEx-BepInExPack_HOTDS",
+      "root": "BepInExPack_HOTDS"
+    },
+    {
+      "package": "BepInEx-BepInExPack_ForTheKing",
+      "root": "BepInExPack_ForTheKing"
+    },
+    {
+      "package": "Subnautica_Modding-BepInExPack_Subnautica",
+      "root": "BepInExPack_Subnautica"
+    },
+    {
+      "package": "Subnautica_Modding-BepInExPack_Subnautica_Experimental",
+      "root": "BepInExPack_Subnautica_Experimental"
+    },
+    {
+      "package": "Subnautica_Modding-BepInExPack_BelowZero",
+      "root": "BepInExPack_BelowZero"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Core_Keeper",
+      "root": "BepInExPack_Core-Keeper"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Peglin",
+      "root": "BepInExPack_Peglin"
+    },
+    {
+      "package": "BepInEx-BepInExPack_V_Rising",
+      "root": "BepInExPack_V_Rising"
+    },
+    {
+      "package": "PCVR_Modders-BepInExPack_GHVR",
+      "root": "BepInExPack_GHVR"
+    },
+    {
+      "package": "BepInExPackMTD-BepInExPack_20MTD",
+      "root": "BepInExPack_20MTD"
+    },
+    {
+      "package": "BepInEx-BepInExPack_VTOL_VR",
+      "root": "BepInExPack_VTOL_VR"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Stacklands",
+      "root": "BepInExPack_Stacklands"
+    },
+    {
+      "package": "BepInEx-BepInExPack_EtG",
+      "root": "BepInExPack_EtG"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Ravenfield",
+      "root": "BepInExPack_Ravenfield"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Aloft",
+      "root": "BepInExPack_Aloft"
+    },
+    {
+      "package": "BepInEx-BepInExPack_CultOfTheLamb",
+      "root": "BepInExPack_CultOfTheLamb"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Chrono_Ark",
+      "root": "BepInExPack_Chrono_Ark"
+    },
+    {
+      "package": "BepInEx-BepInExPack_TromboneChamp",
+      "root": "BepInExPack_TromboneChamp"
+    },
+    {
+      "package": "BepInEx-BepInExPack_RogueGenesia",
+      "root": "BepInExPack_RogueGenesia"
+    },
+    {
+      "package": "BepInEx-BepInExPack_AcrossTheObelisk",
+      "root": "BepInExPack_AcrossTheObelisk"
+    },
+    {
+      "package": "BepInEx-BepInExPack",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Skul",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_IL2CPP",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_x86",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "Modding_Council-BepInExPack_of_Legend",
+      "root": "BepInExPack_of_Legend"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Thronefall",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_WizardWithAGun",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "SunkenlandModding-BepInExPack_Sunkenland",
+      "root": "BepInExPack_Sunkenland"
+    },
+    {
+      "package": "BepInEx_Wormtown-BepInExPack",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_AmongUs",
+      "root": "BepInExPack_AmongUs"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Magicite",
+      "root": "BepInExPack_Magicite"
+    },
+    {
+      "package": "BepInEx-BepInExPack_HumanFallFlat",
+      "root": "BepInExPack_HumanFallFlat"
+    },
+    {
+      "package": "BepInEx-BepInExPack_PEAK",
+      "root": "BepInExPack_PEAK"
+    },
+    {
+      "package": "BepInEx-BepInExPack_LensIsland",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Ostranauts",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Patapon",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Silksong",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_SlashersKeep",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_BadNorth",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_LostSkies",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_FootballManager26",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Aeruta",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_Necropolis",
+      "root": "BepInExPack"
+    },
+    {
+      "package": "BepInEx-BepInExPack_CrabGame",
+      "root": "BepInExPack"
+    }
+  ]
+}

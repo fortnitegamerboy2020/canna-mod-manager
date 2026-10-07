@@ -4,7 +4,8 @@ pub struct FileQuery {
     pub path: String,
 }
 pub fn recommendations() -> Vec<Value> {
-    serde_json::from_str(include_str!("../web/source-recommendations.json")).expect("Curated Source catalog")
+    serde_json::from_str(include_str!("../web/source-recommendations.json"))
+        .expect("Curated Source catalog")
 }
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS game_assets(id TEXT PRIMARY KEY,alias TEXT UNIQUE NOT NULL,sha256 TEXT NOT NULL,size INTEGER NOT NULL,game_id INTEGER NOT NULL,kind TEXT NOT NULL);")
@@ -36,16 +37,27 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
     ] {
         games.insert(id, json!({"app_id":id,"name":name,"folder":folder,"framework":framework,"icon":if id==1686940 || id==1557740 {"icon.png"} else {""},"description":if framework=="source-vpk" {"VPK addon packs; modded launches use -insecure practice mode"} else {"Unity modpacks with BepInEx"},"mods":[],"mod_folder_status":"Server library ready"}));
     }
-    let mut latest=std::collections::HashSet::new();
+    for profile in game_profiles::games() {
+        games.entry(profile.app_id).or_insert_with(||json!({"app_id":profile.app_id,"name":profile.name,"folder":profile.folder,"framework":"bepinex","icon":"","description":"Thunderstore BepInEx profile - preview; requires a compatible reviewed loader","mods":[],"mod_folder_status":"Game profile available"}));
+    }
+    let mut latest = std::collections::HashSet::new();
     for (id, appid, name, version, description, hash) in rows {
         if security::approved(&db, &id).is_err() {
             continue;
         }
         let appid = if appid == 0 { u32::MAX } else { appid };
         let d = external::details(&db, &id)?;
-        if let Some(key)=project_key(&d) {if !latest.insert(key){continue;}}
+        if let Some(key) = project_key(&d) {
+            if !latest.insert(key) {
+                continue;
+            }
+        }
         // Loader distributions are installed through Framework, never as plugin DLLs.
-        if d["provider"] == "thunderstore" && name.starts_with("BepInExPack") { continue; }
+        if d["provider"] == "thunderstore"
+            && (d["framework_root"].is_string() || name.starts_with("BepInExPack"))
+        {
+            continue;
+        }
         let folder = d["folder"]
             .as_str()
             .map(str::to_owned)
@@ -66,6 +78,9 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
         let deps: Vec<String> = if let Some(ids) = d["dependency_ids"].as_array() {
             ids.iter()
                 .filter_map(Value::as_str)
+                .filter(|id| {
+                    external::details(&db, id).is_ok_and(|d| !d["framework_root"].is_string())
+                })
                 .map(|id| {
                     db.query_row("SELECT name FROM mods WHERE id=?1", [id], |r| {
                         r.get::<_, String>(0)
@@ -96,7 +111,7 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
         game["mods"].as_array_mut().unwrap().push(json!({"enabled":true,"provenance":d,"content_type":d["project_type"].as_str().or(d["content_type"].as_str()).unwrap_or("mod"),"name":name,"version":version,"description":description,"file":format!("Mods/{id}.zip"),"sha256":hash,"dependencies":deps}));
     }
     for item in recommendations() {
-        if let Some(game)=games.get_mut(&(item["app_id"].as_u64().unwrap() as u32)) {
+        if let Some(game) = games.get_mut(&(item["app_id"].as_u64().unwrap() as u32)) {
             game["mods"].as_array_mut().unwrap().push(json!({"enabled":false,"provenance":item["details"],"content_type":"mod","name":item["name"],"version":item["version"],"description":item["description"],"file":format!("Mods/{}.zip",item["id"].as_str().unwrap()),"sha256":"","dependencies":item["details"]["dependencies"]}));
         }
     }
@@ -104,11 +119,16 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
         json!({"games":games.into_values().collect::<Vec<_>>()}),
     ))
 }
-pub fn project_key(d:&Value)->Option<String> {
-    let url=d["source_url"].as_str()?;
-    if !matches!(d["provider"].as_str(),Some("github"|"thunderstore"|"modrinth"|"curseforge")){return None;}
-    let (loader,version)=external::update_profile(d);
-    Some(format!("{}|{}|{}",url,loader,version))
+pub fn project_key(d: &Value) -> Option<String> {
+    let url = d["source_url"].as_str()?;
+    if !matches!(
+        d["provider"].as_str(),
+        Some("github" | "thunderstore" | "modrinth" | "curseforge")
+    ) {
+        return None;
+    }
+    let (loader, version) = external::update_profile(d);
+    Some(format!("{}|{}|{}", url, loader, version))
 }
 pub async fn file(
     State(app): State<Shared>,
@@ -142,10 +162,20 @@ pub async fn file(
                 .next()
                 .unwrap_or_default()
                 .trim_end_matches(".zip");
-            db.query_row("SELECT m.id,m.size,m.sha256 FROM mods m LEFT JOIN mod_details d ON d.mod_id=m.id WHERE m.id=?1 OR json_extract(d.data,'$.catalog_file')=?2",params![filename,q.path],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(ApiError(StatusCode::NOT_FOUND,"Catalog file unavailable"))?
+            let ordinary = db.query_row("SELECT m.id,m.size,m.sha256 FROM mods m LEFT JOIN mod_details d ON d.mod_id=m.id WHERE m.id=?1 OR json_extract(d.data,'$.catalog_file')=?2",params![filename,q.path],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
+            if let Some(row) = ordinary {
+                row
+            } else {
+                let profile = game_profiles::games()
+                    .iter()
+                    .find(|g| q.path == format!("{}/Framework/BepInEx.zip", g.folder))
+                    .ok_or(ApiError(StatusCode::NOT_FOUND, "Catalog file unavailable"))?;
+                db.query_row("SELECT m.id,m.size,m.sha256 FROM mods m JOIN mod_details d ON d.mod_id=m.id JOIN mod_reviews r ON r.mod_id=m.id WHERE (m.app_id=?1 OR EXISTS(SELECT 1 FROM mods parent JOIN mod_details pd ON pd.mod_id=parent.id JOIN json_each(pd.data,'$.dependency_ids') dep WHERE parent.app_id=?1 AND dep.value=m.id)) AND r.approved=1 AND json_type(d.data,'$.framework_root')='text' ORDER BY m.rowid DESC LIMIT 1",[profile.app_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(ApiError(StatusCode::NOT_FOUND,"Import a mod with its official loader dependencies, then review the loader before installing"))?
+            }
         }
     };
     security::approved(&app.db.lock().unwrap(), &id)?;
+    provider_cache::ensure(&app, &id).await?;
     let file = tokio::fs::File::open(app.files.join(format!("{id}.zip"))).await?;
     Ok((
         [
@@ -202,18 +232,24 @@ pub async fn audit(app: &App) -> anyhow::Result<()> {
     let rows = {
         let db = app.db.lock().unwrap();
         db.prepare(
-            "SELECT id,sha256,size FROM mods UNION ALL SELECT id,sha256,size FROM game_assets",
+            "SELECT id,sha256,size,EXISTS(SELECT 1 FROM provider_archives p WHERE p.mod_id=mods.id AND p.evicted=1) FROM mods UNION ALL SELECT id,sha256,size,0 FROM game_assets",
         )?
         .query_map([], |r| {
             Ok((
                 r.get::<_, String>(0)?,
                 r.get::<_, String>(1)?,
                 r.get::<_, i64>(2)?,
+                r.get::<_, bool>(3)?,
             ))
         })?
         .collect::<Result<Vec<_>, _>>()?
     };
-    for (id, expected, size) in &rows {
+    let mut cached_out = 0;
+    for (id, expected, size, evicted) in &rows {
+        if *evicted && !app.files.join(format!("{id}.zip")).exists() {
+            cached_out += 1;
+            continue;
+        }
         let file = tokio::fs::File::open(app.files.join(format!("{id}.zip"))).await?;
         let stream = crypto::read(file, Zeroizing::new(*app.upload_key), id.clone());
         tokio::pin!(stream);
@@ -231,7 +267,9 @@ pub async fn audit(app: &App) -> anyhow::Result<()> {
     let db = app.db.lock().unwrap();
     let count: i64 = db.query_row("SELECT COUNT(*) FROM mods", [], |r| r.get(0))?;
     let assets: i64 = db.query_row("SELECT COUNT(*) FROM game_assets", [], |r| r.get(0))?;
-    println!("Verified {count} encrypted mods and {assets} encrypted game assets");
+    println!(
+        "Audited {count} mod records and {assets} game assets; {cached_out} provider archives intentionally expired, remaining files verified"
+    );
     Ok(())
 }
 #[cfg(test)]
@@ -239,17 +277,169 @@ mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
     #[tokio::test]
+    async fn shared_reviewed_loader_resolves_through_game_dependencies() {
+        let (_dir, app) = fixture();
+        let token = account(&app, "loader-owner", true);
+        let bytes = b"PK\x03\x04shared loader";
+        let loader = external::store(
+            &app,
+            1,
+            892970,
+            "BepInExPack",
+            "1",
+            "",
+            "loader:1",
+            &json!({"framework_root":"BepInExPack","provider":"thunderstore"}),
+            bytes,
+        )
+        .await
+        .unwrap();
+        external::store(
+            &app,
+            1,
+            1966720,
+            "LC mod",
+            "1",
+            "",
+            "lc:1",
+            &json!({"dependency_ids":[loader]}),
+            b"PK\x03\x04mod",
+        )
+        .await
+        .unwrap();
+        app.db
+            .lock()
+            .unwrap()
+            .execute("UPDATE mod_reviews SET approved=1", [])
+            .unwrap();
+        let path = format!(
+            "/api/v1/catalog/file?path={}/Framework/BepInEx.zip",
+            game_profiles::by_id(1966720).unwrap().folder
+        );
+        let response = call(app.clone(), "GET", &path, json!({}), Some(&token)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap()
+                .as_ref(),
+            bytes
+        );
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE mod_reviews SET approved=0 WHERE mod_id=?1",
+                [loader],
+            )
+            .unwrap();
+        assert_ne!(
+            call(app.clone(), "GET", &path, json!({}), Some(&token))
+                .await
+                .status(),
+            StatusCode::OK
+        );
+    }
+    #[tokio::test]
     async fn updates_keep_previous_download_until_new_scan_is_approved() {
-        let (_dir,app)=fixture();let token=account(&app,"update-owner",true);
-        let d=json!({"provider":"modrinth","source_url":"https://modrinth.com/mod/fixture","game":"Minecraft","loaders":["fabric"],"game_versions":["1.21.1"]});
-        let old=external::store(&app,1,0,"Fixture","1","","modrinth:fixture:1",&d,b"PK\x03\x04old").await.unwrap();
-        let new=external::store(&app,1,0,"Fixture","2","","modrinth:fixture:2",&d,b"PK\x03\x04new").await.unwrap();
-        app.db.lock().unwrap().execute("INSERT INTO mod_scans VALUES(?1,'hash','queued','{}',0)",[&new]).unwrap();
-        let read=|v:Value|v["games"].as_array().unwrap().iter().find(|g|g["name"]=="Minecraft").unwrap()["mods"][0]["version"].clone();
-        assert_eq!(read(value(call(app.clone(),"GET","/api/v1/catalog",Value::Null,Some(&token)).await).await),"1");
-        app.db.lock().unwrap().execute("UPDATE mod_scans SET status='complete',report='{\"findings\":[]}' WHERE mod_id=?1",[&new]).unwrap();
-        assert_eq!(read(value(call(app.clone(),"GET","/api/v1/catalog",Value::Null,Some(&token)).await).await),"2");
-        assert_eq!(call(app.clone(),"GET",&format!("/api/v1/mods/{old}"),Value::Null,Some(&token)).await.status(),StatusCode::OK);
+        let (_dir, app) = fixture();
+        let token = account(&app, "update-owner", true);
+        let d = json!({"provider":"modrinth","source_url":"https://modrinth.com/mod/fixture","game":"Minecraft","loaders":["fabric"],"game_versions":["1.21.1"]});
+        let old = external::store(
+            &app,
+            1,
+            0,
+            "Fixture",
+            "1",
+            "",
+            "modrinth:fixture:1",
+            &d,
+            b"PK\x03\x04old",
+        )
+        .await
+        .unwrap();
+        let new = external::store(
+            &app,
+            1,
+            0,
+            "Fixture",
+            "2",
+            "",
+            "modrinth:fixture:2",
+            &d,
+            b"PK\x03\x04new",
+        )
+        .await
+        .unwrap();
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO mod_scans VALUES(?1,'hash','queued','{}',0)",
+                [&new],
+            )
+            .unwrap();
+        let read = |v: Value| {
+            v["games"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|g| g["name"] == "Minecraft")
+                .unwrap()["mods"][0]["version"]
+                .clone()
+        };
+        assert_eq!(
+            read(
+                value(
+                    call(
+                        app.clone(),
+                        "GET",
+                        "/api/v1/catalog",
+                        Value::Null,
+                        Some(&token)
+                    )
+                    .await
+                )
+                .await
+            ),
+            "1"
+        );
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE mod_scans SET status='complete',report='{\"findings\":[]}' WHERE mod_id=?1",
+                [&new],
+            )
+            .unwrap();
+        assert_eq!(
+            read(
+                value(
+                    call(
+                        app.clone(),
+                        "GET",
+                        "/api/v1/catalog",
+                        Value::Null,
+                        Some(&token)
+                    )
+                    .await
+                )
+                .await
+            ),
+            "2"
+        );
+        assert_eq!(
+            call(
+                app.clone(),
+                "GET",
+                &format!("/api/v1/mods/{old}"),
+                Value::Null,
+                Some(&token)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
     }
     #[test]
     fn workshop_recommendations_are_removed() {
@@ -268,7 +458,19 @@ mod tests {
             .0;
         let bytes = b"PK\x03\x04fixture";
         external::store(&app,user,1686940,"Example","1.0","","fixture",&json!({"game":"Bopl Battle","folder":"bopl-battle","catalog_file":"bopl-battle/Mods/old.zip"}),bytes).await.unwrap();
-        external::store(&app,user,1557740,"BepInExPack_ROUNDS","5.4.1901","","loader-fixture",&json!({"provider":"thunderstore","game":"ROUNDS"}),bytes).await.unwrap();
+        external::store(
+            &app,
+            user,
+            1557740,
+            "BepInExPack_ROUNDS",
+            "5.4.1901",
+            "",
+            "loader-fixture",
+            &json!({"provider":"thunderstore","game":"ROUNDS"}),
+            bytes,
+        )
+        .await
+        .unwrap();
         app.db
             .lock()
             .unwrap()
@@ -292,12 +494,25 @@ mod tests {
         )
         .await;
         assert_eq!(
-            catalog["games"].as_array().unwrap().iter().find(|game| game["app_id"]==1686940).unwrap()["mods"][0]["sha256"],
+            catalog["games"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|game| game["app_id"] == 1686940)
+                .unwrap()["mods"][0]["sha256"],
             hex::encode(Sha256::digest(bytes))
         );
-        let games=catalog["games"].as_array().unwrap();
-        assert!(games.iter().any(|g|g["app_id"]==1557740 && g["mods"].as_array().unwrap().is_empty()));
-        assert!(games.iter().any(|g|g["app_id"]==550 && g["framework"]=="source-vpk"));
+        let games = catalog["games"].as_array().unwrap();
+        assert!(
+            games
+                .iter()
+                .any(|g| g["app_id"] == 1557740 && g["mods"].as_array().unwrap().is_empty())
+        );
+        assert!(
+            games
+                .iter()
+                .any(|g| g["app_id"] == 550 && g["framework"] == "source-vpk")
+        );
         let response = call(
             app.clone(),
             "GET",

@@ -100,7 +100,7 @@ pub fn sync(settings: &Settings, token: &str) -> Result<RepositoryData> {
         warnings: vec![],
         cached_at: None,
     };
-    anyhow::ensure!(data.games.len() <= 100, "Too many catalog games");
+    anyhow::ensure!(data.games.len() <= 512, "Too many catalog games");
     for game in &data.games {
         anyhow::ensure!(
             game.app_id > 0

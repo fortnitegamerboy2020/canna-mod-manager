@@ -3,6 +3,8 @@ mod cache;
 mod chrome;
 mod console;
 mod credentials;
+#[path = "../server/src/game_profiles.rs"]
+mod game_profiles;
 mod minecraft;
 mod minecraft_auth;
 mod model;

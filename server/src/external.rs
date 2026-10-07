@@ -251,14 +251,16 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
         }
         let latest = &p["latest"];
         let version = text(latest, "version_number");
-        let game = match parts[1].as_str() {
-            "bopl-battle" => "Bopl Battle",
-            "rounds" => "ROUNDS",
-            "riskofrain2" => "Risk of Rain 2",
-            "lethal-company" => "Lethal Company",
-            "content-warning" => "Content Warning",
-            other => other,
-        };
+        let game = game_profiles::by_community(&parts[1])
+            .map(|g| g.name.as_str())
+            .unwrap_or_else(|| match parts[1].as_str() {
+                "bopl-battle" => "Bopl Battle",
+                "rounds" => "ROUNDS",
+                "riskofrain2" => "Risk of Rain 2",
+                "lethal-company" => "Lethal Company",
+                "content-warning" => "Content Warning",
+                other => other,
+            });
         Ok(Project {
             attribution: json!({"icon_url":text(latest,"icon"),"author_links":[{"name":text(&p,"owner"),"url":format!("https://thunderstore.io/c/{}/p/{}/",parts[1],parts[3])}]}),
             provider,
@@ -309,7 +311,7 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
         )
         .await?;
         let team = text(&project, "team");
-        let mut author_links=Vec::new();
+        let mut author_links = Vec::new();
         let authors = if slug(&team) {
             let members = metadata(
                 &format!("https://api.modrinth.com/v2/team/{team}/members"),
@@ -317,8 +319,12 @@ pub async fn resolve(raw: &str) -> ApiResult<Project> {
             )
             .await?;
             for m in members.as_array().into_iter().flatten() {
-                let name=text(&m["user"],"username");
-                if slug(&name) {author_links.push(json!({"name":name,"url":format!("https://modrinth.com/user/{name}")}));}
+                let name = text(&m["user"], "username");
+                if slug(&name) {
+                    author_links.push(
+                        json!({"name":name,"url":format!("https://modrinth.com/user/{name}")}),
+                    );
+                }
             }
             members
                 .as_array()
@@ -494,25 +500,65 @@ pub async fn import(
         .upload_gate
         .try_acquire()
         .map_err(|_| bad("Another import is in progress"))?;
-    import_background(&app,user,input).await.map(axum::Json)
+    import_background(&app, user, input).await.map(axum::Json)
 }
-pub async fn refresh_existing(app:&App,user:i64,id:&str)->ApiResult<Option<String>> {
-    let (data,origin)={let db=app.db.lock().unwrap();(details(&db,id)?,db.query_row("SELECT origin FROM mod_details WHERE mod_id=?1",[id],|r|r.get::<_,String>(0))?)};
-    if data["provider"]=="github" {return crate::source_packages::refresh(app,user,&data,&origin).await;}
-    let (loader,game_version)=update_profile(&data);
-    let mut input=Link {url:data["source_url"].as_str().unwrap_or_default().into(),version:String::new(),game_version,loader,include_optional:false};
-    let (project,release)=selection(&input).await?;
-    if origin==format!("{}:{}:{}",project.provider,project.id,release.id) {return Ok(None);}
-    input.version=release.id;
-    let result=import_background(app,user,input).await?;
-    Ok(Some(result["id"].as_str().ok_or_else(||bad("Update import failed"))?.into()))
+pub async fn refresh_existing(app: &App, user: i64, id: &str) -> ApiResult<Option<String>> {
+    let (data, origin) = {
+        let db = app.db.lock().unwrap();
+        (
+            details(&db, id)?,
+            db.query_row(
+                "SELECT origin FROM mod_details WHERE mod_id=?1",
+                [id],
+                |r| r.get::<_, String>(0),
+            )?,
+        )
+    };
+    if data["provider"] == "github" {
+        return crate::source_packages::refresh(app, user, &data, &origin).await;
+    }
+    let (loader, game_version) = update_profile(&data);
+    let mut input = Link {
+        url: data["source_url"].as_str().unwrap_or_default().into(),
+        version: String::new(),
+        game_version,
+        loader,
+        include_optional: false,
+    };
+    let (project, release) = selection(&input).await?;
+    if origin == format!("{}:{}:{}", project.provider, project.id, release.id) {
+        return Ok(None);
+    }
+    input.version = release.id;
+    let result = import_background(app, user, input).await?;
+    Ok(Some(
+        result["id"]
+            .as_str()
+            .ok_or_else(|| bad("Update import failed"))?
+            .into(),
+    ))
 }
-pub fn update_profile(d:&Value)->(String,String) {
-    let field=|name:&str,array:&str|d["update_profile"][name].as_str().or_else(||d[array].as_array().and_then(|a|a.first()).and_then(Value::as_str)).unwrap_or_default().to_owned();
-    let loader=field("loader","loaders");let mut version=field("game_version","game_versions");
-    if version=="Check author compatibility notes"{version.clear();}(loader,version)
+pub fn update_profile(d: &Value) -> (String, String) {
+    let field = |name: &str, array: &str| {
+        d["update_profile"][name]
+            .as_str()
+            .or_else(|| {
+                d[array]
+                    .as_array()
+                    .and_then(|a| a.first())
+                    .and_then(Value::as_str)
+            })
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let loader = field("loader", "loaders");
+    let mut version = field("game_version", "game_versions");
+    if version == "Check author compatibility notes" {
+        version.clear();
+    }
+    (loader, version)
 }
-pub async fn import_background(app: &App,user:i64,input:Link)->ApiResult<Value> {
+pub async fn import_background(app: &App, user: i64, input: Link) -> ApiResult<Value> {
     let (root, nodes, edges, order) = dependency_graph(input).await?;
     let mut ids = std::collections::BTreeMap::<String, String>::new();
     let mut imported = 0;
@@ -551,27 +597,11 @@ pub async fn import_background(app: &App,user:i64,input:Link)->ApiResult<Value> 
     }
     let approved = security::approved(&app.db.lock().unwrap(), id).is_ok();
     let dependencies_added = imported - i32::from(!root_existing);
-    Ok(json!({"id":id,"existing":root_existing,"approved":approved,"dependencies_added":dependencies_added,"dependency_count":ids.len().saturating_sub(1)}))
+    Ok(
+        json!({"id":id,"existing":root_existing,"approved":approved,"dependencies_added":dependencies_added,"dependency_count":ids.len().saturating_sub(1)}),
+    )
 }
-async fn import_one(
-    app: &App,
-    user: i64,
-    input: &Link,
-    project: &Project,
-    release: &Release,
-    deps: &[String],
-) -> ApiResult<(String, bool)> {
-    let origin = format!("{}:{}:{}", project.provider, project.id, release.id);
-    if let Some(id) = existing(app, &origin)? {
-        let db = app.db.lock().unwrap();
-        let mut data = details(&db, &id)?;
-        data["dependency_ids"] = json!(deps);
-        db.execute(
-            "UPDATE mod_details SET data=?1 WHERE mod_id=?2",
-            params![data.to_string(), id],
-        )?;
-        return Ok((id, true));
-    }
+pub(crate) async fn download_release(project: &Project, release: &Release) -> ApiResult<Vec<u8>> {
     let download = if project.provider == "curseforge" && release.download.is_empty() {
         let result = metadata(
             &format!(
@@ -637,11 +667,44 @@ async fn import_one(
     if project.provider != "thunderstore" && !actual.eq_ignore_ascii_case(&release.hash) {
         return Err(bad("Provider file checksum mismatch"));
     }
+    Ok(bytes)
+}
+async fn import_one(
+    app: &App,
+    user: i64,
+    input: &Link,
+    project: &Project,
+    release: &Release,
+    deps: &[String],
+) -> ApiResult<(String, bool)> {
+    let origin = format!("{}:{}:{}", project.provider, project.id, release.id);
+    if let Some(id) = existing(app, &origin)? {
+        let db = app.db.lock().unwrap();
+        let mut data = details(&db, &id)?;
+        data["dependency_ids"] = json!(deps);
+        if project.provider == "thunderstore" {
+            if let Some(loader) = game_profiles::loader(&project.id) {
+                data["framework_root"] = json!(loader.root);
+            }
+        }
+        db.execute(
+            "UPDATE mod_details SET data=?1 WHERE mod_id=?2",
+            params![data.to_string(), id],
+        )?;
+        provider_cache::track(&db, &id)?;
+        return Ok((id, true));
+    }
+    let bytes = download_release(project, release).await?;
     let mut details = serde_json::to_value(project).unwrap();
     details.as_object_mut().unwrap().remove("versions");
+    if project.provider == "thunderstore" {
+        if let Some(loader) = game_profiles::loader(&project.id) {
+            details["framework_root"] = json!(loader.root);
+        }
+    }
     details["filename"] = json!(safe_filename(&release.filename));
     details["release_id"] = json!(release.id);
-    details["update_profile"]=json!({"loader":input.loader,"game_version":input.game_version});
+    details["update_profile"] = json!({"loader":input.loader,"game_version":input.game_version});
     details["loaders"] = json!(release.loaders);
     details["game_versions"] = json!(release.game_versions);
     details["dependencies"] = release.dependencies.clone();
@@ -663,6 +726,9 @@ async fn import_one(
         }],
     )
     .ok_or_else(|| bad("Unsupported Steam/Unity game"))?;
+    if let Some(profile) = game_profiles::by_id(game) {
+        details["folder"] = json!(profile.folder);
+    }
     let id = store(
         app,
         user,
@@ -675,6 +741,7 @@ async fn import_one(
         &bytes,
     )
     .await?;
+    provider_cache::track(&app.db.lock().unwrap(), &id)?;
     Ok((id, false))
 }
 fn version_valid(s: &str) -> bool {
@@ -711,7 +778,7 @@ fn mr_file(v: &Value) -> Option<Release> {
         algorithm: "sha512".into(),
     })
 }
-async fn selection(input: &Link) -> ApiResult<(Project, Release)> {
+pub(crate) async fn selection(input: &Link) -> ApiResult<(Project, Release)> {
     let mut project = resolve(&input.url).await?;
     if !input.version.is_empty() && !project.versions.iter().any(|v| v.id == input.version) {
         if !version_valid(&input.version) {
@@ -946,6 +1013,9 @@ async fn dependency_graph(
     Ok((root, nodes, edges, order))
 }
 fn steam_id(slug: &str) -> Option<u32> {
+    if let Some(profile) = game_profiles::by_community(slug) {
+        return Some(profile.app_id);
+    }
     match slug {
         "bopl-battle" => Some(1686940),
         "rounds" => Some(1557740),
@@ -1112,18 +1182,25 @@ pub async fn catalog(app: &App, manifest: &std::path::Path) -> anyhow::Result<()
     }
     // Backfill provider attribution without changing existing release pins or dependency graphs.
     let rows = {
-        let db=app.db.lock().unwrap();
+        let db = app.db.lock().unwrap();
         db.prepare("SELECT mod_id,data FROM mod_details WHERE json_extract(data,'$.provider') IN ('thunderstore','modrinth','curseforge')")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?)))?.collect::<Result<Vec<_>,_>>()?
     };
-    for (id,raw) in rows {
-        let mut details:Value=serde_json::from_str(&raw)?;
-        if details["author_links"].is_array() {continue;}
-        if let Ok(project)=resolve(details["source_url"].as_str().unwrap_or_default()).await {
-            details["author_links"]=project.attribution["author_links"].clone();
-            details["icon_url"]=project.attribution["icon_url"].clone();
-            app.db.lock().unwrap().execute("UPDATE mod_details SET data=?1 WHERE mod_id=?2",params![details.to_string(),id])?;
+    for (id, raw) in rows {
+        let mut details: Value = serde_json::from_str(&raw)?;
+        if details["author_links"].is_array() {
+            continue;
+        }
+        if let Ok(project) = resolve(details["source_url"].as_str().unwrap_or_default()).await {
+            details["author_links"] = project.attribution["author_links"].clone();
+            details["icon_url"] = project.attribution["icon_url"].clone();
+            app.db.lock().unwrap().execute(
+                "UPDATE mod_details SET data=?1 WHERE mod_id=?2",
+                params![details.to_string(), id],
+            )?;
             println!("Refreshed provider attribution");
-        } else {println!("Provider attribution unavailable; retained existing metadata");}
+        } else {
+            println!("Provider attribution unavailable; retained existing metadata");
+        }
     }
     Ok(())
 }

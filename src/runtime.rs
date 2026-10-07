@@ -179,27 +179,117 @@ fn write_new(root: &Path, entries: &[(PathBuf, Vec<u8>)]) -> Result<()> {
     }
     result
 }
+fn pe_machine(data: &[u8]) -> Result<u16> {
+    anyhow::ensure!(data.get(..2) == Some(b"MZ"), "Not a Windows executable");
+    let offset =
+        u32::from_le_bytes(data.get(0x3c..0x40).context("Truncated PE")?.try_into()?) as usize;
+    anyhow::ensure!(
+        data.get(offset..offset + 4) == Some(b"PE\0\0"),
+        "Invalid PE header"
+    );
+    Ok(u16::from_le_bytes(
+        data.get(offset + 4..offset + 6)
+            .context("Truncated PE machine")?
+            .try_into()?,
+    ))
+}
+fn framework_entries(bytes: &[u8], il2cpp: bool, app_id: u32) -> Result<Vec<(PathBuf, Vec<u8>)>> {
+    let raw = archive_files(bytes)?;
+    let prefix = raw
+        .iter()
+        .find_map(|(p, _)| {
+            let text = p.to_string_lossy();
+            text.find("BepInEx/core/").map(|i| text[..i].to_owned())
+        })
+        .context("No BepInEx core in loader archive")?;
+    let mut entries = Vec::new();
+    for (path, data) in raw {
+        let text = path.to_string_lossy();
+        let Some(relative) = text.strip_prefix(&prefix) else {
+            continue;
+        };
+        let path = PathBuf::from(relative);
+        if [
+            "README.md",
+            "manifest.json",
+            "icon.png",
+            "LICENSE",
+            "LICENSE.txt",
+        ]
+        .iter()
+        .any(|v| path == Path::new(v))
+        {
+            continue;
+        }
+        anyhow::ensure!(
+            path.starts_with("BepInEx")
+                || (app_id == 1557740 && path == Path::new("corlibs/mscorlib.dll"))
+                || [
+                    "winhttp.dll",
+                    "version.dll",
+                    "doorstop_config.ini",
+                    ".doorstop_version",
+                    "changelog.txt"
+                ]
+                .iter()
+                .any(|v| path == Path::new(v)),
+            "Unsupported loader archive file: {}",
+            path.display()
+        );
+        entries.push((path, data));
+    }
+    let core = if il2cpp {
+        "BepInEx/core/BepInEx.Unity.IL2CPP.dll"
+    } else {
+        "BepInEx/core/BepInEx.dll"
+    };
+    anyhow::ensure!(
+        entries.iter().any(|(p, _)| p == Path::new(core)),
+        "Loader does not match this game's Mono/IL2CPP runtime"
+    );
+    anyhow::ensure!(
+        entries
+            .iter()
+            .any(|(p, _)| p == Path::new("doorstop_config.ini")),
+        "Missing Doorstop configuration"
+    );
+    anyhow::ensure!(
+        entries
+            .iter()
+            .any(|(p, _)| p == Path::new("winhttp.dll") || p == Path::new("version.dll")),
+        "Missing Windows loader proxy"
+    );
+    Ok(entries)
+}
 pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
     if crate::model::source_addons(game.app_id).is_some() {
         return crate::source_addons::setup(game);
     }
     ensure_closed(game)?;
-    if game.path.join("BepInEx/core/BepInEx.dll").is_file()
+    let il2cpp = game.path.join("GameAssembly.dll").is_file();
+    let core = if il2cpp {
+        "BepInEx/core/BepInEx.Unity.IL2CPP.dll"
+    } else {
+        "BepInEx/core/BepInEx.dll"
+    };
+    if game.path.join(core).is_file()
         && game.path.join("doorstop_config.ini").is_file()
         && (game.path.join("winhttp.dll").is_file() || game.path.join("version.dll").is_file())
     {
         return Ok(());
     }
-    if game.path.join("BepInEx/core/BepInEx.Core.dll").is_file() {
-        bail!("BepInEx 6 detected; automatic BepInEx 5 setup is unsupported")
-    }
-    if !game
-        .path
-        .join("BoplBattle_Data/Managed/Assembly-CSharp.dll")
-        .is_file()
-        && game.app_id == 1686940
+    if game.path.join("BepInEx/core/BepInEx.Core.dll").is_file()
+        || game.path.join("BepInEx/core/BepInEx.dll").is_file()
     {
-        bail!("Bopl Battle Mono files were not found")
+        bail!(
+            "Existing BepInEx runtime does not match this game's Mono/IL2CPP profile; preserve it and select a compatible loader"
+        );
+    }
+    if let Some(profile) = crate::game_profiles::by_id(game.app_id) {
+        anyhow::ensure!(
+            game.path.join(&profile.data_folder).is_dir(),
+            "This game's Unity data directory was not found"
+        );
     }
     let api = client()?;
     let bytes = repository::fetch_optional(
@@ -207,34 +297,28 @@ pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
         &settings(pack),
         token,
         &repo_path(pack, "Framework/BepInEx.zip"),
-        32 * 1024 * 1024,
+        128 * 1024 * 1024,
     )?;
     let bytes = bytes.ok_or_else(|| {
         anyhow::anyhow!("The Canna server does not have a compatible framework for this game")
     })?;
-    let entries = archive_files(&bytes)?;
-    for required in [
-        "BepInEx/core/BepInEx.dll",
-        "winhttp.dll",
-        "doorstop_config.ini",
-    ] {
-        if !entries.iter().any(|(path, _)| path == Path::new(required)) {
-            bail!("Framework archive is missing {required}; use the Windows BepInEx 5 ZIP")
-        }
-    }
-    if entries.iter().any(|(p, _)| {
-        !(p.starts_with("BepInEx")
-            || (game.app_id == 1557740 && p == Path::new("corlibs/mscorlib.dll"))
-            || [
-                "winhttp.dll",
-                "doorstop_config.ini",
-                ".doorstop_version",
-                "changelog.txt",
-            ]
+    let entries = framework_entries(&bytes, il2cpp, game.app_id)?;
+    if let Some(profile) = crate::game_profiles::by_id(game.app_id) {
+        let exe = profile
+            .executables
             .iter()
-            .any(|allowed| p == Path::new(allowed)))
-    }) {
-        bail!("Unexpected files in framework archive")
+            .map(|name| game.path.join(name))
+            .find(|p| p.is_file())
+            .context("The game's Windows executable was not found")?;
+        let machine = pe_machine(&fs::read(exe)?)?;
+        for (path, data) in &entries {
+            if path == Path::new("winhttp.dll") || path == Path::new("version.dll") {
+                anyhow::ensure!(
+                    pe_machine(data)? == machine,
+                    "Loader architecture does not match the game executable"
+                );
+            }
+        }
     }
     // Never overwrite another loader or partial installation.
     ensure_closed(game)?;
@@ -255,6 +339,61 @@ pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
     fs::create_dir_all(game.path.join("BepInEx/plugins"))?;
     fs::create_dir_all(game.path.join("BepInEx/config"))?;
     Ok(())
+}
+#[derive(Default)]
+struct PluginEntries {
+    plugins: Vec<(PathBuf, Vec<u8>)>,
+    patchers: Vec<(PathBuf, Vec<u8>)>,
+    configs: Vec<(PathBuf, Vec<u8>)>,
+}
+fn plugin_entries(bytes: &[u8]) -> Result<PluginEntries> {
+    let mut entries = PluginEntries::default();
+    for (path, data) in archive_files(bytes)? {
+        if [
+            "manifest.json",
+            "README.md",
+            "icon.png",
+            "LICENSE",
+            "LICENSE.txt",
+        ]
+        .iter()
+        .any(|p| path == Path::new(p))
+        {
+            continue;
+        }
+        if path.starts_with("BepInEx/core")
+            || path.starts_with("BepInEx/monomod")
+            || path.starts_with("monomod")
+            || path.to_string_lossy().ends_with(".mm.dll")
+        {
+            bail!(
+                "This package modifies the loader or game assemblies; a dedicated installer is required"
+            );
+        }
+        if let Ok(relative) = path
+            .strip_prefix("BepInEx/config")
+            .or_else(|_| path.strip_prefix("config"))
+        {
+            entries.configs.push((relative.to_owned(), data));
+        } else if let Ok(relative) = path
+            .strip_prefix("BepInEx/patchers")
+            .or_else(|_| path.strip_prefix("patchers"))
+        {
+            entries.patchers.push((relative.to_owned(), data));
+        } else {
+            let path = path
+                .strip_prefix("BepInEx/plugins")
+                .or_else(|_| path.strip_prefix("plugins"))
+                .map(Path::to_owned)
+                .unwrap_or(path);
+            anyhow::ensure!(
+                !path.starts_with("BepInEx"),
+                "Unsupported BepInEx package route"
+            );
+            entries.plugins.push((path, data));
+        }
+    }
+    Ok(entries)
 }
 pub fn install_pack(
     game: &InstalledGame,
@@ -279,7 +418,10 @@ pub fn install_pack(
             .as_nanos()
     ));
     fs::create_dir(&stage)?;
+    fs::create_dir(stage.join("plugins"))?;
+    fs::create_dir(stage.join("patchers"))?;
     let result = (|| -> Result<()> {
+        let mut configs = Vec::new();
         for (index, item) in pack.mods.iter().enumerate() {
             if !item.enabled {
                 continue;
@@ -299,7 +441,7 @@ pub fn install_pack(
                     &settings(pack),
                     token,
                     &repo_path(pack, &item.file),
-                    32 * 1024 * 1024,
+                    128 * 1024 * 1024,
                 )?
                 .context("Mod file not found in repository")?
             };
@@ -311,7 +453,7 @@ pub fn install_pack(
             if let Err(error) = crate::website::remember_mod(pack, item, &bytes, false) {
                 progress(&format!("Couldn't save download history: {error}"));
             }
-            let target = stage.join(index.to_string());
+            let target = stage.join("plugins").join(index.to_string());
             if item.file.to_lowercase().ends_with(".dll") {
                 fs::create_dir_all(&target)?;
                 fs::write(
@@ -319,61 +461,104 @@ pub fn install_pack(
                     bytes,
                 )?;
             } else if item.file.to_lowercase().ends_with(".zip") {
-                let mut plugins = Vec::new();
-                for (path, data) in archive_files(&bytes)? {
-                    let path = if let Ok(p) = path.strip_prefix("BepInEx/plugins") {
-                        p.to_owned()
-                    } else if let Ok(p) = path.strip_prefix("plugins") {
-                        p.to_owned()
-                    } else {
-                        path
-                    };
-                    if path.starts_with("BepInEx")
-                        || ["manifest.json", "README.md", "icon.png", "LICENSE"]
-                            .iter()
-                            .any(|p| path == Path::new(p))
-                    {
-                        continue;
-                    }
-                    plugins.push((path, data));
-                }
-                if !plugins
+                let entries = plugin_entries(&bytes)?;
+                let has_binary = entries
+                    .plugins
                     .iter()
-                    .any(|(p, _)| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("dll")))
-                {
-                    bail!("{} contains no plugin DLLs", item.name)
-                }
-                write_new(&target, &plugins)?;
+                    .chain(entries.patchers.iter())
+                    .any(|(p, _)| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("dll")));
+                anyhow::ensure!(
+                    has_binary
+                        || !entries.configs.is_empty()
+                        || (!item.dependencies.is_empty() && entries.plugins.is_empty()),
+                    "{} contains no supported plugins, patchers or configuration",
+                    item.name
+                );
+                write_new(&target, &entries.plugins)?;
+                write_new(
+                    &stage.join("patchers").join(index.to_string()),
+                    &entries.patchers,
+                )?;
+                configs.extend(entries.configs);
             } else {
                 bail!("{} must be a plugin DLL or ZIP", item.name)
             }
         }
         ensure_closed(game)?;
         progress("Activating selected pack…");
-        let active = game.path.join("BepInEx/plugins/Canna");
-        no_links(&active)?;
-        let previous = game.path.join("BepInEx/plugins/Canna.previous");
-        if previous.exists() {
-            bail!("A previous Canna activation needs recovery")
-        }
-        if active.exists() {
-            fs::rename(&active, &previous)?;
-        }
-        if let Err(error) = fs::rename(&stage, &active) {
-            if previous.exists() {
-                let _ = fs::rename(&previous, &active);
-            }
-            return Err(error.into());
-        }
-        if previous.exists() {
-            remove_managed(&game.path, &previous)?;
-        }
-        Ok(())
+        activate_stage(&game.path, &stage, configs)
     })();
     if stage.exists() {
         let _ = remove_managed(&game.path, &stage);
     }
     result
+}
+fn activate_stage(root: &Path, stage: &Path, configs: Vec<(PathBuf, Vec<u8>)>) -> Result<()> {
+    let routes = [
+        ("plugins", root.join("BepInEx/plugins/Canna")),
+        ("patchers", root.join("BepInEx/patchers/Canna")),
+    ];
+    for (_, active) in &routes {
+        no_links(active)?;
+        anyhow::ensure!(
+            !active.with_file_name("Canna.previous").exists(),
+            "A previous Canna activation needs recovery"
+        );
+        fs::create_dir_all(active.parent().unwrap())?;
+    }
+    let config_root = root.join("BepInEx/config");
+    let mut new_configs = Vec::new();
+    for (path, data) in configs {
+        let destination = config_root.join(&path);
+        no_links(&destination)?;
+        if destination.exists() {
+            anyhow::ensure!(
+                destination.is_file(),
+                "Config path is not a file: {}",
+                path.display()
+            );
+        } else if let Some((_, existing)) = new_configs.iter().find(|(p, _)| p == &path) {
+            anyhow::ensure!(
+                existing == &data,
+                "Conflicting mod config defaults: {}",
+                path.display()
+            );
+        } else {
+            new_configs.push((path, data));
+        }
+    }
+    write_new(&config_root, &new_configs)?;
+    let mut backups = Vec::new();
+    let mut promoted = Vec::new();
+    let activation = (|| -> Result<()> {
+        for (_, active) in &routes {
+            if active.exists() {
+                fs::rename(active, active.with_file_name("Canna.previous"))?;
+                backups.push(active.clone());
+            }
+        }
+        for (route, active) in &routes {
+            fs::rename(stage.join(route), active)?;
+            promoted.push((*route, active.clone()));
+        }
+        Ok(())
+    })();
+    if let Err(error) = activation {
+        for (route, active) in promoted.into_iter().rev() {
+            fs::rename(active, stage.join(route))?;
+        }
+        for active in backups.into_iter().rev() {
+            fs::rename(active.with_file_name("Canna.previous"), active)?;
+        }
+        for (path, _) in &new_configs {
+            fs::remove_file(config_root.join(path))?;
+        }
+        return Err(error);
+    }
+    for active in backups {
+        remove_managed(root, &active.with_file_name("Canna.previous"))?;
+    }
+    Ok(())
 }
 pub fn set_mode(root: &Path, modded: bool) -> Result<()> {
     let path = root.join("doorstop_config.ini");
@@ -459,6 +644,56 @@ pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::O
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn thunderstore_plugins_patchers_and_config_keep_their_routes() {
+        use std::io::Write;
+        let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
+        for path in [
+            "BepInEx/plugins/mod/plugin.dll",
+            "BepInEx/patchers/patch.dll",
+            "BepInEx/config/mod.cfg",
+            "manifest.json",
+        ] {
+            zip.start_file(path, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(b"fixture").unwrap();
+        }
+        let entries = plugin_entries(&zip.finish().unwrap().into_inner()).unwrap();
+        assert_eq!(entries.plugins[0].0, Path::new("mod/plugin.dll"));
+        assert_eq!(entries.patchers[0].0, Path::new("patch.dll"));
+        assert_eq!(entries.configs[0].0, Path::new("mod.cfg"));
+    }
+    #[test]
+    fn thunderstore_loader_roots_and_runtime_types_are_checked() {
+        use std::io::Write;
+        let zip = |core: &str| {
+            let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            for path in [
+                format!("BepInExPack/{core}"),
+                "BepInExPack/winhttp.dll".into(),
+                "BepInExPack/doorstop_config.ini".into(),
+                "manifest.json".into(),
+            ] {
+                writer
+                    .start_file(path, zip::write::SimpleFileOptions::default())
+                    .unwrap();
+                writer.write_all(b"fixture").unwrap();
+            }
+            writer.finish().unwrap().into_inner()
+        };
+        let mono = zip("BepInEx/core/BepInEx.dll");
+        let il2cpp = zip("BepInEx/core/BepInEx.Unity.IL2CPP.dll");
+        assert!(
+            framework_entries(&mono, false, 1966720)
+                .unwrap()
+                .iter()
+                .any(|(p, _)| p == Path::new("winhttp.dll"))
+        );
+        assert!(framework_entries(&mono, true, 1966720).is_err());
+        assert!(framework_entries(&il2cpp, true, 945360).is_ok());
+        assert!(framework_entries(&il2cpp, false, 945360).is_err());
+        assert!(pe_machine(b"not a PE").is_err());
+    }
     #[test]
     #[ignore = "Starts Bopl Battle through Steam and terminates only the retained launch process"]
     fn steam_launch_retains_and_stops_bopl() {
@@ -671,6 +906,45 @@ mod tests {
                 .unwrap()
                 .contains("enabled=false")
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn activation_preserves_user_config_and_rolls_back_both_routes() {
+        let root = std::env::temp_dir().join(format!("canna-activate-{}", std::process::id()));
+        fs::create_dir_all(root.join("BepInEx/plugins/Canna")).unwrap();
+        fs::create_dir_all(root.join("BepInEx/patchers/Canna")).unwrap();
+        fs::create_dir_all(root.join("BepInEx/config")).unwrap();
+        fs::write(root.join("BepInEx/plugins/Canna/old.dll"), b"old").unwrap();
+        fs::write(root.join("BepInEx/patchers/Canna/old.dll"), b"old").unwrap();
+        fs::write(root.join("BepInEx/config/custom.cfg"), b"user").unwrap();
+        let stage = root.join("stage");
+        fs::create_dir_all(stage.join("plugins")).unwrap();
+        fs::write(stage.join("plugins/new.dll"), b"new").unwrap();
+        // Missing patcher stage forces failure after the first promotion.
+        assert!(
+            activate_stage(&root, &stage, vec![("new.cfg".into(), b"default".to_vec())]).is_err()
+        );
+        assert!(root.join("BepInEx/plugins/Canna/old.dll").is_file());
+        assert!(root.join("BepInEx/patchers/Canna/old.dll").is_file());
+        assert!(!root.join("BepInEx/config/new.cfg").exists());
+        fs::create_dir_all(stage.join("patchers")).unwrap();
+        fs::write(stage.join("patchers/new.dll"), b"new").unwrap();
+        activate_stage(
+            &root,
+            &stage,
+            vec![
+                ("custom.cfg".into(), b"default".to_vec()),
+                ("new.cfg".into(), b"default".to_vec()),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            fs::read(root.join("BepInEx/config/custom.cfg")).unwrap(),
+            b"user"
+        );
+        assert!(root.join("BepInEx/plugins/Canna/new.dll").is_file());
+        assert!(root.join("BepInEx/patchers/Canna/new.dll").is_file());
+        assert!(!root.join("BepInEx/plugins/Canna.previous").exists());
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

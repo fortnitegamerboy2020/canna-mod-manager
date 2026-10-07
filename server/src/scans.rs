@@ -15,16 +15,25 @@ fn staff(app: &App, headers: &HeaderMap) -> ApiResult<i64> {
     }
     Ok(actor)
 }
-fn manual_upload(db:&Connection,id:&str)->ApiResult<bool> {
+fn manual_upload(db: &Connection, id: &str) -> ApiResult<bool> {
     Ok(db.query_row("SELECT NOT EXISTS(SELECT 1 FROM mod_details WHERE mod_id=?1 AND COALESCE(json_extract(data,'$.provider'),'uploaded')!='uploaded')",[id],|r|r.get(0))?)
 }
-pub fn enforce_manual_uploads(db:&Connection)->rusqlite::Result<()> {
-    let transaction=db.unchecked_transaction()?;
-    let db=&transaction;
-    if db.execute("INSERT OR IGNORE INTO notification_meta VALUES('manual-upload-review-v1')",[])?==0{return Ok(());}
+pub fn enforce_manual_uploads(db: &Connection) -> rusqlite::Result<()> {
+    let transaction = db.unchecked_transaction()?;
+    let db = &transaction;
+    if db.execute(
+        "INSERT OR IGNORE INTO notification_meta VALUES('manual-upload-review-v1')",
+        [],
+    )? == 0
+    {
+        return Ok(());
+    }
     let ids=db.prepare("SELECT m.id,m.user_id,m.name FROM mods m WHERE NOT EXISTS(SELECT 1 FROM mod_details d WHERE d.mod_id=m.id AND COALESCE(json_extract(d.data,'$.provider'),'uploaded')!='uploaded') AND NOT EXISTS(SELECT 1 FROM audit a WHERE a.action='approve-mod' AND a.target=m.id) AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') AND NOT EXISTS(SELECT 1 FROM mod_submissions s WHERE s.id=m.id AND s.status='denied')")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?)))?.collect::<Result<Vec<_>,_>>()?;
-    for (id,user,name) in ids {
-        db.execute("INSERT INTO mod_reviews VALUES(?1,0) ON CONFLICT(mod_id) DO UPDATE SET approved=0",[&id])?;
+    for (id, user, name) in ids {
+        db.execute(
+            "INSERT INTO mod_reviews VALUES(?1,0) ON CONFLICT(mod_id) DO UPDATE SET approved=0",
+            [&id],
+        )?;
         db.execute("INSERT OR IGNORE INTO mod_submissions(id,user_id,name,version,created) SELECT id,user_id,name,version,?1 FROM mods WHERE id=?2",params![now(),id])?;
         db.execute("UPDATE mod_submissions SET status='pending',reason='Manual staff approval required',resolved=NULL WHERE id=?1",[&id])?;
         db.execute("INSERT INTO audit(actor,action,target,created) VALUES(?1,'manual-upload-review-required',?2,?3)",params![user,json!({"mod":id,"name":name}).to_string(),now()])?;
@@ -161,20 +170,36 @@ async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<(
     }
 }
 pub fn requeue_uncertain_denials(db: &mut Connection) -> anyhow::Result<usize> {
-    let tx=db.transaction()?;
+    let tx = db.transaction()?;
     let rows=tx.prepare("SELECT s.mod_id,m.user_id,s.report FROM mod_scans s JOIN mods m ON m.id=s.mod_id JOIN mod_submissions sub ON sub.id=m.id WHERE s.status='rejected' AND sub.reason LIKE 'Rejected by scan policy:%' AND json_extract(s.report,'$.version')='canna-static-4'")?.query_map([],|r|Ok((r.get::<_,String>(0)?,r.get::<_,i64>(1)?,r.get::<_,String>(2)?)))?.collect::<Result<Vec<_>,_>>()?;
-    let mut count=0;
-    for (id,actor,raw) in rows {
-        let report:Value=serde_json::from_str(&raw)?;
-        let uncertain=report["findings"].as_array().is_some_and(|findings|findings.iter().any(|f| f["rule"]=="packer-heuristic" || (f["rule"]=="packer-marker" && f["evidence"]=="MPRESS") || (f["rule"]=="packer-signature" && f["evidence"].as_str().is_some_and(|e|e.contains("(Heur)")))));
-        if !uncertain {continue;}
+    let mut count = 0;
+    for (id, actor, raw) in rows {
+        let report: Value = serde_json::from_str(&raw)?;
+        let uncertain = report["findings"].as_array().is_some_and(|findings| {
+            findings.iter().any(|f| {
+                f["rule"] == "packer-heuristic"
+                    || (f["rule"] == "packer-marker" && f["evidence"] == "MPRESS")
+                    || (f["rule"] == "packer-signature"
+                        && f["evidence"].as_str().is_some_and(|e| e.contains("(Heur)")))
+            })
+        });
+        if !uncertain {
+            continue;
+        }
         // Reanalysis grants no download approval, even for an owner import.
-        tx.execute("DELETE FROM mod_scans WHERE mod_id=?1",[&id])?;
-        tx.execute("UPDATE mod_reviews SET approved=0 WHERE mod_id=?1",[&id])?;
+        tx.execute("DELETE FROM mod_scans WHERE mod_id=?1", [&id])?;
+        tx.execute("UPDATE mod_reviews SET approved=0 WHERE mod_id=?1", [&id])?;
         tx.execute("UPDATE mod_submissions SET status='pending',reason='Scanner correction: reanalysis required; uncertain packing evidence is reviewed by staff',resolved=NULL WHERE id=?1",[&id])?;
         tx.execute("INSERT INTO audit(actor,action,target,created) VALUES(?1,'scanner-correction-requeue',?2,?3)",params![actor,id,now()])?;
-        notifications::notify(&tx,actor,"mod-review","Your mod was returned to review for corrected packing analysis.","/submissions",&format!("scanner-correction-5:{id}"))?;
-        count+=1;
+        notifications::notify(
+            &tx,
+            actor,
+            "mod-review",
+            "Your mod was returned to review for corrected packing analysis.",
+            "/submissions",
+            &format!("scanner-correction-5:{id}"),
+        )?;
+        count += 1;
     }
     tx.commit()?;
     Ok(count)
@@ -227,9 +252,25 @@ fn apply_policy(db: &Connection, id: &str, report: &Value) -> ApiResult<()> {
             &format!("scan-denied:{id}"),
         )?;
         ("auto-deny-mod", reason)
-    } else if findings.is_empty() && manual_upload(db,id)? {
-        let verified:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM audit WHERE action='approve-mod' AND target=?1)",[id],|r|r.get(0))?;
-        (if verified {"manual-approval-retained"}else{"scan-needs-review"},if verified {"Previously verified manual upload; completed rescan has no findings".to_owned()}else{"Manually uploaded mods require staff approval even when the scan has no findings".to_owned()})
+    } else if findings.is_empty() && manual_upload(db, id)? {
+        let verified: bool = db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM audit WHERE action='approve-mod' AND target=?1)",
+            [id],
+            |r| r.get(0),
+        )?;
+        (
+            if verified {
+                "manual-approval-retained"
+            } else {
+                "scan-needs-review"
+            },
+            if verified {
+                "Previously verified manual upload; completed rescan has no findings".to_owned()
+            } else {
+                "Manually uploaded mods require staff approval even when the scan has no findings"
+                    .to_owned()
+            },
+        )
     } else if findings.is_empty() {
         (
             "auto-approve-mod",
@@ -242,7 +283,12 @@ fn apply_policy(db: &Connection, id: &str, report: &Value) -> ApiResult<()> {
         )
     };
     db.execute("INSERT INTO mod_reviews VALUES(?1,?2) ON CONFLICT(mod_id) DO UPDATE SET approved=excluded.approved",params![id,matches!(action,"auto-approve-mod"|"manual-approval-retained")])?;
-    if action=="scan-needs-review" {db.execute("UPDATE mod_submissions SET status='pending',reason=?1,resolved=NULL WHERE id=?2",params![reason,id])?;}
+    if action == "scan-needs-review" {
+        db.execute(
+            "UPDATE mod_submissions SET status='pending',reason=?1,resolved=NULL WHERE id=?2",
+            params![reason, id],
+        )?;
+    }
     db.execute(
         "INSERT INTO audit(actor,action,target,created) VALUES(?1,?2,?3,?4)",
         params![
@@ -260,6 +306,9 @@ fn apply_policy(db: &Connection, id: &str, report: &Value) -> ApiResult<()> {
 async fn queue(app: Shared, id: String, force: bool) -> ApiResult<()> {
     let root = std::env::var("CANNA_REVIEW_JOBS")
         .map_err(|_| bad("Source analysis worker is not configured"))?;
+    if !app.files.join(format!("{id}.zip")).is_file() {
+        provider_cache::ensure(&app, &id).await?;
+    }
     let hash = {
         let db = app.db.lock().unwrap();
         let hash: String = db
@@ -438,20 +487,50 @@ mod tests {
     use crate::tests::{account, call, fixture, value};
     #[test]
     fn corrected_scanner_requeues_only_automatic_uncertain_denials() {
-        let (_dir,app)=fixture();account(&app,"scanner-submit",false);
-        let mut db=app.db.lock().unwrap();
-        for (id,reason,evidence) in [("uncertain","Rejected by scan policy: Generic","(Heur)Packer: Generic"),("confirmed","Rejected by scan policy: UPX","Packer: UPX"),("staff","Staff denied this upload","(Heur)Packer: Generic")] {
-            db.execute("INSERT INTO mods VALUES(?1,1,1686940,?1,'1','','hash',1)",[id]).unwrap();
-            db.execute("INSERT INTO mod_reviews VALUES(?1,0)",[id]).unwrap();
+        let (_dir, app) = fixture();
+        account(&app, "scanner-submit", false);
+        let mut db = app.db.lock().unwrap();
+        for (id, reason, evidence) in [
+            (
+                "uncertain",
+                "Rejected by scan policy: Generic",
+                "(Heur)Packer: Generic",
+            ),
+            ("confirmed", "Rejected by scan policy: UPX", "Packer: UPX"),
+            ("staff", "Staff denied this upload", "(Heur)Packer: Generic"),
+        ] {
+            db.execute(
+                "INSERT INTO mods VALUES(?1,1,1686940,?1,'1','','hash',1)",
+                [id],
+            )
+            .unwrap();
+            db.execute("INSERT INTO mod_reviews VALUES(?1,0)", [id])
+                .unwrap();
             db.execute("INSERT INTO mod_submissions(id,user_id,name,version,status,reason,created,resolved) VALUES(?1,1,?1,'1','denied',?2,0,1) ON CONFLICT(id) DO UPDATE SET status='denied',reason=excluded.reason,resolved=1",params![id,reason]).unwrap();
-            let report=json!({"version":"canna-static-4","findings":[{"rule":"packer-signature","evidence":evidence}]});
-            db.execute("INSERT INTO mod_scans VALUES(?1,'hash','rejected',?2,0)",params![id,report.to_string()]).unwrap();
+            let report = json!({"version":"canna-static-4","findings":[{"rule":"packer-signature","evidence":evidence}]});
+            db.execute(
+                "INSERT INTO mod_scans VALUES(?1,'hash','rejected',?2,0)",
+                params![id, report.to_string()],
+            )
+            .unwrap();
         }
-        assert_eq!(requeue_uncertain_denials(&mut db).unwrap(),1);
-        assert_eq!(requeue_uncertain_denials(&mut db).unwrap(),0);
-        assert_eq!(db.query_row("SELECT count(*) FROM mod_scans",[],|r|r.get::<_,i64>(0)).unwrap(),2);
-        assert_eq!(db.query_row("SELECT status FROM mod_submissions WHERE id='uncertain'",[],|r|r.get::<_,String>(0)).unwrap(),"pending");
-        assert!(security::approved(&db,"uncertain").is_err());
+        assert_eq!(requeue_uncertain_denials(&mut db).unwrap(), 1);
+        assert_eq!(requeue_uncertain_denials(&mut db).unwrap(), 0);
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM mod_scans", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT status FROM mod_submissions WHERE id='uncertain'",
+                [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "pending"
+        );
+        assert!(security::approved(&db, "uncertain").is_err());
     }
     #[test]
     fn scan_policy_auto_approves_reviews_or_quarantines() {
@@ -460,7 +539,11 @@ mod tests {
         let db = app.db.lock().unwrap();
         for (id, findings, expected) in [
             ("clean", json!([]), "accepted"),
-            ("review", json!([{"rule":"packing-review","evidence":"(Heur)Packer: Generic"}]), "pending"),
+            (
+                "review",
+                json!([{"rule":"packing-review","evidence":"(Heur)Packer: Generic"}]),
+                "pending",
+            ),
             (
                 "packed",
                 json!([{"rule":"packer-signature","title":"UPX","evidence":"UPX signature","file":"a.dll"}]),
@@ -473,7 +556,9 @@ mod tests {
                 [id],
             )
             .unwrap();
-            if id=="clean" {db.execute("INSERT INTO mod_details VALUES(?1,'modrinth:fixture:1','{\"provider\":\"modrinth\"}')",[id]).unwrap();}
+            if id == "clean" {
+                db.execute("INSERT INTO mod_details VALUES(?1,'modrinth:fixture:1','{\"provider\":\"modrinth\"}')",[id]).unwrap();
+            }
             db.execute(
                 "INSERT INTO mod_scans VALUES(?1,'hash','complete','{}',0)",
                 [id],
@@ -542,24 +627,115 @@ mod tests {
     #[tokio::test]
     async fn even_owner_uploads_require_manual_approval_after_clean_scan() {
         use tower::ServiceExt;
-        let (_dir,app)=fixture();let owner=account(&app,"upload-owner",true);
-        let bytes=b"PK\x05\x06\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
-        let request=axum::http::Request::builder().method("POST").uri("/api/v1/mods?app_id=550&name=Manual&version=1&provider=modrinth").header("authorization",format!("Bearer {owner}")).body(Body::from(bytes.as_slice())).unwrap();
-        let item=value(router(app.clone()).oneshot(request).await.unwrap()).await;
-        assert_eq!(item["review_status"],"pending");let id=item["id"].as_str().unwrap();
-        {let db=app.db.lock().unwrap();assert!(manual_upload(&db,id).unwrap());db.execute("INSERT INTO mod_scans VALUES(?1,?2,'complete','{\"findings\":[]}',0)",params![id,item["sha256"].as_str().unwrap()]).unwrap();apply_policy(&db,id,&json!({"findings":[]})).unwrap();assert!(security::approved(&db,id).is_err());}
-        assert_eq!(call(app.clone(),"POST",&format!("/api/v1/mods/{id}/approve"),json!({}),Some(&owner)).await.status(),StatusCode::OK);
-        {let db=app.db.lock().unwrap();apply_policy(&db,id,&json!({"findings":[]})).unwrap();assert!(security::approved(&db,id).is_ok());}
+        let (_dir, app) = fixture();
+        let owner = account(&app, "upload-owner", true);
+        let bytes = b"PK\x05\x06\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0";
+        let request = axum::http::Request::builder()
+            .method("POST")
+            .uri("/api/v1/mods?app_id=550&name=Manual&version=1&provider=modrinth")
+            .header("authorization", format!("Bearer {owner}"))
+            .body(Body::from(bytes.as_slice()))
+            .unwrap();
+        let item = value(router(app.clone()).oneshot(request).await.unwrap()).await;
+        assert_eq!(item["review_status"], "pending");
+        let id = item["id"].as_str().unwrap();
+        {
+            let db = app.db.lock().unwrap();
+            assert!(manual_upload(&db, id).unwrap());
+            db.execute(
+                "INSERT INTO mod_scans VALUES(?1,?2,'complete','{\"findings\":[]}',0)",
+                params![id, item["sha256"].as_str().unwrap()],
+            )
+            .unwrap();
+            apply_policy(&db, id, &json!({"findings":[]})).unwrap();
+            assert!(security::approved(&db, id).is_err());
+        }
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                &format!("/api/v1/mods/{id}/approve"),
+                json!({}),
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        {
+            let db = app.db.lock().unwrap();
+            apply_policy(&db, id, &json!({"findings":[]})).unwrap();
+            assert!(security::approved(&db, id).is_ok());
+        }
     }
     #[tokio::test]
     async fn legacy_auto_approved_uploads_return_to_review_but_verified_uploads_remain() {
-        let (_dir,app)=fixture();account(&app,"migration-owner",true);
-        let manual=external::store(&app,1,550,"Manual","1","","uploaded:fixture",&json!({}),b"PK\x03\x04manual").await.unwrap();
-        let verified=external::store(&app,1,550,"Verified","1","","uploaded:verified",&json!({"provider":"uploaded"}),b"PK\x03\x04verified").await.unwrap();
-        let imported=external::store(&app,1,550,"Imported","1","","modrinth:external:1",&json!({"provider":"modrinth"}),b"PK\x03\x04external").await.unwrap();
-        let db=app.db.lock().unwrap();db.execute("INSERT INTO audit(actor,action,target,created) VALUES(1,'approve-mod',?1,0)",[&verified]).unwrap();db.execute("DELETE FROM notification_meta WHERE key='manual-upload-review-v1'",[]).unwrap();enforce_manual_uploads(&db).unwrap();
-        assert!(security::approved(&db,&manual).is_err());assert!(security::approved(&db,&verified).is_ok());assert!(security::approved(&db,&imported).is_ok());enforce_manual_uploads(&db).unwrap();
-        assert_eq!(db.query_row("SELECT COUNT(*) FROM audit WHERE action='manual-upload-review-required'",[],|r|r.get::<_,i64>(0)).unwrap(),1);
+        let (_dir, app) = fixture();
+        account(&app, "migration-owner", true);
+        let manual = external::store(
+            &app,
+            1,
+            550,
+            "Manual",
+            "1",
+            "",
+            "uploaded:fixture",
+            &json!({}),
+            b"PK\x03\x04manual",
+        )
+        .await
+        .unwrap();
+        let verified = external::store(
+            &app,
+            1,
+            550,
+            "Verified",
+            "1",
+            "",
+            "uploaded:verified",
+            &json!({"provider":"uploaded"}),
+            b"PK\x03\x04verified",
+        )
+        .await
+        .unwrap();
+        let imported = external::store(
+            &app,
+            1,
+            550,
+            "Imported",
+            "1",
+            "",
+            "modrinth:external:1",
+            &json!({"provider":"modrinth"}),
+            b"PK\x03\x04external",
+        )
+        .await
+        .unwrap();
+        let db = app.db.lock().unwrap();
+        db.execute(
+            "INSERT INTO audit(actor,action,target,created) VALUES(1,'approve-mod',?1,0)",
+            [&verified],
+        )
+        .unwrap();
+        db.execute(
+            "DELETE FROM notification_meta WHERE key='manual-upload-review-v1'",
+            [],
+        )
+        .unwrap();
+        enforce_manual_uploads(&db).unwrap();
+        assert!(security::approved(&db, &manual).is_err());
+        assert!(security::approved(&db, &verified).is_ok());
+        assert!(security::approved(&db, &imported).is_ok());
+        enforce_manual_uploads(&db).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM audit WHERE action='manual-upload-review-required'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
     }
     #[cfg(unix)]
     #[test]

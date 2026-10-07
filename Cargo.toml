@@ -1,6 +1,6 @@
 [package]
 name = "canna-mod-manager"
-version = "0.2.24"
+version = "0.2.25"
 edition = "2024"
 default-run = "canna-mod-manager"
 

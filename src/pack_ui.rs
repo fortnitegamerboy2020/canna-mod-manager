@@ -1592,8 +1592,10 @@ mod tests {
                 dependencies: vec![],
             })
             .collect();
-        let mut state = DiscoverState::default();
-        state.game = game.app_id;
+        let mut state = DiscoverState {
+            game: game.app_id,
+            ..Default::default()
+        };
         for _ in 0..4 {
             let _ = ctx.run(
                 egui::RawInput {

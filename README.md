@@ -208,3 +208,10 @@ Nine starter listings cover Left 4 Dead and Left 4 Dead 2. Three licensed GitHub
 Community 0.3.33 checks supported external projects one at a time, at least 30 seconds apart, daily or following a member request. Mods & modpacks → Check mod updates has one persistent 120-second cooldown shared by all members. New compatible versions import required dependencies and pass through scan/review before replacing the discoverable release. Old pinned files remain downloadable; existing packs require explicit entry updates. Steam maintains Workshop subscriptions. API credentials remain server-side.
 
 Community 0.3.34 requires manual staff approval for manually uploaded mods, including Owner uploads, after analysis. Existing manual uploads without a recorded staff approval return to review. Clean external imports retain automatic approval; suspicious findings require review and packing/malware signatures cause automatic denial.
+
+
+### Provider browsing and archive caching
+
+The authenticated website supports paginated provider search and filters. Provider archives expire after seven days, while pinned version, attribution, dependency and review records remain. Downloads re-fetch the original release and verify its original SHA-256; updates create separately reviewed versions. Manual uploads are retained. Thunderstore browsing currently receives HTTP 403 from the provider; fixture tests do not establish live availability.
+
+185 preview Steam/BepInEx profiles use the MIT-licensed r2modman ecosystem registry, revision `64a6e9425a80da17274f0a096294b91d9529debe`. Attribution is in `server/web/thunderstore-games-LICENSE.txt`. These profiles are not a claim that every game has been tested. Compatible reviewed Mono/IL2CPP loaders and plugin/patcher layouts are supported; special MonoMod installers and other game families require further work.
