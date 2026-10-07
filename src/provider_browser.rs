@@ -95,6 +95,8 @@ pub struct Browser {
     #[cfg(test)]
     game_search_rect: Option<egui::Rect>,
     imported_id: String,
+    pending_pack: Option<String>,
+    queued_pack_additions: Vec<(String, String)>,
 }
 impl Default for Browser {
     fn default() -> Self {
@@ -126,6 +128,8 @@ impl Default for Browser {
             #[cfg(test)]
             game_search_rect: None,
             imported_id: String::new(),
+            pending_pack: None,
+            queued_pack_additions: Vec::new(),
         }
     }
 }
@@ -134,6 +138,10 @@ fn client() -> Result<reqwest::blocking::Client> {
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(180))
         .build()?)
+}
+fn download_button() -> egui::Button<'static> {
+    egui::Button::new(egui::RichText::new("Download").color(egui::Color32::from_rgb(16, 28, 19)))
+        .fill(egui::Color32::from_rgb(160, 215, 133))
 }
 fn request(
     client: &reqwest::blocking::Client,
@@ -451,6 +459,13 @@ impl Browser {
         self.job.is_some()
     }
     pub fn select_game(&mut self, app_id: u32) {
+        if self
+            .job
+            .as_ref()
+            .is_some_and(|j| matches!(j.kind, Kind::Browse | Kind::Preview))
+        {
+            self.job = None;
+        }
         self.mode = 0;
         if app_id == u32::MAX {
             self.filters.game = "minecraft".into();
@@ -522,6 +537,8 @@ impl Browser {
             self.subscriptions = Value::Null;
             self.preview = None;
             self.imported_id.clear();
+            self.pending_pack = None;
+            self.queued_pack_additions.clear();
             self.loaded = false;
             self.subscriptions_loaded = false;
             self.status.clear();
@@ -533,7 +550,12 @@ impl Browser {
                 return false;
             }
             match result {
-                Err(e) => self.status = e,
+                Err(e) => {
+                    if matches!(job.kind, Kind::Import) {
+                        self.pending_pack = None;
+                    }
+                    self.status = e;
+                }
                 Ok(data) => {
                     self.status.clear();
                     match job.kind {
@@ -570,6 +592,10 @@ impl Browser {
                         Kind::Subscriptions => self.subscriptions = data,
                         Kind::Import => {
                             self.imported_id = text(&data, "id").into();
+                            if let Some(pack) = self.pending_pack.take() {
+                                self.queued_pack_additions
+                                    .push((pack, self.imported_id.clone()));
+                            }
                             self.subscriptions_loaded = false;
                             self.changed = true;
                             self.status = if data["approved"] == true {
@@ -634,6 +660,18 @@ impl Browser {
             return;
         }
         ui.heading("Browse mods");
+        ui.add_enabled_ui(self.job.is_none(), |ui| {
+            let previous = target.clone();
+            ui.horizontal_wrapped(|ui| {
+                ui.label("Add downloads to:");
+                packs.provider_target(ui, target);
+            });
+            if previous != *target
+                && let Some(game) = target.as_deref().and_then(|id| packs.pack_game(id))
+            {
+                self.select_game(game);
+            }
+        });
         let before = self.filters.clone();
         let mut search = false;
         ui.add_enabled_ui(self.job.is_none(), |ui| {
@@ -868,6 +906,7 @@ impl Browser {
         self.feedback(ui);
         self.pagination(ui, false);
         let mut selected = None;
+        let mut download = None;
         egui::ScrollArea::vertical()
             .id_salt("native-provider-results")
             .auto_shrink([false, false])
@@ -896,6 +935,12 @@ impl Browser {
                                 }
                             ));
                             ui.horizontal_wrapped(|ui| {
+                                if ui
+                                    .add_enabled(self.job.is_none(), download_button())
+                                    .clicked()
+                                {
+                                    download = Some(item.clone());
+                                }
                                 ui.label(format!("{} downloads", item["downloads"]));
                                 if !item["rating"].is_null() {
                                     ui.label(format!(
@@ -921,7 +966,15 @@ impl Browser {
                     ui.label("No matching projects. Try another filter.");
                 }
             });
+        if download.is_some()
+            && self.filters.game == "minecraft"
+            && (self.filters.version.is_empty() || self.filters.loader.is_empty())
+        {
+            selected = download.take();
+        }
         if let Some(item) = selected {
+            self.pending_pack = target.clone();
+            self.imported_id.clear();
             self.start(
                 ui.ctx(),
                 Kind::Preview,
@@ -929,6 +982,12 @@ impl Browser {
                 api("mods/external/preview"),
                 Some(json!({"url":item["source_url"]})),
             );
+        }
+        if let Some(item) = download {
+            self.pending_pack = target.clone();
+            self.imported_id.clear();
+            self.start(ui.ctx(), Kind::Import, reqwest::Method::POST, api("mods/external/import"),
+                Some(json!({"url":item["source_url"],"loader":self.filters.loader,"game_version":self.filters.version,"include_optional":false})));
         }
     }
     fn attachment(
@@ -940,6 +999,23 @@ impl Browser {
         target: &mut Option<String>,
     ) {
         // Native target selection uses the existing pack compatibility/dependency checks.
+        self.queued_pack_additions.retain(|(pack, id)| {
+            let Some((game, item)) = catalog.iter().find_map(|g| {
+                g.mods
+                    .iter()
+                    .find(|m| m.file == format!("Mods/{id}.zip"))
+                    .map(|m| (g, m))
+            }) else {
+                return true;
+            };
+            self.status = packs
+                .provider_add(pack, game, source, item.clone())
+                .unwrap_or_else(|e| format!("Downloaded, but could not add to modpack: {e}"));
+            if self.imported_id == *id {
+                self.imported_id.clear();
+            }
+            false
+        });
         if !self.imported_id.is_empty()
             && let Some((game, item)) = catalog.iter().find_map(|g| {
                 g.mods
@@ -961,7 +1037,6 @@ impl Browser {
                 }
                 return;
             }
-            packs.provider_target(ui, target);
             if ui
                 .add_enabled(
                     target.is_some(),
@@ -1234,10 +1309,7 @@ impl Browser {
                             }
                             ui.checkbox(&mut self.optional, "Include optional dependencies");
                             import = ui
-                                .add_enabled(
-                                    !self.release.is_empty(),
-                                    egui::Button::new("Download & subscribe"),
-                                )
+                                .add_enabled(!self.release.is_empty(), download_button())
                                 .clicked();
                         });
                         self.feedback(ui);
@@ -1251,7 +1323,31 @@ impl Browser {
             self.preview = None;
         }
         if import {
-            self.start(ctx,Kind::Import,reqwest::Method::POST,api("mods/external/import"),Some(json!({"url":project["source_url"],"version":self.release,"loader":self.filters.loader,"game_version":self.filters.version,"include_optional":self.optional})));
+            let selected = project["versions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .find(|v| text(v, "id") == self.release);
+            let version = if self.filters.version.is_empty() {
+                selected
+                    .and_then(|v| v["game_versions"][0].as_str())
+                    .unwrap_or_default()
+            } else {
+                &self.filters.version
+            };
+            let loader = if self.filters.loader.is_empty() {
+                selected
+                    .and_then(|v| v["loaders"].as_array())
+                    .and_then(|a| {
+                        a.iter()
+                            .filter_map(Value::as_str)
+                            .find(|l| matches!(*l, "forge" | "fabric" | "neoforge" | "quilt"))
+                    })
+                    .unwrap_or_default()
+            } else {
+                &self.filters.loader
+            };
+            self.start(ctx,Kind::Import,reqwest::Method::POST,api("mods/external/import"),Some(json!({"url":project["source_url"],"version":self.release,"loader":loader,"game_version":version,"include_optional":self.optional})));
         }
     }
 }

@@ -682,6 +682,7 @@ mod tests {
             writer.finish().unwrap().into_inner()
         };
         let mono = zip("BepInEx/core/BepInEx.dll");
+        assert!(framework_entries(&mono, false, 1686940).is_ok());
         let il2cpp = zip("BepInEx/core/BepInEx.Unity.IL2CPP.dll");
         assert!(
             framework_entries(&mono, false, 1966720)
@@ -693,6 +694,44 @@ mod tests {
         assert!(framework_entries(&il2cpp, true, 945360).is_ok());
         assert!(framework_entries(&il2cpp, false, 945360).is_err());
         assert!(pe_machine(b"not a PE").is_err());
+    }
+    #[test]
+    #[ignore = "Downloads official loader for in-memory validation only"]
+    fn live_generic_bepinex_pack_for_bopl() {
+        let client = reqwest::blocking::Client::builder()
+            .user_agent("Canna (https://cannamods.vip)")
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .unwrap();
+        let metadata: serde_json::Value = client
+            .get("https://thunderstore.io/api/experimental/package/BepInEx/BepInExPack/")
+            .send()
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .json()
+            .unwrap();
+        let link = metadata["latest"]["download_url"].as_str().unwrap();
+        assert!(link.starts_with("https://thunderstore.io/package/download/BepInEx/BepInExPack/"));
+        let bytes = client
+            .get(link)
+            .send()
+            .unwrap()
+            .error_for_status()
+            .unwrap()
+            .bytes()
+            .unwrap();
+        assert!(bytes.len() < 4 * 1024 * 1024);
+        let entries = framework_entries(&bytes, false, 1686940).unwrap();
+        let proxy = entries
+            .iter()
+            .find(|(p, _)| p == Path::new("winhttp.dll"))
+            .unwrap();
+        assert_eq!(pe_machine(&proxy.1).unwrap(), 0x8664);
+        println!(
+            "Official generic BepInExPack {}: Bopl Mono layout and x64 proxy verified",
+            metadata["latest"]["version_number"]
+        );
     }
     #[test]
     #[ignore = "Starts Bopl Battle through Steam and terminates only the retained launch process"]

@@ -58,7 +58,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.28 fixes cramped Discover filters with larger vertical dropdowns, top-aligned rows and a searchable game selector. All sources now combines paginated metadata from compatible providers, identifies each source, keeps provider-specific categories correctly scoped, and preserves successful results if another provider fails. Modrinth is included for Minecraft. Browsing still retrieves metadata only; archives are retrieved after Download & subscribe. Server 0.3.45 adds cached Thunderstore public-index browsing when its experimental frontend API is unavailable.
+Canna 0.2.29 adds green Download buttons to provider listings. Add Mods selects the current modpack and game, exposes the target selector, and adds approved downloaded mods and required dependencies to that pack. Minecraft requests a release choice when compatibility filters are unset. Official generic BepInExPack 5.4.2305 package layout and x64 proxy validated for Bopl Battle.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(
