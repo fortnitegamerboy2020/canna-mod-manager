@@ -92,6 +92,8 @@ pub struct Browser {
     modal_rect: Option<egui::Rect>,
     #[cfg(test)]
     game_control: Option<(egui::Id, egui::Rect)>,
+    #[cfg(test)]
+    game_search_rect: Option<egui::Rect>,
     imported_id: String,
 }
 impl Default for Browser {
@@ -121,6 +123,8 @@ impl Default for Browser {
             modal_rect: None,
             #[cfg(test)]
             game_control: None,
+            #[cfg(test)]
+            game_search_rect: None,
             imported_id: String::new(),
         }
     }
@@ -669,37 +673,52 @@ impl Browser {
                     let game_control = egui::ComboBox::from_id_salt("provider-game")
                         .width(240.0)
                         .height(380.0)
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                         .truncate()
                         .selected_text(label)
                         .show_ui(ui, |ui| {
                             ui.vertical(|ui| {
                                 ui.set_min_width(300.0);
-                                ui.add(
+                                let search = ui.add(
                                     egui::TextEdit::singleline(&mut self.game_search)
                                         .hint_text("Find a game…")
                                         .desired_width(280.0)
                                         .char_limit(80),
                                 );
+                                #[cfg(test)]
+                                {
+                                    self.game_search_rect = Some(search.rect);
+                                }
+                                #[cfg(not(test))]
+                                let _ = search;
                                 let query = self.game_search.to_lowercase();
                                 if self.filters.provider != "thunderstore"
                                     && "minecraft".contains(&query)
+                                    && ui
+                                        .selectable_value(
+                                            &mut self.filters.game,
+                                            "minecraft".into(),
+                                            "Minecraft",
+                                        )
+                                        .clicked()
                                 {
-                                    ui.selectable_value(
-                                        &mut self.filters.game,
-                                        "minecraft".into(),
-                                        "Minecraft",
-                                    );
+                                    ui.close();
                                 }
                                 if self.filters.provider != "modrinth" {
                                     for g in crate::game_profiles::games()
                                         .iter()
                                         .filter(|g| g.name.to_lowercase().contains(&query))
                                     {
-                                        ui.selectable_value(
-                                            &mut self.filters.game,
-                                            g.community.clone(),
-                                            &g.name,
-                                        );
+                                        if ui
+                                            .selectable_value(
+                                                &mut self.filters.game,
+                                                g.community.clone(),
+                                                &g.name,
+                                            )
+                                            .clicked()
+                                        {
+                                            ui.close();
+                                        }
                                     }
                                 }
                             });
@@ -1459,6 +1478,44 @@ mod tests {
         assert_eq!(b.game_control.unwrap().1, before);
         let visible_games=output.shapes.iter().filter(|s|matches!(&s.shape,egui::Shape::Text(t) if t.pos.y>=s.clip_rect.min.y && t.pos.y+18.0<=s.clip_rect.max.y && crate::game_profiles::games().iter().any(|g|g.name==t.galley.text()))).count();
         assert!(visible_games >= 6, "Only {visible_games} game rows visible");
+        let point = b.game_search_rect.unwrap().center();
+        let _ = ctx.run(
+            input(vec![
+                egui::Event::PointerMoved(point),
+                egui::Event::PointerButton {
+                    pos: point,
+                    button: egui::PointerButton::Primary,
+                    pressed: true,
+                    modifiers: egui::Modifiers::NONE,
+                },
+            ]),
+            |ctx| {
+                egui::CentralPanel::default()
+                    .show(ctx, |ui| b.show(ui, &[], None, &mut packs, &mut target));
+            },
+        );
+        let _ = ctx.run(
+            input(vec![egui::Event::PointerButton {
+                pos: point,
+                button: egui::PointerButton::Primary,
+                pressed: false,
+                modifiers: egui::Modifiers::NONE,
+            }]),
+            |ctx| {
+                egui::CentralPanel::default()
+                    .show(ctx, |ui| b.show(ui, &[], None, &mut packs, &mut target));
+            },
+        );
+        assert!(
+            egui::ComboBox::is_open(&ctx, id),
+            "Search focus closed the game menu"
+        );
+        let _ = ctx.run(input(vec![egui::Event::Text("rounds".into())]), |ctx| {
+            egui::CentralPanel::default()
+                .show(ctx, |ui| b.show(ui, &[], None, &mut packs, &mut target));
+        });
+        assert_eq!(b.game_search, "rounds");
+        assert!(egui::ComboBox::is_open(&ctx, id));
         assert!(b.job.is_none());
     }
     #[test]
