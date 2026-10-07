@@ -47,10 +47,10 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
         }
         let appid = if appid == 0 { u32::MAX } else { appid };
         let d = external::details(&db, &id)?;
-        if let Some(key) = project_key(&d) {
-            if !latest.insert(key) {
-                continue;
-            }
+        if let Some(key) = project_key(&d)
+            && !latest.insert(key)
+        {
+            continue;
         }
         // Loader distributions are installed through Framework, never as plugin DLLs.
         if d["provider"] == "thunderstore"

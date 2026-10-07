@@ -82,13 +82,12 @@ pub async fn search(
             )
             .optional()?
     };
-    if let Some((ref raw, at)) = cached {
-        if now() - at < 1800 {
-            let mut d: Value =
-                serde_json::from_str(raw).map_err(|_| bad("Invalid provider cache"))?;
-            d["cached"] = json!(true);
-            return Ok(axum::Json(d));
-        }
+    if let Some((ref raw, at)) = cached
+        && now() - at < 1800
+    {
+        let mut d: Value = serde_json::from_str(raw).map_err(|_| bad("Invalid provider cache"))?;
+        d["cached"] = json!(true);
+        return Ok(axum::Json(d));
     }
     let _permit = REQUESTS
         .acquire()

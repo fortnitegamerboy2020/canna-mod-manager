@@ -1,5 +1,5 @@
 const fs=require('fs'), assert=require('assert');
-const {chromium}=require('C:/Users/t_tra/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright');
+const {chromium}=require(process.env.CANNA_PLAYWRIGHT_MODULE || 'playwright');
 (async()=>{
  const browser=await chromium.launch({headless:true,channel:'msedge'});
  for(const width of [1280,390]){

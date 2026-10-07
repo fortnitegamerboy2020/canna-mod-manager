@@ -571,7 +571,7 @@ pub async fn import_background(app: &App, user: i64, input: Link) -> ApiResult<V
             .flatten()
             .filter_map(|key| ids.get(key).cloned())
             .collect();
-        let (id, existing) = import_one(&app, user, input, project, release, &deps).await?;
+        let (id, existing) = import_one(app, user, input, project, release, &deps).await?;
         if !existing {
             imported += 1;
         }
@@ -581,7 +581,7 @@ pub async fn import_background(app: &App, user: i64, input: Link) -> ApiResult<V
         ids.insert(origin, id);
     }
     let id = &ids[&root];
-    if community::role(&app, user)? == "owner" {
+    if community::role(app, user)? == "owner" {
         let mut db = app.db.lock().unwrap();
         let tx = db.transaction()?;
         for id in ids.values() {
@@ -682,10 +682,10 @@ async fn import_one(
         let db = app.db.lock().unwrap();
         let mut data = details(&db, &id)?;
         data["dependency_ids"] = json!(deps);
-        if project.provider == "thunderstore" {
-            if let Some(loader) = game_profiles::loader(&project.id) {
-                data["framework_root"] = json!(loader.root);
-            }
+        if project.provider == "thunderstore"
+            && let Some(loader) = game_profiles::loader(&project.id)
+        {
+            data["framework_root"] = json!(loader.root);
         }
         db.execute(
             "UPDATE mod_details SET data=?1 WHERE mod_id=?2",
@@ -697,10 +697,10 @@ async fn import_one(
     let bytes = download_release(project, release).await?;
     let mut details = serde_json::to_value(project).unwrap();
     details.as_object_mut().unwrap().remove("versions");
-    if project.provider == "thunderstore" {
-        if let Some(loader) = game_profiles::loader(&project.id) {
-            details["framework_root"] = json!(loader.root);
-        }
+    if project.provider == "thunderstore"
+        && let Some(loader) = game_profiles::loader(&project.id)
+    {
+        details["framework_root"] = json!(loader.root);
     }
     details["filename"] = json!(safe_filename(&release.filename));
     details["release_id"] = json!(release.id);

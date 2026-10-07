@@ -213,7 +213,8 @@ fn package(bytes: &[u8], practice: bool) -> ApiResult<Vec<u8>> {
         .into_inner())
 }
 fn vpk(files: &BTreeMap<String, Vec<u8>>) -> Vec<u8> {
-    let mut groups: BTreeMap<String, BTreeMap<String, Vec<(String, &Vec<u8>)>>> = BTreeMap::new();
+    type PackageGroups<'a> = BTreeMap<String, BTreeMap<String, Vec<(String, &'a Vec<u8>)>>>;
+    let mut groups: PackageGroups<'_> = BTreeMap::new();
     for (path, raw) in files {
         let (dir, file) = path.rsplit_once('/').unwrap_or((" ", path));
         let (name, ext) = file.rsplit_once('.').unwrap_or((file, " "));

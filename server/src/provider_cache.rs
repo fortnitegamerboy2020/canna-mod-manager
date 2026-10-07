@@ -66,7 +66,7 @@ pub async fn ensure(app: &App, id: &str) -> ApiResult<()> {
     restore(app, id, &bytes, &expected, size).await
 }
 async fn restore(app: &App, id: &str, bytes: &[u8], expected: &str, size: i64) -> ApiResult<()> {
-    if bytes.len() as i64 != size || hex::encode(Sha256::digest(&bytes)) != expected {
+    if bytes.len() as i64 != size || hex::encode(Sha256::digest(bytes)) != expected {
         return Err(bad(
             "The original archive changed; cached approval cannot be reused. Import and review it again.",
         ));
@@ -75,7 +75,7 @@ async fn restore(app: &App, id: &str, bytes: &[u8], expected: &str, size: i64) -
     let result = async {
         let file = tokio::fs::File::create(&temporary).await?;
         let mut writer = crypto::Writer::new(file, &app.upload_key, id.to_owned()).await?;
-        writer.write(&bytes).await?;
+        writer.write(bytes).await?;
         writer.finish().await?;
         tokio::fs::rename(&temporary, app.files.join(format!("{id}.zip"))).await?;
         app.db.lock().unwrap().execute(
