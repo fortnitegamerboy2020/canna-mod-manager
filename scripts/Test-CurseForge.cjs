@@ -12,6 +12,8 @@ assert.equal(fields.mods.rows.length,1);assert.equal(fields.mods.rows[0].name,'M
 fields.libraryloader.value='fabric';vm.runInContext('renderLibrary();',context);assert.equal(fields.mods.rows.length,0);assert.equal(fields.librarycount.textContent,'0 items');
 for(const id of ['librarygame','librarytype','libraryversion','libraryloader','libraryprovider']) fields[id].value='';
 context.libraryItems.mods.push({app_id:42,name:'Unsupported game mod',description:'',author:''},{app_id:632360,name:'Supported preview mod',description:'',author:''});
+context.libraryItems.packs.push({name:'Minecraft pack',game:{app_id:4294967295,name:'Minecraft'}});
 vm.runInContext("librarySupportedGames.set('632360','Risk of Rain 2');renderLibrary();",context);
 assert.equal(fields.mods.rows.length,4);assert(!fields.librarygame.rows.some(o=>o.value==='42'));assert(fields.librarygame.rows.some(o=>o.value==='632360'));
+assert.equal(fields.packs.rows.length,1);fields.librarygame.value='minecraft';vm.runInContext('renderLibrary();',context);assert.equal(fields.packs.rows.length,1);
 console.log('CurseForge content, game, version, provider and case-insensitive loader filters passed.');

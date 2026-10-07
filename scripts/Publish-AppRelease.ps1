@@ -86,7 +86,7 @@ Canna 0.2.33 restricts game lists to supported installation profiles, limits Cur
     & ssh -i $cannaSshKey -o BatchMode=yes canna-admin@165.227.83.76 "sudo mkdir -p /opt/canna/releases && sudo install -m 644 /home/canna-admin/canna-v$Version.exe /opt/canna/releases/v$Version.exe && sudo install -m 644 /home/canna-admin/canna-latest.json /opt/canna/releases/latest.json.tmp && sudo mv /opt/canna/releases/latest.json.tmp /opt/canna/releases/latest.json && rm /home/canna-admin/canna-v$Version.exe /home/canna-admin/canna-latest.json"
     if ($LASTEXITCODE -ne 0) { throw 'Server release installation failed' }
     $null = Invoke-CannaApi "releases/$($cannaRelease.id)" 'PATCH' @{ draft = $false }
-    "Published private Windows release v$Version and source commit $($cannaNewCommit.sha)."
+    "Published Windows release v$Version and source commit $($cannaNewCommit.sha)."
 } catch {
     'Application release publication failed; any draft release is retained for inspection.'
     if ($_.Exception.Response) { 'HTTP status: ' + [int]$_.Exception.Response.StatusCode }

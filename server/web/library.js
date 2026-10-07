@@ -15,7 +15,7 @@ checkUpdates.addEventListener('click',()=>action(async()=>{checkUpdates.disabled
 setInterval(()=>{if(!$('libraryview').hidden)updateCooldown();},1000);
 setInterval(()=>{if(currentUser&&!$('libraryview').hidden)loadUpdateStatus().catch(()=>{});},30000);
 const gameNames={'1686940':'Bopl Battle','1557740':'ROUNDS','550':'Left 4 Dead 2','500':'Left 4 Dead','892970':'Valheim','220200':'Kerbal Space Program','255710':'Cities: Skylines','632360':'Risk of Rain 2'};
-function libraryGameId(item) {return item.details?.game==='Minecraft'?'minecraft':String(item.app_id || item.game?.app_id || '');}
+function libraryGameId(item) {const id=String(item.app_id ?? item.game?.app_id ?? '');return item.details?.game==='Minecraft'||id==='0'||id==='4294967295'?'minecraft':id;}
 function libraryGameName(item) {return item.details?.game || item.game?.name || gameNames[libraryGameId(item)] || `Steam game ${libraryGameId(item)}`;}
 function updateUploadGame() {
  const selected=$('uploadgame').value,custom=selected==='other';
