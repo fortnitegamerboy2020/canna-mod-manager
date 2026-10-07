@@ -115,10 +115,7 @@ pub async fn get(url: &str) -> ApiResult<reqwest::Response> {
         || parsed.port().is_some()
         || !parsed.username().is_empty()
         || parsed.password().is_some()
-        || !matches!(
-            parsed.host_str(),
-            Some("api.curseforge.com" | "edge.forgecdn.net" | "mediafilez.forgecdn.net")
-        )
+        || parsed.host_str() != Some("api.curseforge.com")
     {
         return Err(bad("Untrusted CurseForge address"));
     }

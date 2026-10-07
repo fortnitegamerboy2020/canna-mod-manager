@@ -34,6 +34,9 @@ pub fn games() -> &'static [GameProfile] {
 pub fn by_id(id: u32) -> Option<&'static GameProfile> {
     games().iter().find(|g| g.app_id == id)
 }
+pub fn supports_game(id: u32) -> bool {
+    matches!(id, u32::MAX | 1686940 | 1557740 | 550 | 500) || by_id(id).is_some()
+}
 pub fn by_community(community: &str) -> Option<&'static GameProfile> {
     games().iter().find(|g| g.community == community)
 }

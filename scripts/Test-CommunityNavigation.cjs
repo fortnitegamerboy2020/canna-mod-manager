@@ -18,6 +18,7 @@ async function fixture(path){
  const doc={createElement:node,createTextNode:t=>Object.assign(node(),{textContent:t}),getElementById:id=>nodes.get(id),addEventListener(){},querySelectorAll:q=>q==='.admintabs button'?all.filter(n=>n.dataset.tab):all.filter(n=>n.id?.startsWith('admin-')),body:node(),head:node()};
  let ctx,updateRetry=0;doc.head.append=n=>{if(n.src==='/admin.js'){vm.runInContext(fs.readFileSync('server/web/admin.js','utf8'),ctx);n.onload();}};
  function data(p){
+  if(p==='catalog')return {games:[{app_id:1686940,name:'Bopl Battle'},{app_id:1557740,name:'ROUNDS'}]};
   if(p.startsWith('play?'))return {reports:[],rooms:[],channels:[],releases:[],total:0,channel_total:0};if(p.startsWith('invites?'))return {items:[],total:0,page:1,has_more:false};if(p==='providers/games')return {games:[]};if(p.startsWith('providers/search'))return {items:[],categories:[],has_more:false};if(p.startsWith('mods/subscriptions'))return {items:[],page:1,has_more:false};
   if(p==='mods/updates/status')return {retry_at:updateRetry,checks:[]};if(p==='mods/updates/check'){updateRetry=Math.floor(Date.now()/1000)+120;return {queued:true,retry_at:updateRetry};}
   if(p.includes("?page=")){const rows=data(p.split("?")[0]);return {items:rows,total:rows.length,page:1,page_size:50};}

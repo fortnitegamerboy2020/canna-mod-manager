@@ -10,4 +10,8 @@ const context={URLSearchParams,Map,Option:function(name,value){return {name,valu
 const source=fs.readFileSync('server/web/library.js','utf8');vm.createContext(context);vm.runInContext(source.slice(source.indexOf('const gameNames='),source.indexOf('function updateUploadGame'))+source.slice(source.indexOf('let initialLibraryFilters='),source.indexOf('for(const id of')),context);vm.runInContext('initialLibraryFilters=false;renderLibrary();',context);
 assert.equal(fields.mods.rows.length,1);assert.equal(fields.mods.rows[0].name,'Matching shader');assert.equal(fields.packs.section.hidden,true);assert.equal(fields.librarycount.textContent,'1 item');
 fields.libraryloader.value='fabric';vm.runInContext('renderLibrary();',context);assert.equal(fields.mods.rows.length,0);assert.equal(fields.librarycount.textContent,'0 items');
+for(const id of ['librarygame','librarytype','libraryversion','libraryloader','libraryprovider']) fields[id].value='';
+context.libraryItems.mods.push({app_id:42,name:'Unsupported game mod',description:'',author:''},{app_id:632360,name:'Supported preview mod',description:'',author:''});
+vm.runInContext("librarySupportedGames.set('632360','Risk of Rain 2');renderLibrary();",context);
+assert.equal(fields.mods.rows.length,4);assert(!fields.librarygame.rows.some(o=>o.value==='42'));assert(fields.librarygame.rows.some(o=>o.value==='632360'));
 console.log('CurseForge content, game, version, provider and case-insensitive loader filters passed.');

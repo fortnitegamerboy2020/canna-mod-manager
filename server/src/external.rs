@@ -148,7 +148,7 @@ fn cf_release(file: &Value) -> Option<Release> {
         algorithm: "sha1".into(),
     })
 }
-async fn cf_pages(url: &str) -> ApiResult<Vec<Value>> {
+pub(crate) async fn cf_pages(url: &str) -> ApiResult<Vec<Value>> {
     let mut output = Vec::new();
     for index in (0..10000).step_by(50) {
         let separator = if url.contains('?') { '&' } else { '?' };
@@ -715,24 +715,31 @@ pub(crate) async fn download_release(project: &Project, release: &Release) -> Ap
     } else {
         release.download.clone()
     };
-    let url = artifact_url(&download, &project.provider)?;
-    let mut response = if project.provider == "curseforge" {
-        curseforge::get(url.as_str()).await?
-    } else {
-        client()?
-            .get(url)
-            .send()
-            .await
-            .map_err(|_| bad("Mod download failed"))?
-    };
-    if project.provider == "thunderstore" && response.status().is_redirection() {
+    let mut url = artifact_url(&download, &project.provider)?;
+    // CDN requests never receive provider credentials. Every redirect must stay
+    // on the provider's explicit archive hosts and paths; automatic redirects
+    // remain disabled so a provider response cannot turn this into an SSRF.
+    let client = client()?;
+    let mut response = client
+        .get(url.clone())
+        .send()
+        .await
+        .map_err(|_| bad("Mod download failed"))?;
+    for hop in 0..=3 {
+        if !response.status().is_redirection() {
+            break;
+        }
+        if hop == 3 {
+            return Err(bad("Provider download exceeded the redirect limit"));
+        }
         let target = response
             .headers()
             .get("location")
             .and_then(|v| v.to_str().ok())
             .ok_or_else(|| bad("Invalid provider redirect"))?;
-        response = client()?
-            .get(artifact_url(target, "thunderstore")?)
+        url = redirected_artifact(&url, target, &project.provider)?;
+        response = client
+            .get(url.clone())
             .send()
             .await
             .map_err(|_| bad("Mod download failed"))?;
@@ -765,6 +772,12 @@ pub(crate) async fn download_release(project: &Project, release: &Release) -> Ap
         return Err(bad("Provider file checksum mismatch"));
     }
     Ok(bytes)
+}
+fn redirected_artifact(current: &Url, location: &str, provider: &str) -> ApiResult<Url> {
+    let next = current
+        .join(location)
+        .map_err(|_| bad("Invalid provider redirect"))?;
+    artifact_url(next.as_str(), provider)
 }
 async fn import_one(
     app: &App,
@@ -1159,7 +1172,7 @@ where
     let order = dependency_order(&root, &edges)?;
     Ok((root, nodes, edges, order))
 }
-fn steam_id(slug: &str) -> Option<u32> {
+pub(crate) fn steam_id(slug: &str) -> Option<u32> {
     if let Some(profile) = game_profiles::by_community(slug) {
         return Some(profile.app_id);
     }
@@ -1716,6 +1729,79 @@ mod tests {
     async fn modrinth_live_import_round_trip() {
         import_round_trip("https://modrinth.com/mod/sodium", "Minecraft").await;
     }
+    #[test]
+    fn download_redirects_stay_on_provider_cdn_hosts_and_archive_paths() {
+        let edge = Url::parse("https://edge.forgecdn.net/files/8907/912/mod.jar").unwrap();
+        assert!(
+            redirected_artifact(
+                &edge,
+                "https://mediafilez.forgecdn.net/files/8907/912/mod.jar",
+                "curseforge"
+            )
+            .is_ok()
+        );
+        assert!(redirected_artifact(&edge, "/files/8907/912/mod.jar", "curseforge").is_ok());
+        for target in [
+            "http://mediafilez.forgecdn.net/files/a.jar",
+            "https://evil.example/files/a.jar",
+            "https://api.curseforge.com/v1/mods",
+            "https://mediafilez.forgecdn.net/private/a.jar",
+            "https://mediafilez.forgecdn.net/files/a.jar?token=secret",
+            "https://cdn.modrinth.com/data/a.jar",
+            "https://127.0.0.1/files/a.jar",
+        ] {
+            assert!(
+                redirected_artifact(&edge, target, "curseforge").is_err(),
+                "{target}"
+            );
+        }
+    }
+    #[tokio::test]
+    #[ignore = "Live provider archives in temporary encrypted storage; no production changes or game execution"]
+    async fn live_download_thunderstore_lethal_company() {
+        import_round_trip(
+            "https://thunderstore.io/c/lethal-company/p/notnotnotswipez/MoreCompany/",
+            "Lethal Company",
+        )
+        .await;
+    }
+    #[tokio::test]
+    #[ignore = "Live provider archives in temporary encrypted storage; no production changes or game execution"]
+    async fn live_download_modrinth_lithium() {
+        import_round_trip("https://modrinth.com/mod/lithium", "Minecraft").await;
+    }
+    #[tokio::test]
+    #[ignore = "Live provider archives in temporary encrypted storage; no production changes or game execution"]
+    async fn live_download_modrinth_fabric_api() {
+        import_round_trip("https://modrinth.com/mod/fabric-api", "Minecraft").await;
+    }
+    #[tokio::test]
+    #[ignore = "Live CurseForge server credential required; temporary encrypted storage only"]
+    async fn live_download_curseforge_appleskin() {
+        import_round_trip(
+            "https://www.curseforge.com/minecraft/mc-mods/appleskin",
+            "Minecraft",
+        )
+        .await;
+    }
+    #[tokio::test]
+    #[ignore = "Live CurseForge server credential required; temporary encrypted storage only"]
+    async fn live_download_curseforge_ferritecore() {
+        import_round_trip(
+            "https://www.curseforge.com/minecraft/mc-mods/ferritecore",
+            "Minecraft",
+        )
+        .await;
+    }
+    #[tokio::test]
+    #[ignore = "Live CurseForge server credential required; temporary encrypted storage only"]
+    async fn live_download_curseforge_cloth_config() {
+        import_round_trip(
+            "https://www.curseforge.com/minecraft/mc-mods/cloth-config",
+            "Minecraft",
+        )
+        .await;
+    }
     async fn import_round_trip(url: &str, game: &str) {
         use crate::tests::{account, call, fixture, value};
         let (_dir, app) = fixture();
@@ -1731,7 +1817,7 @@ mod tests {
             .await,
         )
         .await;
-        assert_eq!(preview["game"], game);
+        assert_eq!(preview["game"], game, "Preview failed for {url}: {preview}");
         let request = json!({"url":url,"version":preview["versions"][0]["id"]});
         let imported = value(
             call(
@@ -1746,7 +1832,7 @@ mod tests {
         .await;
         let id = imported["id"]
             .as_str()
-            .expect("Import did not return an ID");
+            .unwrap_or_else(|| panic!("Import failed for {url}: {imported}"));
         let raw = std::fs::read(app.files.join(format!("{id}.zip"))).unwrap();
         assert!(!raw.starts_with(b"PK"));
         let repeat = value(
@@ -1806,6 +1892,9 @@ mod tests {
                 .find(|m| m["id"] == id)
                 .unwrap()["sha256"],
             hex::encode(Sha256::digest(bytes))
+        );
+        println!(
+            "Verified preview, recursive import, repeat import, review gate and downloaded SHA-256: {url}"
         );
     }
     #[test]

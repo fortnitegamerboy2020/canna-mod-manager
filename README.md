@@ -247,3 +247,17 @@ are not saved in settings. Logout revokes this device and preserves other sessio
 The green title-bar button between yellow Minimize and red Close maximizes/restores
 the window. Email binding, device revocation and window commands have fixture
 coverage; signing in with a real member account remains a user check.
+
+### Supported browsing and compact windows (0.2.33)
+
+Library, Discover and new modpacks exclude unregistered Steam games. Shared
+Thunderstore installation profiles remain previews; a known profile is not proof
+of in-game compatibility. CurseForge game choices intersect Canna's profiles with
+its API inventory, including matching provider aliases. Smaller windows scroll
+mod pages and navigation so controls remain reachable.
+
+CurseForge archives redirect from edge.forgecdn.net to mediafilez.forgecdn.net.
+Canna follows at most three redirects and validates every destination against
+the provider's archive host/path allowlist. API credentials go only to the
+CurseForge API; CDN downloads receive no credentials. Provider checksums, encrypted
+storage, review gating and cache restoration checks remain required.

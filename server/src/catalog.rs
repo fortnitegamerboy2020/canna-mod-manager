@@ -71,6 +71,9 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
             continue;
         }
         let appid = if appid == 0 { u32::MAX } else { appid };
+        if !game_profiles::supports_game(appid) {
+            continue;
+        }
         let d = external::details(&db, &id)?;
         if let Some(key) = project_key(&d)
             && !latest.insert(key)

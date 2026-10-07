@@ -54,6 +54,7 @@ impl Filters {
 }
 #[derive(Clone, Copy)]
 enum Kind {
+    Games,
     Browse,
     Preview,
     Subscriptions,
@@ -88,6 +89,8 @@ pub struct Browser {
     instance_target: String,
     world_target: String,
     game_search: String,
+    provider_games: Option<Value>,
+    games_attempted: bool,
     #[cfg(test)]
     modal_rect: Option<egui::Rect>,
     #[cfg(test)]
@@ -124,6 +127,8 @@ impl Default for Browser {
             instance_target: String::new(),
             world_target: String::new(),
             game_search: String::new(),
+            provider_games: None,
+            games_attempted: false,
             #[cfg(test)]
             modal_rect: None,
             #[cfg(test)]
@@ -434,25 +439,31 @@ fn compatible(v: &Value, loader: &str, version: &str) -> bool {
     has("loaders", loader) && has("game_versions", version)
 }
 fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, choices: &[(&str, &str)]) {
-    egui::ComboBox::from_id_salt(id)
-        .width(190.0)
-        .height(340.0)
-        .truncate()
-        .selected_text(
-            choices
-                .iter()
-                .find(|(v, _)| *v == value)
-                .map(|(_, name)| *name)
-                .unwrap_or(value),
-        )
-        .show_ui(ui, |ui| {
-            ui.vertical(|ui| {
-                ui.set_min_width(230.0);
-                for (v, name) in choices {
-                    ui.selectable_value(value, (*v).into(), *name);
-                }
-            });
-        });
+    ui.allocate_ui_with_layout(
+        egui::vec2(190.0, ui.spacing().interact_size.y),
+        egui::Layout::top_down(egui::Align::Min),
+        |ui| {
+            egui::ComboBox::from_id_salt(id)
+                .width(190.0)
+                .height(340.0)
+                .truncate()
+                .selected_text(
+                    choices
+                        .iter()
+                        .find(|(v, _)| *v == value)
+                        .map(|(_, name)| *name)
+                        .unwrap_or(value),
+                )
+                .show_ui(ui, |ui| {
+                    ui.vertical(|ui| {
+                        ui.set_min_width(230.0);
+                        for (v, name) in choices {
+                            ui.selectable_value(value, (*v).into(), *name);
+                        }
+                    });
+                });
+        },
+    );
 }
 fn credits(ui: &mut egui::Ui, item: &Value) {
     ui.horizontal_wrapped(|ui| {
@@ -471,6 +482,17 @@ fn credits(ui: &mut egui::Ui, item: &Value) {
     });
 }
 impl Browser {
+    fn curseforge_supports(&self, community: &str) -> bool {
+        community == "minecraft"
+            || self
+                .provider_games
+                .as_ref()
+                .and_then(|data| data["games"].as_array())
+                .is_some_and(|rows| {
+                    rows.iter()
+                        .any(|g| g["community"] == community && g["curseforge"] == true)
+                })
+    }
     pub fn preview_fixture(&mut self) {
         self.account = "ui-fixture".into();
         self.loaded = true;
@@ -573,6 +595,8 @@ impl Browser {
             self.pending_pack = None;
             self.queued_pack_additions.clear();
             self.loaded = false;
+            self.provider_games = None;
+            self.games_attempted = false;
             self.subscriptions_loaded = false;
             self.status.clear();
         }
@@ -592,6 +616,15 @@ impl Browser {
                 Ok(data) => {
                     self.status.clear();
                     match job.kind {
+                        Kind::Games => {
+                            if let Some(error) = data["curseforge_error"].as_str() {
+                                self.status = error.into();
+                            }
+                            self.provider_games = Some(data);
+                            if !self.curseforge_supports(&self.filters.game) {
+                                self.filters.game = "minecraft".into();
+                            }
+                        }
                         Kind::Browse => {
                             self.status = if let Some(warnings) =
                                 data["warnings"].as_array().filter(|w| !w.is_empty())
@@ -690,6 +723,29 @@ impl Browser {
             );
             return;
         }
+        if self.mode == 0 && self.filters.provider == "curseforge" && self.provider_games.is_none()
+        {
+            ui.heading("Supported CurseForge games");
+            ui.label("Checking games available through Canna’s server API…");
+            if !self.status.is_empty() {
+                ui.label(&self.status);
+            }
+            if !self.games_attempted
+                || ui
+                    .add_enabled(self.job.is_none(), egui::Button::new("Retry game list"))
+                    .clicked()
+            {
+                self.games_attempted = true;
+                self.start(
+                    ui.ctx(),
+                    Kind::Games,
+                    reqwest::Method::GET,
+                    api("providers/games"),
+                    None,
+                );
+            }
+            return;
+        }
         self.attachment(ui, catalog, source, packs, target);
         if self.mode == 2 {
             self.show_subscriptions(ui);
@@ -756,66 +812,78 @@ impl Browser {
                             .map(|g| g.name.as_str())
                             .unwrap_or("Choose game")
                     };
-                    let game_control = egui::ComboBox::from_id_salt("provider-game")
-                        .width(240.0)
-                        .height(380.0)
-                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
-                        .truncate()
-                        .selected_text(label)
-                        .show_ui(ui, |ui| {
-                            ui.vertical(|ui| {
-                                ui.set_min_width(300.0);
-                                let search = ui.add(
-                                    egui::TextEdit::singleline(&mut self.game_search)
-                                        .hint_text("Find a game…")
-                                        .desired_width(280.0)
-                                        .char_limit(80),
-                                );
-                                #[cfg(test)]
-                                {
-                                    self.game_search_rect = Some(search.rect);
-                                }
-                                #[cfg(not(test))]
-                                let _ = search;
-                                let query = self.game_search.to_lowercase();
-                                if self.filters.provider != "thunderstore"
-                                    && "minecraft".contains(&query)
-                                    && ui
-                                        .selectable_value(
-                                            &mut self.filters.game,
-                                            "minecraft".into(),
-                                            "Minecraft",
-                                        )
-                                        .clicked()
-                                {
-                                    ui.close();
-                                }
-                                if self.filters.provider != "modrinth" {
-                                    for g in crate::game_profiles::games()
-                                        .iter()
-                                        .filter(|g| g.name.to_lowercase().contains(&query))
-                                    {
-                                        if ui
-                                            .selectable_value(
-                                                &mut self.filters.game,
-                                                g.community.clone(),
-                                                &g.name,
-                                            )
-                                            .clicked()
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(250.0, ui.spacing().interact_size.y),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            let game_control = egui::ComboBox::from_id_salt("provider-game")
+                                .width(240.0)
+                                .height(380.0)
+                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+                                .truncate()
+                                .selected_text(label)
+                                .show_ui(ui, |ui| {
+                                    ui.vertical(|ui| {
+                                        ui.set_min_width(300.0);
+                                        let search = ui.add(
+                                            egui::TextEdit::singleline(&mut self.game_search)
+                                                .hint_text("Find a game…")
+                                                .desired_width(280.0)
+                                                .char_limit(80),
+                                        );
+                                        #[cfg(test)]
+                                        {
+                                            self.game_search_rect = Some(search.rect);
+                                        }
+                                        #[cfg(not(test))]
+                                        let _ = search;
+                                        let query = self.game_search.to_lowercase();
+                                        if self.filters.provider != "thunderstore"
+                                            && "minecraft".contains(&query)
+                                            && ui
+                                                .selectable_value(
+                                                    &mut self.filters.game,
+                                                    "minecraft".into(),
+                                                    "Minecraft",
+                                                )
+                                                .clicked()
                                         {
                                             ui.close();
                                         }
-                                    }
-                                }
-                            });
-                        });
-                    #[cfg(test)]
-                    {
-                        self.game_control =
-                            Some((game_control.response.id, game_control.response.rect));
-                    }
-                    #[cfg(not(test))]
-                    let _ = game_control;
+                                        if self.filters.provider != "modrinth" {
+                                            for g in crate::game_profiles::games()
+                                                .iter()
+                                                .filter(|g| {
+                                                    g.name.to_lowercase().contains(&query)
+                                                        && (self.filters.provider != "curseforge"
+                                                            || self
+                                                                .curseforge_supports(&g.community))
+                                                })
+                                                .collect::<Vec<_>>()
+                                            {
+                                                if ui
+                                                    .selectable_value(
+                                                        &mut self.filters.game,
+                                                        g.community.clone(),
+                                                        &g.name,
+                                                    )
+                                                    .clicked()
+                                                {
+                                                    ui.close();
+                                                }
+                                            }
+                                        }
+                                    });
+                                });
+                            #[cfg(test)]
+                            {
+                                self.game_control =
+                                    Some((game_control.response.id, game_control.response.rect));
+                            }
+                            #[cfg(not(test))]
+                            let _ = game_control;
+                        },
+                    );
                     combo(
                         ui,
                         "provider-order",
@@ -827,36 +895,44 @@ impl Browser {
                             ("newest", "Newest"),
                         ],
                     );
-                    egui::ComboBox::from_id_salt("provider-category")
-                        .width(210.0)
-                        .height(340.0)
-                        .truncate()
-                        .selected_text(if self.filters.category.is_empty() {
-                            "All categories"
-                        } else {
-                            &self.filters.category
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.vertical(|ui| {
-                                ui.set_min_width(280.0);
-                                ui.selectable_value(
-                                    &mut self.filters.category,
-                                    String::new(),
-                                    "All categories",
-                                );
-                                for c in self.page["categories"].as_array().into_iter().flatten() {
-                                    let id = c["id"]
-                                        .as_str()
-                                        .map(str::to_owned)
-                                        .unwrap_or_else(|| c["id"].to_string());
-                                    ui.selectable_value(
-                                        &mut self.filters.category,
-                                        id,
-                                        text(c, "name"),
-                                    );
-                                }
-                            });
-                        });
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(220.0, ui.spacing().interact_size.y),
+                        egui::Layout::top_down(egui::Align::Min),
+                        |ui| {
+                            egui::ComboBox::from_id_salt("provider-category")
+                                .width(210.0)
+                                .height(340.0)
+                                .truncate()
+                                .selected_text(if self.filters.category.is_empty() {
+                                    "All categories"
+                                } else {
+                                    &self.filters.category
+                                })
+                                .show_ui(ui, |ui| {
+                                    ui.vertical(|ui| {
+                                        ui.set_min_width(280.0);
+                                        ui.selectable_value(
+                                            &mut self.filters.category,
+                                            String::new(),
+                                            "All categories",
+                                        );
+                                        for c in
+                                            self.page["categories"].as_array().into_iter().flatten()
+                                        {
+                                            let id = c["id"]
+                                                .as_str()
+                                                .map(str::to_owned)
+                                                .unwrap_or_else(|| c["id"].to_string());
+                                            ui.selectable_value(
+                                                &mut self.filters.category,
+                                                id,
+                                                text(c, "name"),
+                                            );
+                                        }
+                                    });
+                                });
+                        },
+                    );
                 },
             );
             if self.filters.game != before.game {
@@ -915,6 +991,12 @@ impl Browser {
                     || r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
             });
         });
+        if self.filters.provider == "curseforge"
+            && self.provider_games.is_some()
+            && !self.curseforge_supports(&self.filters.game)
+        {
+            self.filters.game = "minecraft".into();
+        }
         let filter_changed = before.provider != self.filters.provider
             || before.game != self.filters.game
             || before.order != self.filters.order
@@ -923,7 +1005,18 @@ impl Browser {
             || before.content_type != self.filters.content_type;
         if (search || filter_changed || !self.loaded) && self.job.is_none() {
             self.filters.page = 1;
-            self.browse(ui.ctx());
+            if self.filters.provider == "curseforge" && self.provider_games.is_none() {
+                self.games_attempted = true;
+                self.start(
+                    ui.ctx(),
+                    Kind::Games,
+                    reqwest::Method::GET,
+                    api("providers/games"),
+                    None,
+                );
+            } else {
+                self.browse(ui.ctx());
+            }
         }
         ui.collapsing("Import a project link", |ui| {
             ui.horizontal(|ui| {

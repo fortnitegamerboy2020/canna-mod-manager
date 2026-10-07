@@ -360,12 +360,13 @@ pub fn scan(override_path: &str) -> Scan {
                 if !path.is_dir() || seen.contains(&id) {
                     return Ok(None);
                 }
-                if !is_unity_game(&path)
-                    && !crate::model::source_addons(id).is_some_and(|addons| {
-                        path.join(addons)
-                            .parent()
-                            .is_some_and(|content| content.join("gameinfo.txt").is_file())
-                    })
+                if !crate::model::supported_game(id)
+                    || !is_unity_game(&path)
+                        && !crate::model::source_addons(id).is_some_and(|addons| {
+                            path.join(addons)
+                                .parent()
+                                .is_some_and(|content| content.join("gameinfo.txt").is_file())
+                        })
                 {
                     seen.insert(id);
                     out.excluded += 1;
@@ -452,6 +453,10 @@ mod tests {
         std::fs::create_dir_all(game.join("BoplBattle_Data")).unwrap();
         std::fs::write(game.join("UnityPlayer.dll"), b"fixture").unwrap();
         let unreal = other.join("steamapps/common/Bodycam");
+        let unsupported = other.join("steamapps/common/Unknown Unity Game");
+        std::fs::create_dir_all(&unsupported).unwrap();
+        std::fs::write(unsupported.join("UnityPlayer.dll"), b"fixture").unwrap();
+        std::fs::write(other.join("steamapps/appmanifest_42.acf"), r#""AppState" { "appid" "42" "name" "Unknown Unity Game" "installdir" "Unknown Unity Game" }"#).unwrap();
         std::fs::create_dir_all(unreal.join("Engine/Binaries/Win64")).unwrap();
         // A stray BepInEx directory must not turn an Unreal game into a Unity game.
         std::fs::create_dir_all(unreal.join("BepInEx/core")).unwrap();
@@ -475,7 +480,7 @@ mod tests {
         .unwrap();
         let s = scan(root.to_str().unwrap());
         assert_eq!(s.games.len(), 1);
-        assert_eq!(s.excluded, 1);
+        assert_eq!(s.excluded, 2);
         assert_eq!(s.games[0].app_id, 1686940);
         assert_eq!(s.games[0].loader, "BepInEx incomplete");
         for p in [

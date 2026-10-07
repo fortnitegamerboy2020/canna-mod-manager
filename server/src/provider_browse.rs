@@ -29,9 +29,36 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
 }
 pub async fn games(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
     app.auth(&headers)?;
+    let (cf, error) = match curseforge_games().await {
+        Ok(rows) => (rows, None),
+        Err(_) => (
+            Vec::new(),
+            Some("CurseForge games are temporarily unavailable. Retry later."),
+        ),
+    };
     Ok(axum::Json(
-        json!({"games":game_profiles::games().iter().map(|g|json!({"id":g.app_id,"name":g.name,"community":g.community})).collect::<Vec<_>>(),"preview":true}),
+        json!({"games":supported_provider_games(&cf),"curseforge_error":error,"preview":true}),
     ))
+}
+fn supported_provider_games(cf: &[Value]) -> Vec<Value> {
+    let available: std::collections::HashSet<u32> = cf
+        .iter()
+        .filter_map(|g| external::steam_id(g["slug"].as_str()?))
+        .collect();
+    game_profiles::games().iter().map(|g|json!({"id":g.app_id,"name":g.name,"community":g.community,"curseforge":available.contains(&g.app_id)})).collect()
+}
+async fn curseforge_games() -> ApiResult<Vec<Value>> {
+    static CACHE: tokio::sync::Mutex<Option<(i64, Vec<Value>)>> =
+        tokio::sync::Mutex::const_new(None);
+    let mut cache = CACHE.lock().await;
+    if let Some((at, rows)) = &*cache
+        && now() - at < 1800
+    {
+        return Ok(rows.clone());
+    }
+    let rows = external::cf_pages("https://api.curseforge.com/v1/games").await?;
+    *cache = Some((now(), rows.clone()));
+    Ok(rows)
 }
 fn valid(q: &Search) -> ApiResult<()> {
     if !matches!(
@@ -237,12 +264,12 @@ async fn fetch(q: &Search) -> ApiResult<Value> {
             json!({"items":items,"categories":categories,"has_more":data["total_hits"].as_u64().unwrap_or(0)>q.page as u64*24}),
         );
     }
-    let games = external::metadata("https://api.curseforge.com/v1/games?pageSize=50", true).await?;
-    let game = games["data"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .find(|g| g["slug"] == q.game)
+    let games = curseforge_games().await?;
+    let game = games
+        .iter()
+        .find(|g| {
+            external::steam_id(g["slug"].as_str().unwrap_or("")) == external::steam_id(&q.game)
+        })
         .ok_or_else(|| bad("CurseForge does not expose this game through the configured API"))?;
     let game_id = game["id"]
         .as_u64()
@@ -564,5 +591,32 @@ mod tests {
             rows[0]["source_url"],
             "https://thunderstore.io/c/rounds/p/Author/Mod/"
         );
+    }
+}
+
+#[cfg(test)]
+mod supported_game_tests {
+    use super::*;
+    #[test]
+    fn provider_games_are_registry_scoped_and_curseforge_aliases_match() {
+        let rows = supported_provider_games(&[
+            json!({"slug":"riskofrain2"}),
+            json!({"slug":"rounds"}),
+            json!({"slug":"unsupported-game"}),
+        ]);
+        assert_eq!(rows.len(), game_profiles::games().len());
+        assert!(
+            rows.iter()
+                .all(|g| game_profiles::supports_game(g["id"].as_u64().unwrap() as u32))
+        );
+        assert!(
+            rows.iter()
+                .any(|g| g["id"] == 632360 && g["curseforge"] == true)
+        );
+        assert!(
+            rows.iter()
+                .any(|g| g["id"] == 1686940 && g["curseforge"] == false)
+        );
+        assert!(rows.iter().all(|g| g["community"] != "unsupported-game"));
     }
 }

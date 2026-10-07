@@ -28,10 +28,9 @@ $('customgame').addEventListener('input',updateUploadGame);
 $('upload').addEventListener('reset',()=>queueMicrotask(updateUploadGame));
 updateUploadGame();
 let initialLibraryFilters=true;
+const librarySupportedGames=new Map([['1686940','Bopl Battle'],['1557740','ROUNDS'],['550','Left 4 Dead 2'],['500','Left 4 Dead'],['minecraft','Minecraft']]);
 function renderLibrary() {
-  const selected=$('librarygame').value, games=new Map([['1686940','Bopl Battle'],['1557740','ROUNDS'],['550','Left 4 Dead 2'],['500','Left 4 Dead'],['minecraft','Minecraft']]);
-  for(const item of [...libraryItems.mods,...libraryItems.packs]) games.set(libraryGameId(item),libraryGameName(item));
-  if(new URLSearchParams(location.search).get('game')==='minecraft') games.set('minecraft','Minecraft');
+  const selected=$('librarygame').value, games=librarySupportedGames;
   $('librarygame').replaceChildren(new Option('All games',''),...[...games].sort((a,b)=>a[1].localeCompare(b[1])).map(([id,name])=>new Option(name,id)));
   if(games.has(selected)) $('librarygame').value=selected;
   if(initialLibraryFilters) {
@@ -47,7 +46,7 @@ function renderLibrary() {
   for(const kind of ['mods','packs']) {
     const section=$(kind).closest('section');section.hidden=!!type && (['mods','packs'].includes(type) ? type!==kind : kind!=='mods');
     const loader=$('libraryloader').value,version=$('libraryversion').value.trim();
-    const items=libraryItems[kind].filter(m=>(!type || ['mods','packs'].includes(type) || m.details?.content_type===type) && (!loader || m.details?.loaders?.some(value=>value.toLowerCase()===loader)) && (!version || m.details?.game_versions?.includes(version)) && (!game || libraryGameId(m)===game) && (!query || `${m.name} ${m.description || ''} ${m.author}`.toLowerCase().includes(query)) && (!provider || (m.details?.provider || 'uploaded')===provider));
+    const items=libraryItems[kind].filter(m=>games.has(libraryGameId(m)) && (!type || ['mods','packs'].includes(type) || m.details?.content_type===type) && (!loader || m.details?.loaders?.some(value=>value.toLowerCase()===loader)) && (!version || m.details?.game_versions?.includes(version)) && (!game || libraryGameId(m)===game) && (!query || `${m.name} ${m.description || ''} ${m.author}`.toLowerCase().includes(query)) && (!provider || (m.details?.provider || 'uploaded')===provider));
     $(kind).replaceChildren(...items.map(m=>entry(m,kind)));
     if(!items.length) $(kind).textContent=libraryItems[kind].length ? 'No matches for these filters.' : kind==='mods' ? 'No mods yet.' : 'No shared modpacks yet.';
     if(!section.hidden) count+=items.length;

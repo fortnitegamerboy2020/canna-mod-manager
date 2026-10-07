@@ -61,7 +61,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.32 adds a dedicated Log in / Account screen with desktop password and email-code sign-in or website device authorization, large copyable connection codes, profile details and device logout. A green maximize/restore control sits between Minimize and Close. Session tokens remain protected by Windows; passwords and codes are not saved. Server 0.3.50 labels native login sessions as desktop devices and updates public Help. Native interaction, auth protocol and server regression checks passed. This release makes no new live game or Minecraft-login claims.
+Canna 0.2.33 restricts game lists to supported installation profiles, limits CurseForge game choices to its API inventory, and adds scrolling for compact mod pages and navigation. Server 0.3.51 fixes CurseForge CDN redirects: every hop is checked against provider archive hosts/paths, downloads retain checksum verification, and API credentials are never sent to CDNs. Nine real mod downloads across Thunderstore, Modrinth and CurseForge passed isolated import/repeat/download checks; native and server regression suites and website layouts were checked. These are download and fixture results, not live game or Minecraft-launch verification.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

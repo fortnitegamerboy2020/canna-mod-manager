@@ -114,6 +114,7 @@ fn library_rows(
 ) -> Vec<(u32, String, bool, bool, String)> {
     let mut rows: Vec<_> = installed
         .iter()
+        .filter(|g| model::supported_game(g.app_id))
         .map(|g| {
             (
                 g.app_id,
@@ -127,6 +128,7 @@ fn library_rows(
     for game in catalog {
         if game.app_id != u32::MAX
             && game.app_id != 0
+            && model::supported_game(game.app_id)
             && !rows.iter().any(|row| row.0 == game.app_id)
         {
             rows.push((
@@ -170,6 +172,7 @@ impl Canna {
         style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(35, 45, 39);
         style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(54, 74, 56);
         style.spacing.item_spacing = egui::vec2(12.0, 12.0);
+        style.spacing.scroll = egui::style::ScrollStyle::solid();
         style.spacing.button_padding = egui::vec2(16.0, 10.0);
         ctx.set_style(style);
         let (tx, rx) = mpsc::channel();
@@ -559,7 +562,11 @@ impl Canna {
         for (id, bytes) in data.icons {
             self.texture(ctx, id, &bytes, true);
         }
-        self.catalog = data.games;
+        self.catalog = data
+            .games
+            .into_iter()
+            .filter(|g| model::supported_game(g.app_id))
+            .collect();
         for game in model::supported_catalog() {
             if !self.catalog.iter().any(|entry| entry.app_id == game.app_id) {
                 self.catalog.push(game);
@@ -790,7 +797,12 @@ impl Canna {
             ui.heading("Discover games");
             ui.label("Choose a game to browse its mods.");
             ui.add_space(12.0);
-            let mut games = self.catalog.clone();
+            let mut games: Vec<_> = self
+                .catalog
+                .iter()
+                .filter(|g| model::supported_game(g.app_id))
+                .cloned()
+                .collect();
             if !games.iter().any(|g| g.app_id == u32::MAX) {
                 games.insert(
                     0,
@@ -1174,139 +1186,145 @@ impl Canna {
                     .on_hover_text("canna · Made for the family.");
                 });
                 ui.add_space(24.0);
-                if self
-                    .chrome
-                    .nav(
-                        ui,
-                        0,
-                        "Game library",
-                        !self.website.open
-                            && !self.skins.open
-                            && !self.modpacks_page
-                            && !self.console_page
-                            && !self.discover_page
-                            && !self.minecraft_page,
-                    )
-                    .clicked()
-                {
-                    self.account.hide();
-                    self.website.open = false;
-                    self.skins.open = false;
-                    self.minecraft_page = false;
-                    self.discover_page = false;
-                    self.modpacks_page = false;
-                    self.game_details = false;
-                    self.console_page = false;
-                }
-                if chrome::Chrome::packs(
-                    ui,
-                    !self.website.open
-                        && !self.skins.open
-                        && self.modpacks_page
-                        && !self.console_page
-                        && !self.discover_page
-                        && !self.minecraft_page,
-                )
-                .clicked()
-                {
-                    self.account.hide();
-                    self.website.open = false;
-                    self.skins.open = false;
-                    self.minecraft_page = false;
-                    self.discover_page = false;
-                    self.modpacks_page = true;
-                    self.console_page = false;
-                }
-                if self
-                    .chrome
-                    .nav(
-                        ui,
-                        1,
-                        "Discover",
-                        self.discover_page && !self.website.open && !self.skins.open,
-                    )
-                    .clicked()
-                {
-                    self.account.hide();
-                    self.open_discover();
-                }
-                if self
-                    .chrome
-                    .nav(
-                        ui,
-                        2,
-                        "Console",
-                        self.console_page && !self.website.open && !self.skins.open,
-                    )
-                    .clicked()
-                {
-                    self.account.hide();
-                    self.website.open = false;
-                    self.skins.open = false;
-                    self.minecraft_page = false;
-                    self.discover_page = false;
-                    self.console_page = true;
-                    self.last_console_poll =
-                        std::time::Instant::now() - std::time::Duration::from_secs(2);
-                }
-                if self
-                    .chrome
-                    .nav(ui, 5, "Minecraft", self.minecraft_page)
-                    .clicked()
-                {
-                    self.account.hide();
-                    self.minecraft_page = true;
-                    self.website.open = false;
-                    self.skins.open = false;
-                    self.discover_page = false;
-                    self.console_page = false;
-                }
-                if self.chrome.nav(ui, 4, "Skins", self.skins.open).clicked() {
-                    self.account.hide();
-                    self.website.open = false;
-                    self.skins.open = false;
-                    self.minecraft_page = false;
-                    self.skins.open_browser();
-                }
-                if self
-                    .chrome
-                    .nav(ui, 7, "Downloads", self.website.open)
-                    .clicked()
-                {
-                    self.account.hide();
-                    self.minecraft_page = false;
-                    self.website.open = true;
-                    self.skins.open = false;
-                }
-                if self
-                    .chrome
-                    .nav(ui, 3, "Settings", self.settings_open)
-                    .clicked()
-                {
-                    self.account.hide();
-                    self.settings_open = true;
-                }
-                for id in self.owned_games.keys().copied().collect::<Vec<_>>() {
-                    let name = self
-                        .games
-                        .iter()
-                        .find(|g| g.app_id == id)
-                        .map(|g| g.name.as_str())
-                        .unwrap_or("game");
-                    if ui
-                        .add(
-                            egui::Button::new(
-                                RichText::new("■").color(Color32::from_rgb(232, 104, 107)),
+                egui::ScrollArea::vertical()
+                    .id_salt("navigation-items")
+                    .auto_shrink([false, false])
+                    .max_height((ui.available_height() - 84.0).max(80.0))
+                    .show(ui, |ui| {
+                        if self
+                            .chrome
+                            .nav(
+                                ui,
+                                0,
+                                "Game library",
+                                !self.website.open
+                                    && !self.skins.open
+                                    && !self.modpacks_page
+                                    && !self.console_page
+                                    && !self.discover_page
+                                    && !self.minecraft_page,
                             )
-                            .min_size(egui::vec2(48.0, 48.0)),
+                            .clicked()
+                        {
+                            self.account.hide();
+                            self.website.open = false;
+                            self.skins.open = false;
+                            self.minecraft_page = false;
+                            self.discover_page = false;
+                            self.modpacks_page = false;
+                            self.game_details = false;
+                            self.console_page = false;
+                        }
+                        if chrome::Chrome::packs(
+                            ui,
+                            !self.website.open
+                                && !self.skins.open
+                                && self.modpacks_page
+                                && !self.console_page
+                                && !self.discover_page
+                                && !self.minecraft_page,
                         )
-                        .on_hover_text(format!("Stop {name}"))
                         .clicked()
-                    {
-                        self.account.hide();
-                        self.stop_game(id);
-                    }
-                }
+                        {
+                            self.account.hide();
+                            self.website.open = false;
+                            self.skins.open = false;
+                            self.minecraft_page = false;
+                            self.discover_page = false;
+                            self.modpacks_page = true;
+                            self.console_page = false;
+                        }
+                        if self
+                            .chrome
+                            .nav(
+                                ui,
+                                1,
+                                "Discover",
+                                self.discover_page && !self.website.open && !self.skins.open,
+                            )
+                            .clicked()
+                        {
+                            self.account.hide();
+                            self.open_discover();
+                        }
+                        if self
+                            .chrome
+                            .nav(
+                                ui,
+                                2,
+                                "Console",
+                                self.console_page && !self.website.open && !self.skins.open,
+                            )
+                            .clicked()
+                        {
+                            self.account.hide();
+                            self.website.open = false;
+                            self.skins.open = false;
+                            self.minecraft_page = false;
+                            self.discover_page = false;
+                            self.console_page = true;
+                            self.last_console_poll =
+                                std::time::Instant::now() - std::time::Duration::from_secs(2);
+                        }
+                        if self
+                            .chrome
+                            .nav(ui, 5, "Minecraft", self.minecraft_page)
+                            .clicked()
+                        {
+                            self.account.hide();
+                            self.minecraft_page = true;
+                            self.website.open = false;
+                            self.skins.open = false;
+                            self.discover_page = false;
+                            self.console_page = false;
+                        }
+                        if self.chrome.nav(ui, 4, "Skins", self.skins.open).clicked() {
+                            self.account.hide();
+                            self.website.open = false;
+                            self.skins.open = false;
+                            self.minecraft_page = false;
+                            self.skins.open_browser();
+                        }
+                        if self
+                            .chrome
+                            .nav(ui, 7, "Downloads", self.website.open)
+                            .clicked()
+                        {
+                            self.account.hide();
+                            self.minecraft_page = false;
+                            self.website.open = true;
+                            self.skins.open = false;
+                        }
+                        if self
+                            .chrome
+                            .nav(ui, 3, "Settings", self.settings_open)
+                            .clicked()
+                        {
+                            self.account.hide();
+                            self.settings_open = true;
+                        }
+                        for id in self.owned_games.keys().copied().collect::<Vec<_>>() {
+                            let name = self
+                                .games
+                                .iter()
+                                .find(|g| g.app_id == id)
+                                .map(|g| g.name.as_str())
+                                .unwrap_or("game");
+                            if ui
+                                .add(
+                                    egui::Button::new(
+                                        RichText::new("■").color(Color32::from_rgb(232, 104, 107)),
+                                    )
+                                    .min_size(egui::vec2(48.0, 48.0)),
+                                )
+                                .on_hover_text(format!("Stop {name}"))
+                                .clicked()
+                            {
+                                self.account.hide();
+                                self.stop_game(id);
+                            }
+                        }
+                    });
                 ui.with_layout(egui::Layout::bottom_up(egui::Align::Center), |ui| {
                     ui.label(
                         RichText::new(env!("CARGO_PKG_VERSION"))
@@ -1497,20 +1515,20 @@ impl Canna {
                     }
                     return;
                 }
-                if self.website.open { if self.website.show(ui) { self.pack_ui = pack_ui::PackUi::new(); } return; }
+                if self.website.open { if ui_helpers::responsive_page(ui,"downloads-page",|ui|self.website.show(ui)) { self.pack_ui = pack_ui::PackUi::new(); } return; }
                 if self.skins.open { self.skins.show(ui); return; }
                 if self.minecraft_page { self.minecraft.open=false;self.minecraft.library(ui);return; }
-                if self.discover_page { self.discover_ui(ui); return; }
+                if self.discover_page { ui_helpers::responsive_page(ui,"discover-page",|ui|self.discover_ui(ui)); return; }
                 if self.console_page {if self.console.show(ui,&self.games){self.last_console_poll=std::time::Instant::now()-std::time::Duration::from_secs(2);}return;}
                 if self.modpacks_page {
                     let artwork = self.textures.iter().chain(self.repository_textures.iter()).map(|(&id, texture)| (id, texture.clone())).collect();
                     let mut pack_games = self.catalog.clone();
                     for game in &self.games {
-                        if !pack_games.iter().any(|g| g.app_id == game.app_id) {
+                        if model::supported_game(game.app_id) && !pack_games.iter().any(|g| g.app_id == game.app_id) {
                             pack_games.push(GameInfo { app_id: game.app_id, name: game.name.clone(), folder: format!("steam-{}", game.app_id), description: String::new(), icon: String::new(), mods: vec![], mod_folder_status: String::new() });
                         }
                     }
-                    if let Some(source) = self.pack_ui.show(ui, &pack_games, self.active_source.as_ref(), self.selected, self.syncing || self.scanning || self.runtime_busy, &artwork) {
+                    if let Some(source) = ui_helpers::responsive_page(ui,"modpacks-page",|ui|self.pack_ui.show(ui, &pack_games, self.active_source.as_ref(), self.selected, self.syncing || self.scanning || self.runtime_busy, &artwork)) {
                         self.settings.owner = source.owner;
                         self.settings.repository = source.repository;
                         self.settings.branch = source.branch;
@@ -1523,6 +1541,7 @@ impl Canna {
                     return;
                 }
                 if self.game_details {
+                    egui::ScrollArea::both().id_salt("game-details-page").show(ui, |ui| {
                     if ui.button("‹ Back to library").clicked() { self.game_details = false; }
                     if let Some(game) = self.games.iter().find(|g| g.app_id == self.selected).cloned() {
                         ui.add_space(20.0); self.art(ui, game.app_id, egui::vec2(400.0,225.0));
@@ -1544,6 +1563,7 @@ impl Canna {
                         ui.label("Install this game in Steam, then use Rescan Steam to enable its modpacks and launch controls.");
                         ui.horizontal(|ui| {ui.add_enabled(false,egui::Button::new("Create modpack"));ui.add_enabled(false,egui::Button::new("Launch vanilla"));ui.add_enabled(false,egui::Button::new("Launch modded"));});
                     } else { ui.heading("Game is not installed"); }
+                    });
                     return;
                 }
                 ui.horizontal(|ui| {
@@ -1846,7 +1866,15 @@ fn main() -> eframe::Result {
             )
             .with_decorations(false)
             .with_resizable(true)
-            .with_inner_size([1240.0, 820.0])
+            .with_inner_size(
+                if std::env::var_os("CANNA_SCREENSHOT").is_some()
+                    && std::env::args().any(|a| a == "--small-preview")
+                {
+                    [840.0, 560.0]
+                } else {
+                    [1240.0, 820.0]
+                },
+            )
             .with_min_inner_size([840.0, 560.0]),
         ..Default::default()
     };
@@ -1863,6 +1891,25 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod ui_tests {
     use super::*;
+    #[test]
+    fn unsupported_catalog_and_installed_games_do_not_create_library_rows() {
+        let mut catalog = model::supported_catalog();
+        let mut fake = catalog[0].clone();
+        fake.app_id = 42;
+        fake.name = "Unsupported game".into();
+        catalog.push(fake);
+        let installed = vec![InstalledGame {
+            app_id: 42,
+            name: "Unsupported game".into(),
+            path: Default::default(),
+            loader: "Unity".into(),
+            plugins: 0,
+            icon: None,
+        }];
+        let rows = library_rows(&catalog, &installed);
+        assert!(rows.iter().all(|r| model::supported_game(r.0)));
+        assert!(rows.iter().any(|r| r.0 == 550 && !r.2));
+    }
     #[test]
     fn discover_remembers_game_across_pages_and_repeated_click_goes_home() {
         let ctx = egui::Context::default();

@@ -89,6 +89,9 @@ function entry(item, kind) {
 const libraryItems={mods:[],packs:[]};
 async function loadLibrary() {
   if(!currentUser) currentUser=await (await api('me')).json();
+  const catalog=await (await api('catalog')).json();
+  librarySupportedGames.clear();librarySupportedGames.set('minecraft','Minecraft');
+  for(const game of catalog.games) librarySupportedGames.set(game.app_id===4294967295?'minecraft':String(game.app_id),game.name);
   for (const kind of ['mods','packs']) {
     const items = await (await api(kind)).json();
     libraryItems[kind]=items;

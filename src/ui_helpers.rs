@@ -3,6 +3,30 @@ use eframe::egui;
 pub const CONTROL_RADIUS: u8 = 10;
 pub const SURFACE_RADIUS: u8 = 16;
 
+/// Keep form controls reachable when headers consume a compact viewport.
+pub fn responsive_page<R>(
+    ui: &mut egui::Ui,
+    id: &str,
+    contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
+    let width = ui.available_width();
+    let height = ui.available_height();
+    if height < 580.0 || width < 720.0 {
+        egui::ScrollArea::both()
+            .id_salt(id)
+            .auto_shrink([false, false])
+            .max_height(height)
+            .show(ui, |ui| {
+                ui.set_max_width(width);
+                ui.set_max_height(height.max(800.0));
+                contents(ui)
+            })
+            .inner
+    } else {
+        contents(ui)
+    }
+}
+
 pub fn mod_art(ui: &mut egui::Ui, item: &crate::model::ModInfo, size: egui::Vec2) -> bool {
     let mut drawn = false;
     use base64::Engine;
@@ -104,4 +128,62 @@ pub fn context_menu(response: &egui::Response, contents: impl FnOnce(&mut egui::
         .open_memory(secondary.then_some(egui::SetOpenCommand::Bool(true)))
         .at_pointer_fixed()
         .show(contents);
+}
+
+#[cfg(test)]
+mod page_scroll_tests {
+    use super::*;
+    #[test]
+    fn compact_page_scrolls_controls_that_would_be_below_the_window() {
+        let ctx = egui::Context::default();
+        let mut last = egui::Rect::NOTHING;
+        let input = |events| egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 420.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        for _ in 0..2 {
+            let _ = ctx.run(input(vec![]), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    responsive_page(ui, "small-mods", |ui| {
+                        for n in 0..40 {
+                            last = ui.button(format!("Mod control {n}")).rect;
+                        }
+                    })
+                });
+            });
+        }
+        let before = last.top();
+        assert!(before > 420.0);
+        for _ in 0..12 {
+            let _ = ctx.run(
+                input(vec![
+                    egui::Event::PointerMoved(egui::pos2(250.0, 250.0)),
+                    egui::Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        delta: egui::vec2(0.0, -250.0),
+                        modifiers: Default::default(),
+                    },
+                ]),
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        responsive_page(ui, "small-mods", |ui| {
+                            for n in 0..40 {
+                                last = ui.button(format!("Mod control {n}")).rect;
+                            }
+                        })
+                    });
+                },
+            );
+        }
+        assert!(
+            last.top() < before,
+            "Controls must actually move with wheel input: before={before}, after={}",
+            last.top()
+        );
+        assert!(last.bottom() <= 420.0, "The last control must be reachable");
+    }
 }

@@ -146,6 +146,9 @@ pub fn framework_label(app_id: u32) -> &'static str {
         "BepInEx / Unity"
     }
 }
+pub fn supported_game(app_id: u32) -> bool {
+    crate::game_profiles::supports_game(app_id)
+}
 pub fn supported_catalog() -> Vec<GameInfo> {
     let mut games = vec![bopl()];
     for (id, name, folder, description) in [

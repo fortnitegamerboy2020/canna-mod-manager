@@ -4,6 +4,7 @@ for(const width of [1280,390]){const page=await browser.newPage({viewport:{width
 await page.route('https://canna.test/**',async route=>{const url=new URL(route.request().url()),path=url.pathname;
 if(path.startsWith('/api/v1/')){const key=path.slice(8);requests.push(path+url.search);let data=[];
 if(key==='me')data={id:1,username:'Tester',role:'member',admin:false,kash:0,can_invite:false,invites_remaining:0};
+if(key==='catalog')data={games:[{app_id:1557740,name:'ROUNDS'}]};
 if(key==='providers/games')data={games:[{name:'ROUNDS',community:'rounds'}]};
 if(key==='providers/search')data={items:[{name:'External Fixture',authors:'Creator',source_url:'https://modrinth.com/mod/fixture',author_url:'https://modrinth.com/user/Creator',description:'External provider listing',downloads:100}],categories:[{name:'Utility',id:'utility'}],has_more:url.searchParams.get('page')!=='2'};
 if(key==='mods/subscriptions')data={items:[{id:'fixture',source:'fixture',name:'Subscribed Mod',provider:'modrinth',version:'1',approved:true}],page:1,has_more:false};
