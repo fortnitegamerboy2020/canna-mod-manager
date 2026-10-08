@@ -446,3 +446,8 @@ lock. Gameplay values and immutable content still must match. Warnings separate
 DLL/support, asset/patcher and gameplay-setting mismatches. Both players must
 close ROUNDS and reapply their pack after a support update. Offline/Harmony tests
 are not proof of a full live multiplayer match.
+
+The exact archived CR 2.7.0 ZIP (db059e5c...ee5ea7) also records four
+legacy patch requirements retired by its reviewed curated adaptation. Only that
+archive pin can omit CardThemeLib 1.1.7, GravityPatch 0.0.0, ZeroGBulletPatch
+1.1.0 and StopShootingYoureDead 0.0.0. Unknown CR archives remain blocked.
