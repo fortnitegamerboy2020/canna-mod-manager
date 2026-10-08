@@ -1,6 +1,6 @@
 param(
     [string]$SourceRoot = (Split-Path $PSScriptRoot -Parent),
-    [ValidateSet('0.3.58', '0.3.59')][string]$Version = '0.3.59',
+    [ValidateSet('0.3.58', '0.3.59', '0.3.60')][string]$Version = '0.3.60',
     [switch]$CheckOnly,
     [string]$ReceiptFile = '',
     [string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt'
@@ -53,6 +53,7 @@ function Get-CannaCommunityFiles {
     # credentials, target outputs and arbitrary deployment files are never globbed.
     $cannaCommunityFiles = @('server/Cargo.toml', 'server/Cargo.lock', 'server/README.md',
         'server/src/fixtures/rounds-dependencies.json', 'scripts/Publish-CommunityReviewUpdate.ps1')
+    if ($Version -eq '0.3.60') { $cannaCommunityFiles += 'README.md' }
     $cannaCommunitySourceDirectory = Join-Path $cannaCommunityRoot 'server/src'
     $cannaCommunityPending = [Collections.Generic.Stack[string]]::new()
     $cannaCommunityPending.Push($cannaCommunitySourceDirectory)
@@ -105,7 +106,7 @@ function Get-CannaCommunityFiles {
         'test-review-coverage.py', 'test-review-decompilation.py', 'test-review-live.py',
         'test-review-offline.py', 'test-review-packing.py', 'test-review-permissions.py',
         'test-review-rules.py')
-    if ($Version -eq '0.3.59') {
+    if ($Version -in @('0.3.59', '0.3.60')) {
         $cannaCommunityDeployFiles += @('test-review-documentation.py', 'test-review-metadata.py',
             'test-fixtures/licenses/GPL-3.0.txt', 'test-fixtures/licenses/Apache-2.0.txt',
             'test-fixtures/licenses/MIT.txt', 'test-fixtures/licenses/SOURCES.md')

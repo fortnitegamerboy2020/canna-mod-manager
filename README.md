@@ -13,7 +13,7 @@ uses its game cover. Website Play Lab uses numbered expandable cards. Mod review
 show scan progress, dependency blockers, retries and queue totals; shared libraries
 scan first. Public Help / FAQ describes the current workflow and verification limits.
 
-Desktop 0.2.43 and Community 0.3.59 offer server-verified Beta access for the
+Desktop 0.2.43 and Community 0.3.60 offer server-verified Beta access for the
 Rebound runtime preview, searchable official Minecraft version choices and result
 counts. The website adds an Admin overview, invitation and registration pause
 controls, Crash, Blackjack and cosmetic cases, plus email-only Forgot password
@@ -67,8 +67,8 @@ this action does not undo arbitrary DuctTape or other patcher changes.
 
 Keep Canna open until a game it launched exits, or use **Stop instance**, for
 automatic cleanup after confirmed exit. Games launched independently through
-Steam are not adopted or automatically cleaned. Next Setup or Launch modded
-restores the tracked runtime and prepares the current pack. Launching a parked
+Steam are not adopted or automatically cleaned. Setup restores the tracked
+runtime; Apply modpack or Launch modded prepares the current pack. Launching a parked
 Rebound pack rechecks current server-verified Beta access before reapplying it.
 The same account-free restore action is available from source with
 `cargo run --release -- --restore-vanilla 1557740` for ROUNDS; it does not launch

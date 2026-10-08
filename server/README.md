@@ -4,7 +4,7 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.59
+## Current release: Community 0.3.60
 
 The Admin panel adds a searchable overview, separate Owner invitation-generation
 and registration pause controls, and the additive Beta role. Member, VIP, Admin
@@ -22,8 +22,8 @@ BepInEx; manual, modified and legacy files remain, with Doorstop disabled.
 Fresh Canna Doorstop configuration starts disabled, and modded launch enables it.
 Automatic cleanup requires Canna to remain open and observe its own game's
 confirmed exit or Stop. Direct Steam sessions are not adopted and block
-restoration while running. Next Setup or modded launch restores tracked runtime
-files and prepares the current pack; parked Rebound launches recheck current
+restoration while running. Setup restores the tracked runtime; Apply modpack or
+Launch modded prepares the current pack. Parked Rebound launches recheck current
 Beta authorization. Game assemblies are preserved: arbitrary third-party
 patcher changes need their own restoration. Validation uses temporary fixture
 folders; no new live ROUNDS restoration, launch or multiplayer result is claimed.
@@ -159,7 +159,7 @@ change a password or invalidate password-reset codes. If mail is unavailable or
 an address has no eligible account, the same public response is returned. The
 local browser fixture uses a test outbox and does not send real email.
 
-Community 0.3.59's review workspace includes Overview, Code & files and
+Community 0.3.60's review workspace includes Overview, Code & files and
 Findings tabs. Deterministic advisory suggestions, coverage and decompilation
 status, heuristic source outlines and retained file metadata are derived at
 staff-only report GET time, including for legacy reports. The full archive file
@@ -340,7 +340,7 @@ POST `/api/v1/mods/{id}/analysis-decisions` accepts a completed scan hash and up
 
 ### Contextual analysis (introduced in 0.3.57)
 
-Community 0.3.59 uses `canna-static-8` for new analyses, extending the contextual
+Community 0.3.60 uses `canna-static-8` for new analyses, extending the contextual
 checks introduced with `canna-static-6` in 0.3.57.
 Comments and literal URL references are distinguished from API use. References
 remain visible as informational observations; review findings still gate approval.
