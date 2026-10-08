@@ -111,6 +111,11 @@ class ContextTests(unittest.TestCase):
         self.assertFalse(any(f['rule'] == 'diagnostic-output' for f in grouped))
         self.assertIn('File.Delete', grouped[0]['evidence'])
 
+    def test_incomplete_source_cannot_get_diagnostic_summary(self):
+        findings, _ = scan(DIAGNOSTIC)
+        findings.append(context.entry('coverage', 'Source finding limit reached', 'fixture.cs', None, 'omitted matches', 'high'))
+        self.assertFalse(any(f['rule'] == 'diagnostic-output' for f in context.contextualize_file_operations(DIAGNOSTIC, findings)))
+
     def test_changed_output_evidence_invalidates_group_identity(self):
         initial = context.contextualize_file_operations(DIAGNOSTIC, scan(DIAGNOSTIC)[0])[0]
         source = DIAGNOSTIC.replace('report.txt', 'diagnostic.txt')

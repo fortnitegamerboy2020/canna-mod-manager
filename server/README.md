@@ -216,7 +216,7 @@ Public discovery: /robots.txt and /sitemap.xml advertise the login/about entry p
 
 The private review workspace at `/review/mods/<id>` is restricted to Admin/Owner accounts. `CANNA_REVIEW_JOBS` enables automatic scan gating: downloads and approval require completed analysis and recorded decisions for all findings, including dependencies. Reports and reconstructed source are stored in the encrypted database. Plaintext handoff jobs are temporary and must not be included in backups.
 
-The separate `canna-review` worker has no access to production keys, database, uploads store or network. Install .NET 8, ILSpyCmd 9.1.0.7988, Java 17, CFR 0.152, ClamAV with freshclam, and Detect It Easy 3.21 from their official distributions. Place ILSpyCmd under `/opt/canna-review/tools/ilspycmd` and CFR under `/opt/canna-review/tools/cfr.jar`; the other tools use `/usr/bin`. Create `/var/lib/canna-review/jobs` as root:canna-review, mode 2770; install `deploy/review-worker.py` under `/opt/canna-review/` and `deploy/canna-review.service` under systemd. The main service has supplementary group canna-review and read/write access only to the job spool. Each job directory must retain mode 2770 (setgid); changing it to 0770 causes new input archives to use the API primary group and makes them unreadable to the isolated worker. Run `test-review-permissions.py` as the API user after provisioning to verify the actual archive/source/result handoff. ClamAV signature updates run separately with network access. DiE rules ship with its pinned release.
+The separate `canna-review` worker has no access to production keys, database, uploads store or network. Install .NET 8, ILSpyCmd 9.1.0.7988, Java 17, CFR 0.152, ClamAV with freshclam, and Detect It Easy 3.21 from their official distributions. Place ILSpyCmd under `/opt/canna-review/tools/ilspycmd` and CFR under `/opt/canna-review/tools/cfr.jar`; the other tools use `/usr/bin`. Create `/var/lib/canna-review/jobs` as root:canna-review, mode 2770; install `deploy/review-worker.py` under `/opt/canna-review/` and `deploy/canna-review.service` under systemd. The main service has supplementary group canna-review and read/write access only to the job spool. The spool is mode 2770 (setgid), so each job inherits the review group. The API then uses mode 0770 for job directories because systemd RestrictSUIDSGID rejects setting setgid; it explicitly assigns input.zip and ready to the inherited job group and sets mode 0660. Worker results retain the review group and mode 0660 for the API handoff. Run `test-review-permissions.py` as the API user after provisioning to verify the actual archive/source/result handoff. ClamAV signature updates run separately with network access. DiE rules ship with its pinned release.
 
 Analysis is bounded and static: no submitted code is run, native code is not reconstructed, failed or oversized analysis is explicit, and packing/obfuscation cannot always be identified or unpacked. Findings can be false positives. Test the service using the harmless `deploy/test-review-live.py` fixture before deployment; it verifies .NET decompilation, code findings, ClamAV EICAR detection, and DiE availability.
 
@@ -264,15 +264,20 @@ totals, scan state and unresolved dependency links. Approval checks remain enfor
 
 POST `/api/v1/mods/{id}/analysis-decisions` accepts a completed scan hash and up to 1500 `{id, accepted, reason}` finding decisions. It requires staff authentication, validates every finding and reason, commits atomically, and records each decision in the hash-bound ledger and audit log. An invalid finding or stale hash rolls the entire batch back. Acceptance does not publish a mod; the normal approval endpoint still checks the complete dependency graph.
 
-### Contextual analysis (unpublished local preview)
+### Contextual analysis (0.3.57)
 
-`canna-static-6-preview` is staged locally and is not the production scanner.
+Server 0.3.57 uses the `canna-static-6` production scanner for new analyses.
 Comments and literal URL references are distinguished from API use. References
 remain visible as informational observations; review findings still gate approval.
 Repeated CLI-directed diagnostic writes can share one review finding with linked
 locations. An operator-selected path, `.txt`/`.png` extension or readable source
 does not prove safe execution. Generic packing hints remain subject to review;
 isolated packer names are contextual evidence rather than specific signatures.
+
+Repeated coverage limits share a review finding with every retained occurrence
+and original finding ID listed. Changed omissions require a new decision; the
+finding-limit sentinel remains separate. This reduces repeated rows without
+claiming additional inspection or resolving coverage limitations.
 
 Preview/source limits and engine errors are explicit. Antivirus size/encryption
 alerts are coverage findings, while malware signatures retain rejection policy.
@@ -282,11 +287,13 @@ data-flow proof or full security audit. Existing exact-hash decision preservatio
 also compares context and related locations. Finding decisions update the pending
 reason without publishing the mod.
 
-The preview worker needs `deploy/review_context.py` installed beside
-`review-worker.py` in any future deployment. Do not replace the production worker
-with this preview without approval. Local regression commands are
+Install `deploy/review_context.py` beside `review-worker.py`; both are required.
+Existing reports keep their recorded decisions; rerunning analysis produces a
+new report and may require fresh decisions for changed evidence.
+Local regression commands are
 `python deploy/test-review-context.py`, `python deploy/test-review-packing.py`,
-`python deploy/test-review-adversarial.py` and `python deploy/test-review-rules.py`.
+`python deploy/test-review-adversarial.py`, `python deploy/test-review-coverage.py`
+and `python deploy/test-review-rules.py`.
 On Linux with the existing tools, `python deploy/test-review-offline.py --fixture
 --output <isolated-directory> <archive.zip>` checks real decompilation, DiE and
 ClamAV without using the live queue or executing submitted binaries. These

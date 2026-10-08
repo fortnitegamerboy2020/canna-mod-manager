@@ -246,13 +246,13 @@ def contextualize_file_operations(text, findings):
     Any delete/copy/read/unknown output prevents the diagnostic summary.
     """
     file_findings = [f for f in findings if f['rule'] == 'filesystem']
-    if not file_findings:
+    if not file_findings or any(f['rule'] == 'coverage' for f in findings):
         return findings
     content, code = source_views(text, '.cs')
     filesystem_pattern = next(pattern for rule, _, pattern, _ in RULES if rule == 'filesystem')
     starts = [0] + [m.end() for m in re.finditer('\n', code)]
     operation_lines = [bisect_right(starts, match.start()) for match in filesystem_pattern.finditer(code)]
-    if len(operation_lines) != len(set(operation_lines)):
+    if len(operation_lines) != len(set(operation_lines)) or len(operation_lines) != len(file_findings):
         return findings
     args = re.search(r'\b(?:string\s*\[\s*\]|var)\s+(\w+)\s*=\s*Environment\s*\.\s*GetCommandLineArgs\s*\(\s*\)', content)
     if not args:

@@ -139,6 +139,27 @@ class MalformedTests(unittest.TestCase):
   self.assertEqual(rules(data),{'coverage'})
 
 class DieTests(unittest.TestCase):
+ def test_literal_die_321_hollowpurple_heuristic_record_is_preserved(self):
+  # Literal value shape returned by the real pinned tool for HollowPurple.
+  value={'type':'~packer','name':'Generic','string':'(Heur)Packer: Generic'}
+  result=worker.die_packing_finding(value)
+  self.assertIsNotNone(result,'DiE uses a ~ prefix for heuristic roles')
+  self.assertEqual(result[0],'packing-review')
+  self.assertTrue(result[2].startswith('(Heur)Packer: Generic'))
+  self.assertIn('inconclusive',result[2])
+
+ def test_tilde_named_packer_and_protector_roles_are_still_heuristic(self):
+  # The role marker establishes uncertainty even without Generic/(Heur) text.
+  for kind,name in (('~packer','UPX'),('~protector','VMProtect')):
+   with self.subTest(kind=kind):
+    result=worker.die_packing_finding({'type':kind,'name':name,'string':name+'(fixture version)'})
+    self.assertIsNotNone(result);self.assertEqual(result[0],'packing-review')
+
+ def test_tilde_compiler_and_library_roles_are_not_packing(self):
+  for value in ({'type':'~compiler','name':'Generic','string':'Protection: stack protection'},
+                {'type':'~library','name':'Package utility','string':'(Heur)Packer: Generic'}):
+   with self.subTest(value=value):self.assertIsNone(worker.die_packing_finding(value))
+
  def test_compiler_library_package_words_do_not_create_packing_findings(self):
   for value in ({'type':'Compiler','string':'Microsoft Visual C/C++ [stack protection]'}, {'type':'Compiler','string':'Protection: stack protection'}, {'type':'Library','string':'Package utility'}, {'type':'Library','string':'VMProtect integration library'}, {'type':'Language','string':'C# protected members'}, {'string':'unpacked package'}):
    with self.subTest(value=value):self.assertIsNone(worker.die_packing_finding(value))

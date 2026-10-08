@@ -228,6 +228,33 @@ class ReviewAdversarialTests(unittest.TestCase):
                 self.assertTrue(any(f['rule'] == 'signature' for f in report['findings']),
                                 'One failed engine must not abort the independent antivirus pass')
 
+    def test_real_die_321_heuristic_roles_reach_report_without_acceptance(self):
+        values = [
+            # Literal real-tool value shape observed for HollowPurple.
+            {'type': '~packer', 'name': 'Generic', 'string': '(Heur)Packer: Generic'},
+            # ~ alone means heuristic, including a named detector result.
+            {'type': '~packer', 'name': 'UPX', 'string': 'UPX(fixture version)'},
+            {'type': '~protector', 'name': 'VMProtect', 'string': 'VMProtect(fixture version)'},
+            # Roles outside packing must not be matched by text alone.
+            {'type': '~compiler', 'name': 'Generic', 'string': 'Protection: stack protection'},
+            {'type': '~library', 'name': 'Package utility', 'string': '(Heur)Packer: Generic'},
+        ]
+        log = json.dumps({'detects': [{'filetype': 'PE', 'values': values}]}).encode()
+        tools = ToolFixture(die_results={'fixture.dll': (0, log)},
+                            reconstructed='public class Fixture {}')
+        report = analyze_fixture([('fixture.dll', inert_pe())], tools)
+        packing = [f for f in report['findings'] if f['rule'].startswith('pack')]
+        self.assertEqual(len(packing), 3,
+                         'Every ~ packing role must reach the report; compiler/library roles must not')
+        self.assertEqual({f['rule'] for f in packing}, {'packing-review'},
+                         'Heuristic type markers cannot become specific signatures')
+        self.assertTrue(all(f['file'] == 'archive/fixture.dll' for f in packing))
+        self.assertTrue(all(not f.get('accepted') for f in packing),
+                        'Recognizing a heuristic never grants a review decision')
+        self.assertTrue(any(f['evidence'].startswith('(Heur)Packer: Generic') for f in packing),
+                        'The literal HollowPurple result must stay visible')
+        self.assertEqual(report['engines']['detect-it-easy']['scanned'], 1)
+
     def test_pe_magic_precedes_documentation_and_metadata_extensions(self):
         for name in ('manifest.json', 'README.md', 'preview.png'):
             with self.subTest(name=name):

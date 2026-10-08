@@ -25,7 +25,7 @@ try {
         Invoke-CannaCheck $cannaFile.Name {& $Node $cannaFile.FullName}
     }
     Invoke-CannaCheck 'Review worker archive/packer fixtures' {& $Python scripts/Test-ReviewWorker.py}
-    foreach ($cannaReviewTest in @('test-review-rules.py', 'test-review-context.py', 'test-review-packing.py', 'test-review-adversarial.py')) {
+    foreach ($cannaReviewTest in @('test-review-rules.py', 'test-review-context.py', 'test-review-packing.py', 'test-review-adversarial.py', 'test-review-coverage.py')) {
         Invoke-CannaCheck $cannaReviewTest {& $Python (Join-Path $cannaRoot ('server/deploy/' + $cannaReviewTest))}
     }
     if ($Packaging) {

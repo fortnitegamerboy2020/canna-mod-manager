@@ -5,7 +5,7 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
-VERSION='canna-static-6-preview'
+VERSION='canna-static-6'
 # Fixed sibling module; no dependency or submitted plugin code is imported.
 _context_spec=importlib.util.spec_from_file_location('canna_review_context',Path(__file__).with_name('review_context.py'))
 context=importlib.util.module_from_spec(_context_spec);_context_spec.loader.exec_module(context)
@@ -134,13 +134,13 @@ def die_packing_finding(value,data=None):
  evidence=value.get('string','');kind=value.get('type','');name=value.get('name','')
  if not all(isinstance(v,str) for v in (evidence,kind,name)):return None
  roles=r'packer|protector|protection|obfuscator|obfuscation|cryptor|crypter|virtualizer|virtualization|anti[ -]+analysis'
- role_label=r'\s*(?:\(\s*heur\s*\)\s*)?(?:'+roles+r')\s*(?:\(\s*heur\s*\)\s*)?:?\s*'
+ role_label=r'\s*(?:~\s*)?(?:\(\s*heur\s*\)\s*)?(?:'+roles+r')\s*(?:\(\s*heur\s*\)\s*)?:?\s*'
  typed=re.fullmatch(role_label,kind,re.I)
  labelled=re.match(r'^\s*(?:\(\s*heur\s*\)\s*)?(?:'+roles+r')\s*:',evidence,re.I)
  if kind.strip() and not typed:return None
  if not typed and not labelled:return None
  combined=' '.join((kind,name,evidence))
- heuristic=bool(re.search(r'\(\s*heur\s*\)|\bheuristic\b|\bgeneric\b|\banti[ -]+analysis\b',combined,re.I)) or value.get('heuristic') is True
+ heuristic=kind.lstrip().startswith('~') or bool(re.search(r'\(\s*heur\s*\)|\bheuristic\b|\bgeneric\b|\banti[ -]+analysis\b',combined,re.I)) or value.get('heuristic') is True
  # An unnamed role is not a specific detector signature. Missing details stay
  # visible and unresolved rather than becoming automatic denial/acceptance.
  if (not evidence and not name) or (not name and re.fullmatch(role_label,evidence,re.I)):heuristic=True
@@ -149,6 +149,37 @@ def die_packing_finding(value,data=None):
   evidence+='; heuristic evidence is inconclusive; compressed assets, DLL extension or readable source do not settle this finding'
   return ('packing-review','Detect It Easy heuristic requiring review',evidence)
  return ('packer-signature','Detect It Easy packing / protection signature',evidence)
+
+def group_coverage_findings(findings):
+ """Consolidate repeated limitations without changing their review requirement.
+
+ Every retained occurrence stays in locations with its original finding ID.
+ This is presentation postprocessing, not additional inspection or acceptance.
+ """
+ groups={}
+ for item in findings:
+  if item.get('rule')=='coverage' and item.get('id')!='finding-limit' and not item.get('locations'):
+   groups.setdefault((item.get('title'),item.get('severity')),[]).append(item)
+ replacements={}
+ for key,items in groups.items():
+  if len(items)<2:continue
+  ordered=sorted(items,key=lambda item:(str(item.get('file') or ''),str(item.get('line') or ''),str(item.get('evidence') or ''),str(item.get('id') or '')))
+  provenance=[{field:item.get(field) for field in ('id','file','line','evidence')} for item in ordered]
+  # Full provenance binds the group identity to the exact evidence, even if an
+  # input fixture supplies a reused ID. New omissions require a fresh decision.
+  payload=json.dumps({'title':key[0],'severity':key[1],'locations':provenance},sort_keys=True,separators=(',',':'))
+  replacements[key]={'id':hashlib.sha256(payload.encode()).hexdigest(),'rule':'coverage','title':key[0],'severity':key[1],
+   'file':None,'line':None,'evidence':f'{len(items)} matching coverage limitations; each retained occurrence is listed below.',
+   'context':'These limitations remain unresolved and require staff review. Grouping does not establish that omitted content was inspected. A finding-limit entry, when present, records additional omitted findings.',
+   'locations':provenance}
+ result=[];emitted=set()
+ for item in findings:
+  key=(item.get('title'),item.get('severity'))
+  eligible=item.get('rule')=='coverage' and item.get('id')!='finding-limit' and not item.get('locations')
+  if eligible and key in replacements:
+   if key not in emitted:result.append(replacements[key]);emitted.add(key)
+  else:result.append(item)
+ return result
 
 def analyze(job):
  report={'version':VERSION,'files':[],'inventory':[],'findings':[],'observations':[],'engines':{},'note':'Static analysis cannot prove a mod safe. Decompiled code is reconstructed, not the original project. Mods are never launched.'}
@@ -336,6 +367,7 @@ def analyze(job):
   raise
  except Exception as error:
   finding('coverage','Archive analysis incomplete',evidence=str(error)[:200],severity='high')
+ report['findings']=group_coverage_findings(report['findings'])
  report['coverage_complete']=not any(f['rule']=='coverage' for f in report['findings'])
  report['engines']['heuristics']={'status':'complete' if report['coverage_complete'] else 'incomplete','version':VERSION,'scanned_text_bytes':scanned_text}
  report['status']='complete';report['created']=int(time.time())
