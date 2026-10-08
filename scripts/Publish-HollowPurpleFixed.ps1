@@ -1,5 +1,6 @@
 param([string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_mods.txt')
 $ErrorActionPreference = 'Stop'
+throw 'HollowPurple Fixed 1.8.1 was withdrawn: it targets legacy ROUNDS. Use the separately tested public-port release workflow.'
 $root = Split-Path $PSScriptRoot -Parent
 $archive = Join-Path $root 'mods/HollowPurpleFixed/build/HollowPurple-Fixed-1.8.1.zip'
 $sha = (Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant()

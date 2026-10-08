@@ -914,9 +914,7 @@ impl PackUi {
             ui.add_space(14.0);
 
             if let Some(branch) = crate::game_compat::required_branch(&pack) {
-                ui.label(format!(
-                    "Required Steam branch: Old ROUNDS for mods ({branch})"
-                ));
+                ui.label(format!("Required Steam branch: {branch}"));
                 if let Some(game) = self.lab_games.iter().find(|g| g.app_id == pack.game.app_id) {
                     let version = crate::steam::installed_version(game);
                     if let Err(error) = crate::game_compat::branch_status(branch, version.as_ref())
