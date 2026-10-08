@@ -39,9 +39,30 @@ impl Mailer {
                 let subject = match kind {
                     "verify" => "Verify your Canna account",
                     "login" => "Your Canna sign-in code",
+                    "username" => "Your Canna username",
                     _ => "Reset your Canna password",
                 };
-                let response=client.post("https://api.resend.com/emails").bearer_auth(&**key).json(&json!({"from":from,"to":[address],"subject":subject,"text":format!("Your Canna code is {code}. It expires in 10 minutes and works once. If you did not request this, ignore this email.")})).send().await.map_err(|_|ApiError(StatusCode::SERVICE_UNAVAILABLE,"Email delivery failed; please try again later"))?;
+                let text = if kind == "username" {
+                    format!(
+                        "Your Canna username is {code}. Sign in at https://cannamods.vip/. If you also forgot your password, choose Forgot password on the sign-in page. If you did not request this reminder, ignore this email."
+                    )
+                } else {
+                    format!(
+                        "Your Canna code is {code}. It expires in 10 minutes and works once. If you did not request this, ignore this email."
+                    )
+                };
+                let response = client
+                    .post("https://api.resend.com/emails")
+                    .bearer_auth(&**key)
+                    .json(&json!({"from":from,"to":[address],"subject":subject,"text":text}))
+                    .send()
+                    .await
+                    .map_err(|_| {
+                        ApiError(
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            "Email delivery failed; please try again later",
+                        )
+                    })?;
                 if !response.status().is_success() {
                     return Err(ApiError(
                         StatusCode::SERVICE_UNAVAILABLE,
@@ -107,6 +128,7 @@ pub async fn register(
     State(app): State<Shared>,
     axum::Json(input): axum::Json<Credentials>,
 ) -> ApiResult<axum::Json<Value>> {
+    admin_settings::check_registration(&app.db.lock().unwrap())?;
     if !valid_credentials(&input.username, &input.password) {
         return Err(bad(
             "Username must contain 3–32 letters/numbers; password must contain 12–256 bytes",
@@ -146,6 +168,7 @@ pub async fn register(
     app.mail.send(&email, &code, "verify").await?;
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction()?;
+    admin_settings::check_registration(&tx)?;
     if tx.execute(
         "DELETE FROM invites WHERE hash=?1 AND expires>?2",
         params![invite_hash, now()],
@@ -289,6 +312,55 @@ pub async fn forgot(
         json!({"challenge":challenge,"message":"If a verified account exists, a reset code will be emailed. Wait one minute before requesting another code."}),
     ))
 }
+pub async fn forgot_username(
+    State(app): State<Shared>,
+    axum::Json(input): axum::Json<EmailRequest>,
+) -> ApiResult<axum::Json<Value>> {
+    let email = address(&input.email)?;
+    let issue = {
+        let mut db = app.db.lock().unwrap();
+        let tx = db.transaction()?;
+        let account: Option<(i64, String)> = tx
+            .query_row(
+                "SELECT id,username FROM users WHERE email=?1 AND verified=1 AND banned=0",
+                [&email],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()?;
+        let mut issue = None;
+        if let Some((id, username)) = account {
+            let recent: bool = tx.query_row(
+                "SELECT EXISTS(SELECT 1 FROM codes WHERE user_id=?1 AND kind='username' AND expires>?2)",
+                params![id, now() + 540], |row| row.get(0),
+            )?;
+            if !recent && app.mail.ready() {
+                // A cooldown marker only. No public endpoint redeems this kind.
+                let (marker, code) = challenge();
+                tx.execute(
+                    "DELETE FROM codes WHERE user_id=?1 AND kind='username'",
+                    [id],
+                )?;
+                tx.execute("INSERT INTO codes(challenge,user_id,hash,kind,expires) VALUES(?1,?2,?3,'username',?4)", params![marker,id,code_hash(&marker,&code),now()+600])?;
+                issue = Some(username);
+            }
+        }
+        tx.commit()?;
+        issue
+    };
+    // Never return the username or wait for delivery in this public response.
+    if let Some(username) = issue {
+        let app = app.clone();
+        tokio::spawn(async move {
+            if app.mail.send(&email, &username, "username").await.is_err() {
+                eprintln!("Username-reminder email delivery failed");
+            }
+        });
+    }
+    Ok(axum::Json(
+        json!({"message":"If a verified account exists, its username will be emailed. Wait one minute before requesting another reminder."}),
+    ))
+}
+
 pub async fn reset(
     State(app): State<Shared>,
     axum::Json(input): axum::Json<Code>,

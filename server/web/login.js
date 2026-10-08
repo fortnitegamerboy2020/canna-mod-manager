@@ -2,6 +2,11 @@
 const $ = id => document.getElementById(id);
 sessionStorage.removeItem('canna-session');
 let challenge = '', codePurpose = 'verify';
+let recoveryPurpose = 'reset';
+const recoveryCooldowns = new Map();
+const recoveryRequests = new Set();
+let recoveryGeneration = 0;
+let recoveryTimer;
 
 const message = text => { $('message').textContent = text; };
 async function api(path, options = {}) {
@@ -46,11 +51,54 @@ function showCode(id, purpose) {
 }
 $('auth').addEventListener('submit', event => { event.preventDefault(); action(() => authenticate(false)); });
 $('register').addEventListener('click', () => action(async () => { if ($('auth').reportValidity()) await authenticate(true); }));
-$('forgot').addEventListener('click', () => action(async () => {
-  const data = await json('forgot-password', {email:$('email').value});
-  showCode(data.challenge, 'reset'); message(data.message);
-  $('forgot').disabled = true; setTimeout(() => { $('forgot').disabled = false; }, 60000);
-}));
+function recoveryCooldown() {
+  clearTimeout(recoveryTimer);
+  if ($('recoverypanel').hidden) return;
+  const remaining = Math.max(0, Math.ceil(((recoveryCooldowns.get(recoveryPurpose) || 0) - Date.now()) / 1000));
+  const sending = recoveryRequests.has(recoveryPurpose);
+  $('sendrecovery').disabled = remaining > 0 || sending;
+  $('sendrecovery').textContent = sending ? 'Sending…' : remaining ? `Send again in ${remaining}s` : recoveryPurpose === 'reset' ? 'Send reset code' : 'Email my username';
+  if (remaining) recoveryTimer = setTimeout(recoveryCooldown, 1000);
+}
+function openRecovery(purpose) {
+  recoveryGeneration++;
+  recoveryPurpose = purpose; message('');
+  $('auth').hidden = $('authhelp').hidden = true;
+  $('codeform').hidden = true; $('codeform').reset();
+  challenge = '';
+  $('recoverypanel').hidden = false;
+  $('recoverytitle').textContent = purpose === 'reset' ? 'Reset your password' : 'Find your username';
+  $('recoverydescription').textContent = purpose === 'reset' ? 'Enter the email you verified for your account. We’ll email a code to choose a new password.' : 'Enter your verified account email. We’ll send your username to that address.';
+  $('recoveryemail').value = $('recoveryemail').value || $('email').value;
+  recoveryCooldown(); $('recoveryemail').focus();
+}
+function closeRecovery() {
+  recoveryGeneration++;
+  clearTimeout(recoveryTimer); challenge = '';
+  $('recoverypanel').hidden = $('codeform').hidden = true;
+  $('codeform').reset(); $('auth').hidden = $('authhelp').hidden = false;
+  $('password').value = ''; $('username').focus();
+}
+$('forgot').addEventListener('click', () => openRecovery('reset'));
+$('forgotusername').addEventListener('click', () => openRecovery('username'));
+$('backtosignin').addEventListener('click', () => { closeRecovery(); message(''); });
+$('recoveryform').addEventListener('submit', event => { event.preventDefault(); action(async () => {
+  if (!$('recoveryform').reportValidity() || $('sendrecovery').disabled) return;
+  const purpose = recoveryPurpose;
+  const generation = recoveryGeneration;
+  recoveryRequests.add(purpose);
+  $('sendrecovery').disabled = true;
+  try {
+    const data = await json(purpose === 'reset' ? 'forgot-password' : 'forgot-username', {email:$('recoveryemail').value.trim()});
+    recoveryCooldowns.set(purpose, Date.now() + 60000);
+    if (purpose === recoveryPurpose && generation === recoveryGeneration) {
+      if (purpose === 'reset') showCode(data.challenge, 'reset');
+      message(data.message);
+    }
+  } catch (error) {
+    if (generation === recoveryGeneration) throw error;
+  } finally { recoveryRequests.delete(purpose); recoveryCooldown(); }
+}); });
 $('resend').addEventListener('click', () => action(async () => {
   const data = await json('resend-verification', {email:$('email').value, username:$('username').value});
   showCode(data.challenge, 'verify'); message(data.message);
@@ -59,7 +107,7 @@ $('resend').addEventListener('click', () => action(async () => {
 $('codeform').addEventListener('submit', event => { event.preventDefault(); action(async () => {
   await json(codePurpose === 'reset' ? 'reset-password' : codePurpose === 'login' ? 'login/verify' : 'verify-email', {challenge, code:$('code').value, password:$('newpassword').value,trust_device:$('trustdevice').checked});
   $('codeform').reset(); $('codeform').hidden = true;
-  if (codePurpose === 'reset') message('Password reset. Sign in with your new password.');
+  if (codePurpose === 'reset') { closeRecovery(); message('Password reset. Sign in with your new password.'); }
   else location.reload();
 }); });
 

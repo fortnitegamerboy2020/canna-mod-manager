@@ -1,28 +1,49 @@
 'use strict';
 let adminTab='overview', adminReady=false;
+let invitationSettingsRevision=0;
 function adminNode(tag,text,className) {const n=document.createElement(tag);if(text)n.textContent=text;if(className)n.className=className;return n;}
 function setupAdmin() {
   if(adminReady)return;adminReady=true;
-  const root=$('moderation');const nav=adminNode('nav',null,'admintabs');nav.setAttribute('aria-label','Administration tools');
-  const panes=adminNode('div',null,'adminpanes');root.prepend(nav);root.append(panes);
+  const root=$('moderation');root.classList.add('adminworkspace');
+  const heading=root.querySelector('h2');heading.textContent='Community control room';
+  const header=adminNode('header',null,'adminhero');const intro=adminNode('div');intro.append(adminNode('p','CANNA / ADMINISTRATION','eyebrow'),heading,adminNode('p','Keep the community running. Review content, look after members and shape what happens next.'));
+  const refresh=button('Refresh overview',loadAdminOverview);refresh.className='primary';header.append(intro,refresh);root.prepend(header);
+  const summary=$('adminsummary');summary.className='adminsummary';header.after(summary);
+  const nav=adminNode('nav',null,'admintabs');nav.setAttribute('aria-label','Administration tools');
+  const sidebar=adminNode('aside',null,'adminsidebar');const search=adminNode('input');search.type='search';search.placeholder='Find a tool…';search.setAttribute('aria-label','Search administration tools');search.addEventListener('input',()=>{const q=search.value.toLowerCase();nav.querySelectorAll('button').forEach(b=>b.hidden=!b.textContent.toLowerCase().includes(q));});sidebar.append(search,nav);
+  const panes=adminNode('div',null,'adminpanes');const adminLayout=adminNode('div',null,'adminlayout');adminLayout.append(sidebar,panes);root.append(adminLayout);
   const items=[['overview','Overview',[]],['reviews','Mod reviews',[]],['members','Members',['memberlist']],['tickets','Support tickets',[]],['community','Banner & chat',[]],['logs','Logs',['ownerlog']]];
-  if(currentUser.role==='owner')items.push(['sections','Forum sections',['sectionmanager']],['invitations','Invitations',['ownercontrols']],['economy','Kash',[]]);
-  for(const [id,label,children]of items){const pane=adminNode('section');pane.id='admin-'+id;pane.hidden=id!==adminTab;panes.append(pane);for(const child of children)pane.append($(child));const b=button(label,()=>selectAdminTab(id));b.dataset.tab=id;nav.append(b);}
+  if(currentUser.role==='owner')items.push(['sections','Forum sections',['sectionmanager']],['invitations','Invitations',['ownercontrols']],['economy','Kash wallets',[]],['gambling','Gambling controls',[]]);
+  const icons={overview:'◈',reviews:'✓',members:'♙',tickets:'✉',community:'◌',logs:'≡',sections:'▤',invitations:'+',economy:'K',gambling:'♠'};
+  for(const [id,label,children]of items){const pane=adminNode('section');pane.id='admin-'+id;pane.hidden=id!==adminTab;panes.append(pane);for(const child of children)pane.append($(child));const b=button(label,()=>selectAdminTab(id));b.prepend(adminNode('span',icons[id],'adminnavicon'));b.dataset.tab=id;nav.append(b);}
   $('admin-overview').append(adminNode('h3','Community overview'),adminNode('div',null,'adminmetrics'));$('admin-overview').lastChild.id='adminmetrics';
   $('admin-reviews').append(adminNode('h3','Pending mod reviews'),adminNode('p','Inspect reconstructed source and resolve all findings before approval, including dependencies. Downloads wait for automatic analysis; findings require staff review.'));
-  const refresh=button('Refresh queue',loadModReviews);$('admin-reviews').append(refresh,adminNode('div',null,'admincards'));$('admin-reviews').lastChild.id='modreviewlist';const queueStatus=adminNode('p');queueStatus.id='reviewqueuestatus';queueStatus.setAttribute('role','status');$('admin-reviews').insertBefore(queueStatus,$('modreviewlist'));
-  const search=adminNode('input');search.id='adminmembersearch';search.placeholder='Search members…';search.setAttribute('aria-label','Search administrator member list');$('admin-members').prepend(search);
+  const queueRefresh=button('Refresh queue',loadModReviews);$('admin-reviews').append(queueRefresh,adminNode('div',null,'admincards'));$('admin-reviews').lastChild.id='modreviewlist';const queueStatus=adminNode('p');queueStatus.id='reviewqueuestatus';queueStatus.setAttribute('role','status');$('admin-reviews').insertBefore(queueStatus,$('modreviewlist'));
+  const memberSearch=adminNode('input');memberSearch.id='adminmembersearch';memberSearch.placeholder='Search members…';memberSearch.setAttribute('aria-label','Search administrator member list');$('admin-members').prepend(adminNode('h3','Members & roles'),memberSearch);
   $('admin-tickets').append(adminNode('h3','Support tickets'),button('Refresh tickets',loadAdminTickets),adminNode('div',null,'ticketlayout'));const layout=$('admin-tickets').lastChild;
   const list=adminNode('div');list.id='adminticketlist';const detail=adminNode('div');detail.id='adminticketdetail';layout.append(list,detail);
   $('admin-logs').prepend(button('Refresh logs',loadAdminLogs));
   const logsearch=adminNode('input');logsearch.id='logsearch';logsearch.placeholder='Search actions, mods, reasons…';$('admin-logs').prepend(logsearch);
   if(currentUser.role==='owner'){$('admin-economy').append(adminNode('h3','Kash balances'),adminNode('p','Balance: a nonnegative whole number. Total earned: 0–1,000,000 (controls badge unlocks). Changes require a reason and are logged.'),button('Refresh balances',loadWallets),adminNode('div',null,'admincards'));$('admin-economy').lastChild.id='walletlist';}
   setupLoungeAdmin();
-  if(currentUser.role==='owner')setupInvitationHistory();
+  if(currentUser.role==='owner'){setupInvitationHistory();setupInvitationSettings();if(typeof setupGamblingAdmin==='function')setupGamblingAdmin();}
   updateAdminTabs();
 }
 function updateAdminTabs(){document.querySelectorAll('.admintabs button').forEach(b=>{b.classList.toggle('active',b.dataset.tab===adminTab);b.setAttribute('aria-current',b.dataset.tab===adminTab?'page':'false');});}
-async function selectAdminTab(id){adminTab=id;document.querySelectorAll('.adminpanes>section').forEach(p=>p.hidden=p.id!=='admin-'+id);updateAdminTabs();if(id==='invitations')await loadInvitationHistory();if(id==='members')await loadAdminMembers();if(id==='sections')await loadSectionEditor();if(id==='logs')await loadAdminLogs();if(id==='economy')await loadWallets();if(id==='community')await loadLoungeAdmin();if(id==='tickets')await loadAdminTickets();if(id==='reviews')await loadModReviews();if(id==='overview')await loadAdminOverview();}
+async function selectAdminTab(id){adminTab=id;document.querySelectorAll('.adminpanes>section').forEach(p=>p.hidden=p.id!=='admin-'+id);updateAdminTabs();if(id==='invitations'){await loadInvitationHistory();await loadInvitationSettings();}if(id==='members')await loadAdminMembers();if(id==='sections')await loadSectionEditor();if(id==='logs')await loadAdminLogs();if(id==='economy')await loadWallets();if(id==='community')await loadLoungeAdmin();if(id==='tickets')await loadAdminTickets();if(id==='reviews')await loadModReviews();if(id==='overview')await loadAdminOverview();if(id==='gambling')await loadGamblingAdmin();}
+function setupInvitationSettings(){
+ const box=adminNode('section',null,'adminsettingcard');box.id='invitation-settings';box.append(adminNode('h3','Invitation & registration gates'),adminNode('p','Pause new invitation creation separately from account registration. Existing codes remain in history and resume working when registration reopens.'));
+ const form=adminNode('form');for(const [id,title,detail]of [['admin-invites-paused','Pause new invitations','Members and the owner cannot generate new codes.'],['admin-registrations-paused','Pause new registrations','Existing accounts can still sign in; unused codes are preserved.']]){const row=adminNode('label',null,'adminswitch');const input=adminNode('input');input.type='checkbox';input.id=id;const label=adminNode('span');label.append(adminNode('strong',title),adminNode('small',detail));row.append(input,label);form.append(row);}
+ const reason=adminNode('input');reason.id='admin-invitation-reason';reason.maxLength=500;reason.required=true;reason.minLength=5;reason.placeholder='Reason for this change (logged)';reason.setAttribute('aria-label','Reason for invitation policy change');const save=adminNode('button','Save invitation policy');save.type='submit';save.className='primary';const status=adminNode('p');status.id='admin-invitation-state';status.setAttribute('role','status');form.append(reason,save,status);
+ form.addEventListener('submit',e=>{e.preventDefault();action(async()=>{save.disabled=true;try{await json('admin/invitation-settings',{invites_paused:$('admin-invites-paused').checked,registrations_paused:$('admin-registrations-paused').checked,reason:reason.value,revision:invitationSettingsRevision});await loadInvitationSettings();await refresh();message('Invitation policy saved.');}finally{save.disabled=false;}});});box.append(form);$('admin-invitations').prepend(box);
+}
+async function loadInvitationSettings(){const v=await(await api('admin/invitation-settings')).json();invitationSettingsRevision=v.revision;$('admin-invites-paused').checked=!!v.invites_paused;$('admin-registrations-paused').checked=!!v.registrations_paused;$('admin-invitation-reason').value=v.reason||'';$('admin-invitation-state').textContent=`New invitations ${v.invites_paused?'paused':'open'} · Registrations ${v.registrations_paused?'paused':'open'}`;}
+function appendAdminMemberRoles(row,member){
+ if(currentUser.role!=='owner')return;
+ const label=adminNode('label',null,'adminswitch compact');const check=adminNode('input');check.type='checkbox';check.checked=(member.roles||[]).includes('beta');check.setAttribute('aria-label','Beta access for '+member.username);
+ const text=adminNode('span');text.append(adminNode('strong','Beta access'),adminNode('small','Extra testing access; keeps the member’s existing role.'));label.append(check,text);row.append(label);
+ check.addEventListener('change',()=>action(async()=>{const enabled=check.checked;check.disabled=true;try{await json('admin/users/'+member.id+'/roles',{roles:enabled?['beta']:[]});message(`${member.username}: Beta access ${enabled?'enabled':'removed'}.`);}catch(error){check.checked=!enabled;throw error;}finally{check.disabled=false;}}));
+}
 let inviteHistoryPage=1;
 function setupInvitationHistory(){
  const controls=$('admin');controls.querySelector('h2').textContent='Generate invitations';

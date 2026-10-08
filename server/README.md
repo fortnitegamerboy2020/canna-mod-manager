@@ -4,6 +4,32 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
+## Current release: Community 0.3.58
+
+The Admin panel adds a searchable overview, separate Owner invitation-generation
+and registration pause controls, and the additive Beta role. Member, VIP, Admin
+and Owner remain primary permission roles; Beta grants protected Rebound support
+without staff privileges. Desktop 0.2.42 contains no embedded Rebound DLLs and
+checks current server authorization before support storage, preparation and
+installation. The Rebound runtime remains a preview with full human-match and
+two-client multiplayer checks outstanding; previously distributed 0.2.41 bundles
+cannot be removed retroactively.
+
+The Gambling page uses free fictional Kash for shared Crash rounds, Blackjack
+and 100-Kash cosmetic cases. Kash cannot be bought, cashed out or transferred.
+Owner-only outcome inspection and future-round controls are disclosed; paid
+games can still settle when new bets are paused. Collection equips owned frames
+and banners, including the credited pinned classic MW2 collection. Cosmetic
+assets and member profiles remain authenticated. Official Minecraft version
+choices and the current-page result count are available on the website and
+matching desktop; Minecraft account/launch API approval remains pending.
+
+Staff review includes an advisory overview, full archive/source browser and
+bounded code navigation. New analyses use canna-static-7 and preserve explicit
+reconstruction provenance, tool status and coverage limits. Account recovery
+offers separate email-only Forgot password and Forgot username forms. The public
+Help page documents these features without exposing private reports or assets.
+
 ## Host
 
 - Ubuntu 24.04 LTS, public address `165.227.83.76`.
@@ -91,7 +117,7 @@ The database and upload keys are distinct random 32-byte keys outside the data
 directories, readable only by root in `/etc/canna/keys`. systemd supplies private
 runtime credentials to the unprivileged service. Keys are not embedded in source.
 
-Resend sends verification and password-reset messages from
+Resend sends verification, sign-in and password-reset messages from
 `Canna <accounts@cannamods.vip>`. Its send-only API key is the `mail.key` systemd
 credential. The domain must be verified in Resend. Registration stays unavailable
 without mail configuration. Email ownership must be verified before sign-in.
@@ -100,6 +126,31 @@ Requests for another code have a one-minute cooldown. A password reset revokes
 all existing sessions. Recovery responses do not disclose whether an email is
 registered. API calls to Resend require HTTPS; email is not end-to-end encrypted,
 and the provider and recipient necessarily receive the address and code.
+
+Community 0.3.58 adds an email-only account-recovery panel and
+Forgot username. A username reminder is sent only to the registered, verified
+email of an unbanned account; public responses never include the username or
+confirm account existence. Reminder requests share authentication client limits
+and a transactional one-minute account cooldown. They do not create a session,
+change a password or invalidate password-reset codes. If mail is unavailable or
+an address has no eligible account, the same public response is returned. The
+local browser fixture uses a test outbox and does not send real email.
+
+Community 0.3.58's review workspace adds Overview, Code & files and
+Findings tabs. Deterministic advisory suggestions, coverage and decompilation
+status, heuristic source outlines and retained file metadata are derived at
+staff-only report GET time, including for legacy reports. The full archive file
+browser distinguishes uploaded/reconstructed source from entries without a text
+preview. Path/code filters, file evidence, search matches, line jumps and bounded
+source windows help navigate retained previews. Static-7 analysis records binary
+origins, tool results, source hashes, limits and partial reconstruction. Java
+project mappings identify archive scope rather than claiming exact class-to-file
+provenance. Renamed PE binaries are still inspected in archives containing Java
+classes, and tool output safety is checked after process exit too. No submitted
+code is executed. Existing reports remain intact; rerun analysis to obtain new
+worker metadata. Suggestions do not change findings, exact-hash review decisions,
+quarantine or dependency approval requirements. Review HTML, scripts, CSS and
+reports remain staff-only; the public Help page contains documentation only.
 
 Encryption at rest protects copied storage when the keys are not also stolen.
 It does not protect against root access or compromise of a running service that
@@ -264,9 +315,10 @@ totals, scan state and unresolved dependency links. Approval checks remain enfor
 
 POST `/api/v1/mods/{id}/analysis-decisions` accepts a completed scan hash and up to 1500 `{id, accepted, reason}` finding decisions. It requires staff authentication, validates every finding and reason, commits atomically, and records each decision in the hash-bound ledger and audit log. An invalid finding or stale hash rolls the entire batch back. Acceptance does not publish a mod; the normal approval endpoint still checks the complete dependency graph.
 
-### Contextual analysis (0.3.57)
+### Contextual analysis (introduced in 0.3.57)
 
-Server 0.3.57 uses the `canna-static-6` production scanner for new analyses.
+Community 0.3.58 uses `canna-static-7` for new analyses, extending the contextual
+checks introduced with `canna-static-6` in 0.3.57.
 Comments and literal URL references are distinguished from API use. References
 remain visible as informational observations; review findings still gate approval.
 Repeated CLI-directed diagnostic writes can share one review finding with linked

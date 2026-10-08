@@ -37,7 +37,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
         return Err(bad("CannaBot commands must be under 100 bytes"));
     }
     if command == "/help" {
-        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free Kash each UTC day; /balance; /collection; /coinflip heads|tails amount — wager Kash up to your balance (also /flip); /badges; /equip none|angler|emerald|legend. Kash cannot be bought, redeemed or transferred, and unlock chat badges only. Each coin flip is independently random with 50/50 odds. The wager game paying 2× your stake when you win, up to 20 flips/day.".into()));
+        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free Kash each UTC day; /balance; /collection; /coinflip heads|tails amount — wager Kash up to your balance (also /flip); /badges; /equip none|angler|emerald|legend. Kash cannot be bought, redeemed or transferred. It unlocks chat badges and cosmetic frames/banners; the Gambling tab has Crash, blackjack and cosmetic cases. The owner can see Crash outcomes, and controlled rounds are marked. Each coin flip is independently random with 50/50 odds, paying 2× your stake when you win, up to 20 flips/day.".into()));
     }
     db.execute(
         "INSERT OR IGNORE INTO bot_wallets(user_id) VALUES(?1)",

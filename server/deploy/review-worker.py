@@ -5,13 +5,44 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
-VERSION='canna-static-6'
+VERSION='canna-static-7'
 # Fixed sibling module; no dependency or submitted plugin code is imported.
 _context_spec=importlib.util.spec_from_file_location('canna_review_context',Path(__file__).with_name('review_context.py'))
 context=importlib.util.module_from_spec(_context_spec);_context_spec.loader.exec_module(context)
 RULES=context.RULES
 TEXT={'.cs','.java','.rs','.js','.ts','.lua','.nut','.py','.cpp','.c','.h','.hpp','.shader','.sh','.ps1','.bat','.cmd','.json','.xml','.toml','.yml','.yaml','.txt','.md','.properties','.cfg','.ini','.res'}
 class Limit(Exception):pass
+
+def source_language(path):
+ return {'.cs':'C#','.java':'Java','.rs':'Rust','.js':'JavaScript','.ts':'TypeScript','.lua':'Lua','.nut':'Squirrel','.py':'Python','.cpp':'C++','.c':'C','.h':'C/C++','.hpp':'C++','.shader':'Shader','.sh':'Shell','.ps1':'PowerShell','.bat':'Batch','.cmd':'Batch'}.get(path.suffix.lower(),'Text / metadata')
+
+def generated_sources(output):
+ """Read only regular, contained decompiler output; never follow tool symlinks.
+
+ A submitted type/resource name can influence decompiler output paths. Tools
+ still run in the service sandbox, and output is checked again before reading.
+ """
+ if not stat.S_ISDIR(output.lstat().st_mode):raise Limit('Decompiler output root is not a regular directory')
+ found=[];seen=set();count=0;size=0;entries=0;root=output.resolve()
+ def walk_error(error):raise error
+ for directory,folders,files in os.walk(output,followlinks=False,onerror=walk_error):
+  folders.sort();entries+=len(folders)+len(files)
+  if entries>6000:raise Limit('Decompiler output exceeds entry limits')
+  for name in sorted(folders+files):
+   path=Path(directory)/name
+   info=path.lstat()
+   if stat.S_ISLNK(info.st_mode):raise Limit('Decompiler output contains a symbolic link')
+   if not path.resolve().is_relative_to(root):raise Limit('Decompiler output escapes its output directory')
+   relative=path.relative_to(output).as_posix()
+   key=relative.casefold()
+   if key in seen:raise Limit('Decompiler output contains a case-insensitive path collision')
+   seen.add(key)
+   if stat.S_ISDIR(info.st_mode):continue
+   if not stat.S_ISREG(info.st_mode):raise Limit('Decompiler output contains a non-regular file')
+   count+=1;size+=info.st_size
+   if count>6000 or size>400*1024*1024:raise Limit('Decompiler output exceeds file or disk limits')
+   if path.suffix.lower() in TEXT:found.append(path)
+ return sorted(found,key=lambda path:path.relative_to(output).as_posix())
 
 def unpack_vpk(source,destination,max_bytes=256*1024*1024,max_files=2000):
  if destination.exists():raise Limit('VPK extraction path collision')
@@ -182,7 +213,9 @@ def group_coverage_findings(findings):
  return result
 
 def analyze(job):
- report={'version':VERSION,'files':[],'inventory':[],'findings':[],'observations':[],'engines':{},'note':'Static analysis cannot prove a mod safe. Decompiled code is reconstructed, not the original project. Mods are never launched.'}
+ report={'version':VERSION,'files':[],'inventory':[],'findings':[],'observations':[],'engines':{},'decompilations':[],
+   'limits':{'analysis_seconds':240,'archive_entries':2000,'expanded_bytes':256*1024*1024,'entry_bytes':32*1024*1024,'decompiler_binaries':16,'java_projects':1,'tool_output_bytes':256*1024,'source_file_bytes':1024*1024,'scanned_text_bytes':16*1024*1024,'preview_files':500,'preview_text_bytes':8*1024*1024},
+  'note':'Static analysis cannot prove a mod safe. Decompiled code is reconstructed, not the original project. Mods are never launched.'}
  total_text=0;scanned_text=0;finding_ids=set();observation_ids=set();start=time.monotonic();archive=job/'input.zip';work=job/'work';shutil.rmtree(work,ignore_errors=True);work.mkdir()
  def finding(rule,title,file=None,line=None,evidence='',severity='review',**details):
   evidence=evidence[:350];key='\0'.join(map(str,[rule,file,line,evidence]));fid=hashlib.sha256(key.encode()).hexdigest()
@@ -216,27 +249,38 @@ def analyze(job):
       if time.monotonic()>deadline or len(files)>6000 or sum(p.stat().st_size for p in files)>400*1024*1024:raise Limit('Analyzer time or disk budget reached')
    except Limit:
     os.killpg(proc.pid,signal.SIGKILL);proc.wait();raise
+  # A tool that exits within one polling interval still has to respect bounds.
+  files=[p for p in job.rglob('*') if p.is_file() and not p.is_symlink()]
+  if len(files)>6000 or sum(p.stat().st_size for p in files)>400*1024*1024:raise Limit('Analyzer file or disk budget reached')
   if log.stat().st_size>256*1024:
    log.unlink(missing_ok=True);raise Limit('Analyzer output limit reached; output is incomplete')
   text=log.read_bytes().decode('utf-8','replace');log.unlink(missing_ok=True)
   return code,text
- def add_text(path,name,kind):
+ def add_text(path,name,kind,origin=None,decompiler=None,origins=None):
   nonlocal total_text,scanned_text
+  result={'preview':False,'scanned':False,'status':'omitted'}
   if time.monotonic()-start>240:
-   finding('coverage','Analysis time budget reached',name,severity='high');return
+   finding('coverage','Analysis time budget reached',name,severity='high');result['status']='analysis-time-limit';return result
   size=path.stat().st_size
   if size>1024*1024 or scanned_text+size>16*1024*1024:
-   finding('coverage','Source analysis text limit reached',name,severity='high');return
+   finding('coverage','Source analysis text limit reached',name,severity='high');result['status']='source-text-limit';return result
   try:
    raw=path.read_bytes();text=raw.decode('utf-16' if raw.startswith((b'\xff\xfe',b'\xfe\xff')) else 'utf-8-sig')
-  except (UnicodeError,OSError):finding('coverage','Text file could not be decoded',name);return
-  if '\0' in text:finding('coverage','Binary content in text file',name);return
-  encoded_size=len(text.encode());scanned_text+=encoded_size
+  except (UnicodeError,OSError):finding('coverage','Text file could not be decoded',name);result['status']='decode-failed';return result
+  if '\0' in text:finding('coverage','Binary content in text file',name);result['status']='binary-content';return result
+  encoded=text.encode();encoded_size=len(encoded)
+  if scanned_text+encoded_size>16*1024*1024:
+   finding('coverage','Source analysis text limit reached',name,severity='high');result['status']='source-text-limit';return result
+  scanned_text+=encoded_size;result['scanned']=True;result['status']='scanned'
   if len(report['files'])<500 and total_text+encoded_size<=8*1024*1024:
-   total_text+=encoded_size;report['files'].append({'name':name,'text':text,'kind':kind})
+   total_text+=encoded_size
+   item={'name':name,'text':text,'kind':kind,'language':source_language(path),'byte_size':encoded_size,'line_count':len(text.splitlines()),'sha256':hashlib.sha256(encoded).hexdigest(),'origin':origin or name}
+   if decompiler:item['decompiler']=decompiler
+   if origins:item['origins']=origins
+   report['files'].append(item);result['preview']=True
   else:finding('coverage','Source preview limit reached',name,evidence='Code heuristics still ran; this file is omitted from the preview.',severity='high')
   # Documentation and package metadata are displayed but do not execute behavior.
-  if (path.suffix.lower()=='.md' or path.name.lower() in ('manifest.json','addoninfo.txt','license')) and not text.startswith('#!'):return
+  if (path.suffix.lower()=='.md' or path.name.lower() in ('manifest.json','addoninfo.txt','license')) and not text.startswith('#!'):return result
   source_findings,observations=context.scan_source(text,name,path.suffix.lower())
   if path.suffix.lower()=='.cs':source_findings=context.contextualize_file_operations(text,source_findings)
   for f in source_findings:
@@ -247,6 +291,60 @@ def analyze(job):
    if len(report['observations'])>=500:
     finding('coverage','Observation preview limit reached',name,severity='high');break
    observation_ids.add(o['id']);report['observations'].append(o)
+  return result
+ def reconstruction(input_name,output,prefix,language,tool,args,timeout,inputs=None,dependency_directory=None):
+  begun=time.monotonic()
+  record={'input':input_name,'scope':'project' if inputs else 'binary','language':language,'tool':tool,'status':'complete','duration_ms':0,'exit_code':None,'generated_files':[],'generated_count':0,'generated_bytes':0,'preview_count':0,'preview_omitted_count':0,'scanned_count':0,'scan_omitted_count':0,'diagnostic':'','limitations':[],
+   'dependency_resolution':{'mode':'archive-neighbors-and-installed-runtime' if dependency_directory else 'project-contained-classes','verification':'Tool does not provide a complete dependency-resolution report.','external_downloads':False}}
+  if inputs:record['inputs']=inputs
+  if dependency_directory:record['dependency_resolution']['supplied_directories']=[dependency_directory]
+  report['decompilations'].append(record)
+  try:
+   code,log=command(args,timeout);record['exit_code']=code
+   record['diagnostic']=log.replace(str(work),'[analysis]')[-2000:]
+   if code!=0:
+    record['status']='incomplete';record['limitations'].append('Decompiler returned a nonzero exit code.')
+    finding('coverage','Decompilation failed or unsupported binary',input_name,evidence=f'Analyzer exit {code}: '+record['diagnostic'][-300:],severity='high')
+  except Limit as error:
+   record['status']='limited';record['diagnostic']=str(error)[:2000];record['limitations'].append(str(error))
+   finding('coverage','Decompiler time or output limit reached',input_name,evidence=str(error),severity='high')
+  except OSError as error:
+   record['status']='unavailable';record['diagnostic']=str(error).replace(str(work),'[analysis]')[-2000:];record['limitations'].append('Decompiler could not be started or accessed.')
+   finding('coverage','Decompiler unavailable',input_name,evidence=record['diagnostic'][-300:],severity='high')
+  try:
+   generated=generated_sources(output)
+   if not generated:
+    if record['status']=='complete':record['status']='failed'
+    record['limitations'].append('No readable source was reconstructed.')
+    finding('coverage','No source reconstructed from binary',input_name,severity='high')
+   record['generated_count']=len(generated)
+   record['generated_files']=[prefix+path.relative_to(output).as_posix() for path in generated]
+   for path,name in zip(generated,record['generated_files']):
+    try:
+     record['generated_bytes']+=path.stat().st_size
+     result=add_text(path,name,'decompiled',origin=input_name,decompiler=tool,origins=inputs)
+     record['preview_count']+=int(result['preview']);record['scanned_count']+=int(result['scanned'])
+     if result['status'] not in ('scanned','omitted') and result['status'] not in record['limitations']:record['limitations'].append(result['status'])
+    except OSError as error:
+     finding('coverage','Reconstructed source could not be read',name,evidence=str(error),severity='high')
+     if 'Reconstructed source could not be read.' not in record['limitations']:record['limitations'].append('Reconstructed source could not be read.')
+   record['preview_omitted_count']=len(generated)-record['preview_count'];record['scan_omitted_count']=len(generated)-record['scanned_count']
+   if record['preview_omitted_count']:record['limitations'].append('Some reconstructed files were omitted from the source preview.')
+   if record['scan_omitted_count']:record['limitations'].append('Some reconstructed files were not inspected by source heuristics.')
+   if record['status']=='complete' and record['limitations']:record['status']='incomplete'
+  except (Limit,OSError) as error:
+   record['status']='failed';record['limitations'].append(str(error)[:2000])
+   finding('coverage','Decompiler output could not be inspected',input_name,evidence=str(error),severity='high')
+  record['duration_ms']=max(0,round((time.monotonic()-begun)*1000))
+  engine=report['engines'].setdefault(tool,{'status':'complete','attempted':0,'reconstructed':0,'failed':0,'incomplete':0})
+  engine['attempted']+=1;engine['reconstructed']+=int(record['generated_count']>0)
+  if record['status'] in ('failed','unavailable'):engine['failed']+=1;engine['status']='error'
+  elif record['status']!='complete':
+   engine['incomplete']+=1
+   if engine['status']!='error':engine['status']='incomplete'
+  return record
+ def omitted_binary(name,language,status,reason):
+  report['decompilations'].append({'input':name,'scope':'binary','language':language,'tool':None,'status':status,'duration_ms':0,'exit_code':None,'generated_files':[],'generated_count':0,'generated_bytes':0,'preview_count':0,'preview_omitted_count':0,'scanned_count':0,'scan_omitted_count':0,'diagnostic':'','limitations':[reason]})
  def antivirus():
   try:
    code,log=command(['/usr/bin/clamscan','--no-summary','--infected','--max-filesize=32M','--max-scansize=256M','--max-files=2000','--max-recursion=8','--alert-exceeds-max=yes','--alert-encrypted=yes',str(archive)],100)
@@ -273,7 +371,11 @@ def analyze(job):
     if name.startswith('/') or any(p in ('..','.','') for p in name.split('/')) or ':' in name or '\0' in name or stat.S_ISLNK(i.external_attr>>16):raise Limit('Unsafe archive path or symbolic link')
     if name.casefold() in seen:raise Limit('Duplicate archive path')
     seen.add(name.casefold());expanded+=i.file_size
-    if i.file_size>32*1024*1024: finding('coverage','File exceeds analysis size limit',prefix+name,severity='high');continue
+    inventory={'name':prefix+name,'size':i.file_size,'kind':'archive'};report['inventory'].append(inventory)
+    if i.file_size>32*1024*1024:
+     inventory['analysis']='entry-size-limit';finding('coverage','File exceeds analysis size limit',prefix+name,severity='high')
+     if parts.suffix.lower() in ('.dll','.exe','.jar','.class'):omitted_binary(prefix+name,'Unknown','limited','Entry exceeds the 32 MiB extraction limit; binary magic and source were not inspected.')
+     continue
     path=destination.joinpath(*parts.parts);path.parent.mkdir(parents=True,exist_ok=True)
     with z.open(i) as inp,path.open('wb') as out:
      count=0
@@ -281,12 +383,12 @@ def analyze(job):
       count+=len(chunk)
       if count>i.file_size or count>32*1024*1024:raise Limit('Archive entry size mismatch')
       out.write(chunk)
-    report['inventory'].append({'name':prefix+name,'size':i.file_size,'kind':'archive'})
    return list(destination.rglob('*'))
  # Antivirus runs first so decompiler time limits cannot consume its budget.
  antivirus()
  try:
   paths=extract(archive,work/'archive','archive/')
+  original_files={path for path in paths if path.is_file()}
   expanded_total=sum(p.stat().st_size for p in paths if p.is_file());expanded_count=sum(p.is_file() for p in paths)
   inspected_vpks=set()
   cursor=0;depths={p:0 for p in paths}
@@ -302,15 +404,21 @@ def analyze(job):
     depths.update({p:depths[packed]+1 for p in expanded})
     for p in expanded:report['inventory'].append({'name':'archive/'+p.relative_to(work/'archive').as_posix(),'size':p.stat().st_size,'kind':'vpk-content'})
   binaries=0
-  root_java=any(p.is_file() and p.suffix.lower()=='.class' for p in paths)
+  root_java=set()
+  for path in original_files:
+   if path.suffix.lower()=='.class':
+    with path.open('rb') as inp:
+     if inp.read(4)==b'\xca\xfe\xba\xbe':root_java.add(path)
   if root_java:
-   jar=work/'project.jar';shutil.copyfile(archive,jar);out=work/'java-project';out.mkdir()
-   try:
-    code,tool_log=command(['/usr/bin/java','-Xmx384m','-jar','/opt/canna-review/tools/cfr.jar',str(jar),'--outputdir',str(out),'--silent','true'],60)
-    generated=[p for p in out.rglob('*.java') if p.is_file()]
-    if code or not generated:finding('coverage','Java project decompilation incomplete',severity='high')
-    for p in generated:add_text(p,'decompiled/java-project/'+p.relative_to(out).as_posix(),'decompiled')
-   except (Limit,OSError):finding('coverage','Java project decompiler timed out or unavailable',severity='high')
+   # Repack only validated class entries. Resource paths from the submitted ZIP
+   # must not become decompiler output paths, and expanded VPK classes are not
+   # falsely described as classes contained in this project archive.
+   jar=work/'project.jar';out=work/'java-project';out.mkdir()
+   with zipfile.ZipFile(jar,'w') as project:
+    for path in sorted(root_java):project.write(path,path.relative_to(work/'archive').as_posix())
+   java_inputs=['archive/'+path.relative_to(work/'archive').as_posix() for path in sorted(root_java)]
+   record=reconstruction('archive/',out,'decompiled/java-project/','Java','cfr',['/usr/bin/java','-Xmx384m','-jar','/opt/canna-review/tools/cfr.jar',str(jar),'--outputdir',str(out),'--silent','true'],60,inputs=java_inputs)
+   record['mapping_note']='Whole-project reconstruction does not establish an exact source-file-to-class-file mapping.'
   for path in paths:
    if not path.is_file():continue
    name='archive/'+path.relative_to(work/'archive').as_posix();ext=path.suffix.lower()
@@ -342,22 +450,21 @@ def analyze(job):
    class_magic=signature==b'\xca\xfe\xba\xbe'
    if native_magic:
     finding('coverage','Native executable source is not reconstructed',name,evidence='Executable magic takes precedence over the filename or media extension.',severity='high')
+    omitted_binary(name,'Native','not-supported','This pipeline does not reconstruct native executable source.')
    elif not pe and not class_magic and (ext in TEXT or path.name.lower()=='license'):add_text(path,name,'uploaded')
-   elif root_java and ext=='.class':continue
+   elif path in root_java:continue
    elif pe or class_magic or ext in ('.dll','.exe','.jar','.class'):
     binaries+=1
-    if binaries>16:finding('coverage','Decompiler assembly limit reached',name,severity='high');continue
+    if binaries>16:
+     finding('coverage','Decompiler assembly limit reached',name,severity='high');omitted_binary(name,'C#' if pe or ext in ('.dll','.exe') else 'Java','limited','Decompiler assembly limit reached (16 binaries).');continue
     out=work/'decompiled'/str(binaries);out.mkdir(parents=True)
-    try:
-     if pe or ext in ('.dll','.exe'):
-      code,tool_log=command(['/opt/canna-review/tools/ilspycmd','--disable-updatecheck','--nested-directories','-p','-o',str(out),str(path)],60)
-     else:
-      code,tool_log=command(['/usr/bin/java','-Xmx384m','-jar','/opt/canna-review/tools/cfr.jar',str(path),'--outputdir',str(out),'--silent','true'],40)
-     if code!=0: finding('coverage','Decompilation failed or unsupported binary',name,evidence=f'Analyzer exit {code}: '+tool_log[-300:],severity='high')
-     generated=[p for p in out.rglob('*') if p.is_file() and p.suffix.lower() in TEXT]
-     if not generated:finding('coverage','No source reconstructed from binary',name,severity='high')
-     for p in generated:add_text(p,'decompiled/'+name+'/'+p.relative_to(out).as_posix(),'decompiled')
-    except (Limit,OSError):finding('coverage','Decompiler unavailable or time limit reached',name,severity='high')
+    if pe or ext in ('.dll','.exe'):
+     args=['/opt/canna-review/tools/ilspycmd','--disable-updatecheck','--nested-directories','-p','-r',str(path.parent),'-o',str(out),str(path)]
+     language,tool,timeout='C#','ilspycmd',60
+    else:
+     args=['/usr/bin/java','-Xmx384m','-jar','/opt/canna-review/tools/cfr.jar',str(path),'--extraclasspath',str(path.parent),'--outputdir',str(out),'--silent','true']
+     language,tool,timeout='Java','cfr',40
+    reconstruction(name,out,'decompiled/'+name+'/',language,tool,args,timeout,dependency_directory='archive/'+path.parent.relative_to(work/'archive').as_posix())
    elif ext!='.vpk':
     asset_magic={'.png':head.startswith(b'\x89PNG\r\n\x1a\n'),'.jpg':head.startswith(b'\xff\xd8\xff'),'.jpeg':head.startswith(b'\xff\xd8\xff'),'.gif':head.startswith((b'GIF87a',b'GIF89a')),'.webp':head.startswith(b'RIFF') and head[8:12]==b'WEBP','.ogg':head.startswith(b'OggS'),'.wav':head.startswith(b'RIFF') and head[8:12]==b'WAVE','.mp3':head.startswith(b'ID3') or (len(head)>=2 and head[0]==255 and head[1]&0xe0==0xe0),'.ttf':head.startswith((b'\x00\x01\x00\x00',b'ttcf')),'.otf':head.startswith(b'OTTO')}
     if ext not in asset_magic:finding('coverage','File format not inspected as source',name)

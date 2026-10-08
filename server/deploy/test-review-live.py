@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Check the installed v6 worker with two disposable production-identity jobs.
+"""Check the installed v7 worker with two disposable production-identity jobs.
 
 Run as an authorized systemd operator after installation. Builds only a trusted
 fixture; never executes the resulting DLL, approves a mod or reanalyzes a live
 mod. The harmless EICAR test string verifies the actual antivirus path.
 """
-import json,shutil,subprocess,tempfile,time,uuid,zipfile
+import hashlib,json,shutil,subprocess,tempfile,time,uuid,zipfile
 from pathlib import Path
 
-EXPECTED_VERSION='canna-static-6'
+EXPECTED_VERSION='canna-static-7'
 API_UNIT=['systemd-run','--quiet','--wait','--pipe','--collect',
  '-p','User=canna','-p','Group=canna','-p','SupplementaryGroups=canna-review',
  '-p','UMask=0077','-p','RestrictSUIDSGID=true','-p','NoNewPrivileges=true',
@@ -44,7 +44,9 @@ public class Example {
  public void NeverRun() { System.Diagnostics.Process.Start("fixture-only-never-run"); }
  public void UnknownDirectory(string path) { System.IO.File.WriteAllText(System.IO.Path.Combine(path,"report.txt"),"fixture"); }
 }''',encoding='utf-8')
- subprocess.run(['dotnet','build',str(project),'-c','Release','--nologo','-v','quiet'],check=True,stdout=subprocess.DEVNULL)
+ (root/'NuGet.Config').write_text('<configuration><packageSources><clear /></packageSources></configuration>',encoding='utf-8')
+ subprocess.run(['dotnet','restore',str(project),'--configfile',str(root/'NuGet.Config'),'--nologo','-v','quiet'],check=True,stdout=subprocess.DEVNULL)
+ subprocess.run(['dotnet','build',str(project),'-c','Release','--no-restore','--nologo','-v','quiet'],check=True,stdout=subprocess.DEVNULL)
  jobs=[Path('/var/lib/canna-review/jobs')/str(uuid.uuid4()) for _ in range(2)]
  root.chmod(0o755)
  staged=root/'handoff.zip'
@@ -104,10 +106,24 @@ print(json.dumps(json.loads(result.read_text(encoding='utf-8'))))
    assert result['coverage_complete'] is True,result['findings']
    assert not any(f['rule']=='coverage' for f in result['findings']),result['findings']
    assert not any('accepted' in f for f in result['findings']),'Fixture findings must have no staff decisions'
+   records=[item for item in result['decompilations'] if item['input']=='archive/fixture.dll']
+   assert len(records)==1,result['decompilations']
+   record=records[0]
+   assert record['tool']=='ilspycmd' and record['status']=='complete',record
+   assert record['generated_count']==record['preview_count']==record['scanned_count'],record
+   assert record['generated_count']>=1 and record['duration_ms']>=0,record
+   assert record['dependency_resolution']['external_downloads'] is False,record
+   for source in result['files']:
+    if source['kind']!='decompiled':continue
+    assert source['origin']==record['input'] and source['name'] in record['generated_files'],source
+    assert source['language']=='C#' and source['decompiler']=='ilspycmd',source
+    assert source['sha256']==hashlib.sha256(source['text'].encode()).hexdigest(),source['name']
+    assert source['byte_size']==len(source['text'].encode()),source['name']
   assert overlap,'Two fixture jobs did not run concurrently'
   print(json.dumps({**installed,'concurrent_jobs':2,'overlap_observed':overlap,
    'decompiled_files':[len(result['files']) for result in results],
    'findings':[len(result['findings']) for result in results],
+   'decompilation_provenance':True,'displayed_source_hashes_verified':True,
    'engines':[result['engines'] for result in results],
    'production_identity_handoff':True,'job_group_inherited':True,
    'explicit_file_group_assignment':True,'passed':True}))

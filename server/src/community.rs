@@ -43,7 +43,12 @@ pub async fn users(
         |r| r.get(0),
     )?;
     let mut statement = db.prepare("SELECT id,username,role,banned,verified,invites_remaining FROM users WHERE instr(lower(username),lower(?1))>0 ORDER BY username,id LIMIT ?2 OFFSET ?3")?;
-    let users = statement.query_map(params![page.term(),page.limit(500),page.offset()], |r| Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"role":r.get::<_,String>(2)?,"banned":r.get::<_,bool>(3)?,"verified":r.get::<_,bool>(4)?,"invites_remaining":r.get::<_,i64>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
+    let mut users = statement.query_map(params![page.term(),page.limit(500),page.offset()], |r| Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"role":r.get::<_,String>(2)?,"banned":r.get::<_,bool>(3)?,"verified":r.get::<_,bool>(4)?,"invites_remaining":r.get::<_,i64>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
+    for user in &mut users {
+        let id = user["id"].as_i64().unwrap();
+        user["roles"] = json!(admin_settings::roles(&db, id)?);
+        user["can_rebound"] = json!(admin_settings::has_rebound(&db, id)?);
+    }
     Ok(axum::Json(page.response(users, total)))
 }
 #[derive(Deserialize)]
@@ -169,11 +174,15 @@ pub async fn audit(
     headers: HeaderMap,
     Query(page): Query<lists::Page>,
 ) -> ApiResult<axum::Json<Value>> {
-    moderator(&app, &headers)?;
+    let (actor, _) = moderator(&app, &headers)?;
     let db = app.db.lock().unwrap();
-    let total:i64=db.query_row("SELECT COUNT(*) FROM audit a JOIN users u ON u.id=a.actor WHERE instr(lower(a.action || a.target || u.username),lower(?1))>0",[page.term()],|r|r.get(0))?;
-    let mut stmt=db.prepare("SELECT a.id,u.username,a.action,a.target,a.created FROM audit a JOIN users u ON u.id=a.actor WHERE instr(lower(a.action || a.target || u.username),lower(?1))>0 ORDER BY a.id DESC LIMIT ?2 OFFSET ?3")?;
-    let items=stmt.query_map(params![page.term(),page.limit(200),page.offset()],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"actor":r.get::<_,String>(1)?,"action":r.get::<_,String>(2)?,"target":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
+    // Future Crash outcomes are owner-only, including search and pagination counts.
+    let is_owner = db.query_row("SELECT role FROM users WHERE id=?1", [actor], |r| {
+        r.get::<_, String>(0)
+    })? == "owner";
+    let total:i64=db.query_row("SELECT COUNT(*) FROM audit a JOIN users u ON u.id=a.actor WHERE (?2 OR a.action!='gambling_config') AND instr(lower(a.action || a.target || u.username),lower(?1))>0",params![page.term(),is_owner],|r|r.get(0))?;
+    let mut stmt=db.prepare("SELECT a.id,u.username,a.action,a.target,a.created FROM audit a JOIN users u ON u.id=a.actor WHERE (?4 OR a.action!='gambling_config') AND instr(lower(a.action || a.target || u.username),lower(?1))>0 ORDER BY a.id DESC LIMIT ?2 OFFSET ?3")?;
+    let items=stmt.query_map(params![page.term(),page.limit(200),page.offset(),is_owner],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"actor":r.get::<_,String>(1)?,"action":r.get::<_,String>(2)?,"target":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
     Ok(axum::Json(page.response(items, total)))
 }
 pub async fn source(
@@ -482,6 +491,44 @@ pub async fn delete_post(
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[tokio::test]
+    async fn planned_crash_outcomes_are_hidden_from_admin_audit_and_search_counts() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "audit-owner", true);
+        let admin = account(&app, "audit-admin", false);
+        app.db
+            .lock()
+            .unwrap()
+            .execute("UPDATE users SET role='admin',admin=1 WHERE id=2", [])
+            .unwrap();
+        let response=call(app.clone(),"POST","/api/v1/admin/gambling",json!({"mode":"controlled","paused":false,"queue":[{"min_multiplier":50.0,"max_multiplier":50.0,"rounds":3}]}),Some(&owner)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        for term in ["gambling_config", "min_multiplier", "50.0", ""] {
+            let path = format!("/api/v1/admin/audit?page=1&search={term}");
+            let hidden =
+                value(call(app.clone(), "GET", &path, Value::Null, Some(&admin)).await).await;
+            assert_eq!(hidden["total"], 0);
+            assert!(hidden["items"].as_array().unwrap().is_empty());
+        }
+        let visible = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/admin/audit?page=1&search=min_multiplier",
+                Value::Null,
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(visible["total"], 1);
+        assert!(
+            visible["items"][0]["target"]
+                .as_str()
+                .unwrap()
+                .contains("50.0")
+        );
+    }
     #[tokio::test]
     async fn section_pages_filter_topics_before_pagination() {
         let (_dir, app) = fixture();

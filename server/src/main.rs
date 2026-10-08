@@ -21,21 +21,27 @@ use std::{
 };
 use tokio::sync::Semaphore;
 use zeroize::Zeroizing;
+mod admin_settings;
 mod admin_tools;
+#[cfg(test)]
+mod browser_preview;
 mod cannabot;
 mod catalog;
 mod community;
+mod cosmetic_assets;
 mod crypto;
 mod curseforge;
 mod devices;
 mod email;
 mod external;
+mod gambling;
 mod game_profiles;
 mod handoff;
 mod invitations;
 mod lists;
 mod live;
 mod lounge;
+mod minecraft_versions;
 mod mod_updates;
 mod notifications;
 mod play;
@@ -43,6 +49,9 @@ mod play_manifest;
 mod profiles;
 mod provider_browse;
 mod provider_cache;
+#[cfg(test)]
+mod recovery_tests;
+mod review_guide;
 mod scans;
 mod sections;
 mod security;
@@ -161,8 +170,10 @@ impl App {
             CREATE TABLE IF NOT EXISTS posts(id TEXT PRIMARY KEY, topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, created INTEGER NOT NULL);")?;
         sections::initialize(&db)?;
         invitations::initialize(&db)?;
+        admin_settings::initialize(&db)?;
         lounge::initialize(&db)?;
         cannabot::initialize(&db)?;
+        gambling::initialize(&db)?;
         external::initialize(&db)?;
         provider_cache::initialize(&db)?;
         provider_browse::initialize(&db)?;
@@ -401,8 +412,9 @@ async fn me(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Js
         )
         .optional()?
         .unwrap_or(0);
+    let db = app.db.lock().unwrap();
     Ok(axum::Json(
-        json!({"id":id,"username":name,"kash":kash,"admin":admin,"role":role,"invites_remaining":remaining,"can_invite":role!="admin" && (role=="owner" || remaining>0),"can_publish_guides":role!="member"}),
+        json!({"id":id,"username":name,"kash":kash,"admin":admin,"role":role,"roles":admin_settings::roles(&db,id)?,"can_rebound":admin_settings::has_rebound(&db,id)?,"invites_remaining":remaining,"can_invite":role!="admin" && (role=="owner" || remaining>0) && admin_settings::check_invites(&db).is_ok(),"can_publish_guides":role!="member"}),
     ))
 }
 async fn invite(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
@@ -418,6 +430,7 @@ async fn invite(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum
     let raw = token();
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction()?;
+    admin_settings::check_invites(&tx)?;
     tx.execute("DELETE FROM invites WHERE expires<=?1", [now()])?;
     let count: i64 = tx.query_row("SELECT COUNT(*) FROM invites", [], |r| r.get(0))?;
     if count >= 200 {
@@ -468,6 +481,7 @@ async fn invite_wave(
     let expires = now() + 7 * 86400;
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction()?;
+    admin_settings::check_invites(&tx)?;
     tx.execute("DELETE FROM invites WHERE expires<=?1", [now()])?;
     let pending: u32 = tx.query_row("SELECT COUNT(*) FROM invites", [], |r| r.get(0))?;
     if pending + input.count > 200 {
@@ -879,6 +893,25 @@ async fn review_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResu
     }
     Ok(asset(include_str!("../web/review.js")))
 }
+async fn review_workspace_style(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+) -> ApiResult<Response> {
+    if !app.auth(&headers)?.1 {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            "Administrator permission required",
+        ));
+    }
+    Ok((
+        [
+            ("content-type", "text/css; charset=utf-8"),
+            ("cache-control", "no-store"),
+        ],
+        include_str!("../web/review-workspace.css"),
+    )
+        .into_response())
+}
 async fn admin_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
     if !app.auth(&headers)?.1 {
         return Err(ApiError(
@@ -934,6 +967,42 @@ async fn lounge_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResu
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/lounge.js")))
 }
+async fn gambling_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
+    app.auth(&headers)?;
+    Ok(asset(include_str!("../web/gambling.js")))
+}
+async fn admin_games_style(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
+    app.auth(&headers)?;
+    Ok((
+        [
+            ("content-type", "text/css; charset=utf-8"),
+            ("cache-control", "private, no-store"),
+        ],
+        include_str!("../web/admin-games.css"),
+    )
+        .into_response())
+}
+async fn cosmetic_asset(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<Response> {
+    app.auth(&headers)?;
+    let (content_type, bytes) = cosmetic_assets::find(&id).ok_or(ApiError(
+        StatusCode::NOT_FOUND,
+        "Cosmetic artwork not found",
+    ))?;
+    Ok((
+        [
+            ("content-type", content_type),
+            ("cache-control", "private, max-age=86400"),
+            ("vary", "Cookie, Authorization"),
+            ("x-content-type-options", "nosniff"),
+        ],
+        bytes,
+    )
+        .into_response())
+}
 fn router(app: Shared) -> Router {
     Router::new()
         .route("/api/v1/play", get(play::list))
@@ -954,6 +1023,10 @@ fn router(app: Shared) -> Router {
         .route("/members", get(community_page))
         .route("/members/{id}", get(community_page))
         .route("/admin", get(community_page))
+        .route("/gambling", get(community_page))
+        .route("/gambling.js", get(gambling_script))
+        .route("/admin-games.css", get(admin_games_style))
+        .route("/api/v1/cosmetics/assets/{id}", get(cosmetic_asset))
         .route("/favicon.png", get(|| async { ([("content-type","image/png"),("cache-control","public, max-age=86400")],include_bytes!("../web/favicon.png").as_slice()) }))
         .route("/brand-logo.png", get(|| async { ([("content-type","image/png"),("cache-control","public, max-age=86400")],include_bytes!("../web/brand-logo.png").as_slice()) }))
         .route(
@@ -1010,6 +1083,7 @@ fn router(app: Shared) -> Router {
         .route("/admin.js", get(admin_script))
         .route("/review/mods/{id}", get(scans::page))
         .route("/review.js", get(review_script))
+        .route("/review-workspace.css", get(review_workspace_style))
         .route("/api/v1/mods/{id}/status", get(scans::status))
         .route("/api/v1/mods/{id}/analysis", get(scans::report).post(scans::analyze))
         .route("/api/v1/mods/updates/check", post(mod_updates::request))
@@ -1057,6 +1131,7 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/verify-email", post(email::verify))
         .route("/api/v1/resend-verification", post(email::resend))
         .route("/api/v1/forgot-password", post(email::forgot))
+        .route("/api/v1/forgot-username", post(email::forgot_username))
         .route("/api/v1/reset-password", post(email::reset))
         .route(
             "/api/v1/auth-status",
@@ -1099,6 +1174,19 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/admin/sections/review", post(sections::review))
         .route("/api/v1/admin/sections/apply", post(sections::apply))
         .route("/api/v1/admin/users", get(community::users))
+        .route("/api/v1/admin/users/{id}/roles", post(admin_settings::set_roles))
+        .route("/api/v1/admin/invitation-settings", get(admin_settings::get).post(admin_settings::set))
+        .route("/api/v1/rebound/support-manifest", get(admin_settings::rebound_manifest))
+        .route("/api/v1/rebound/support", get(admin_settings::rebound_support))
+        .route("/api/v1/gambling", get(gambling::overview))
+        .route("/api/v1/gambling/daily", post(gambling::daily))
+        .route("/api/v1/gambling/crash/bet", post(gambling::crash_bet))
+        .route("/api/v1/gambling/crash/cashout", post(gambling::crash_cashout))
+        .route("/api/v1/gambling/blackjack/deal", post(gambling::blackjack_deal))
+        .route("/api/v1/gambling/blackjack/action", post(gambling::blackjack_action))
+        .route("/api/v1/gambling/cases/open", post(gambling::case_open))
+        .route("/api/v1/gambling/cosmetics/equip", post(gambling::equip))
+        .route("/api/v1/admin/gambling", get(gambling::admin_state).post(gambling::admin_config))
         .route("/api/v1/admin/users/{id}/ban", post(community::ban))
         .route("/api/v1/admin/users/{id}/role", post(community::set_role))
         .route(
@@ -1140,6 +1228,7 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/catalog/file", get(catalog::file))
         .route("/api/v1/mods/subscriptions", get(subscriptions::list).delete(subscriptions::remove))
         .route("/api/v1/providers/games", get(provider_browse::games))
+        .route("/api/v1/providers/minecraft-versions", get(minecraft_versions::list))
         .route("/api/v1/providers/search", get(provider_browse::search))
         .route("/api/v1/mods/external/preview", post(external::preview))
         .route("/api/v1/mods/external/import", post(external::import))
@@ -1358,6 +1447,43 @@ fn encrypt_existing(path: &std::path::Path, key: &str) -> anyhow::Result<()> {
 mod tests {
     use super::*;
     use tower::ServiceExt;
+    #[tokio::test]
+    async fn review_workspace_page_script_and_styles_require_staff_even_for_beta() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "review-owner", true);
+        let member = account(&app, "review-member", false);
+        let admin = account(&app, "review-admin", false);
+        {
+            let db = app.db.lock().unwrap();
+            db.execute("INSERT INTO user_roles VALUES(2,'beta')", [])
+                .unwrap();
+            db.execute("UPDATE users SET role='admin',admin=1 WHERE id=3", [])
+                .unwrap();
+        }
+        for path in [
+            "/review/mods/11111111-1111-4111-8111-111111111111",
+            "/review.js",
+            "/review-workspace.css",
+        ] {
+            assert_eq!(
+                call(app.clone(), "GET", path, Value::Null, None)
+                    .await
+                    .status(),
+                StatusCode::UNAUTHORIZED
+            );
+            assert_eq!(
+                call(app.clone(), "GET", path, Value::Null, Some(&member))
+                    .await
+                    .status(),
+                StatusCode::FORBIDDEN
+            );
+            for staff in [&owner, &admin] {
+                let response = call(app.clone(), "GET", path, Value::Null, Some(staff)).await;
+                assert_eq!(response.status(), StatusCode::OK);
+                assert_eq!(response.headers()["cache-control"], "no-store");
+            }
+        }
+    }
     async fn page_text(response: Response) -> String {
         String::from_utf8(
             axum::body::to_bytes(response.into_body(), 2 * 1024 * 1024)
@@ -1468,6 +1594,7 @@ mod tests {
             "/mods",
             "/submissions",
             "/play",
+            "/gambling",
             "/notifications",
             "/members",
             "/admin",
@@ -1509,6 +1636,7 @@ mod tests {
             "/play-lab.js",
             "/sections.js",
             "/live.js",
+            "/gambling.js",
             "/connect.js",
         ] {
             assert_eq!(
@@ -1539,6 +1667,64 @@ mod tests {
             call(app, "GET", "/app.js", Value::Null, Some(&member))
                 .await
                 .status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+    #[tokio::test]
+    async fn cosmetic_assets_and_games_css_require_active_membership() {
+        let (_dir, app) = fixture();
+        let member = account(&app, "cosmetics-reader", false);
+        let catalog: Value =
+            serde_json::from_str(include_str!("../web/cosmetics/catalog.json")).unwrap();
+        assert_eq!(catalog["items"].as_array().unwrap().len(), 315);
+        for path in [
+            "/admin-games.css".to_owned(),
+            catalog["items"][0]["asset"].as_str().unwrap().to_owned(),
+        ] {
+            assert_eq!(
+                call(app.clone(), "GET", &path, Value::Null, None)
+                    .await
+                    .status(),
+                StatusCode::UNAUTHORIZED
+            );
+            let response = call(app.clone(), "GET", &path, Value::Null, Some(&member)).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["cache-control"], "no-store");
+            assert!(
+                response
+                    .headers()
+                    .get_all("vary")
+                    .iter()
+                    .any(|v| v.to_str().unwrap().contains("Cookie"))
+            );
+        }
+        assert_eq!(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/cosmetics/assets/unknown",
+                Value::Null,
+                Some(&member)
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        app.db
+            .lock()
+            .unwrap()
+            .execute("UPDATE users SET banned=1", [])
+            .unwrap();
+        assert_eq!(
+            call(
+                app,
+                "GET",
+                catalog["items"][0]["asset"].as_str().unwrap(),
+                Value::Null,
+                Some(&member)
+            )
+            .await
+            .status(),
             StatusCode::UNAUTHORIZED
         );
     }

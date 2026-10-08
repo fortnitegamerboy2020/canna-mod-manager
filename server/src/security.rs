@@ -63,6 +63,7 @@ pub async fn protect(State(app): State<Shared>, request: Request, next: Next) ->
                 | "/api/v1/verify-email"
                 | "/api/v1/resend-verification"
                 | "/api/v1/forgot-password"
+                | "/api/v1/forgot-username"
                 | "/api/v1/reset-password"
                 | "/api/v1/desktop/approve"
         );

@@ -17,7 +17,7 @@ function activity(seconds) {
   return new Date(seconds*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
 }
 function updateNavigation() {
-  const views = {playnav:'playview',browsenav:'browseview',subscriptionsnav:'subscriptionsview',librarynav:'libraryview',forumnav:'forumview',peoplenav:'profilesview',myprofilenav:'profilesview',adminnav:'moderation',submissionsnav:'submissionsview',notificationsnav:'notificationsview'};
+  const views = {playnav:'playview',browsenav:'browseview',gamblingnav:'gamblingview',subscriptionsnav:'subscriptionsview',librarynav:'libraryview',forumnav:'forumview',peoplenav:'profilesview',myprofilenav:'profilesview',adminnav:'moderation',submissionsnav:'submissionsview',notificationsnav:'notificationsview'};
   for (const [nav,view] of Object.entries(views)) {
     const active = !$(view).hidden && (nav !== 'myprofilenav' || profileId === currentUser.id) && (nav !== 'peoplenav' || profileId !== currentUser.id);
     $(nav).classList.toggle('active',active); $(nav).setAttribute('aria-current',active ? 'page' : 'false');
@@ -27,14 +27,15 @@ function button(label, callback, page) {
   const node = document.createElement('button'); node.textContent = label;if(page)node.dataset.page=page;
   node.addEventListener('click', () => action(callback)); return node;
 }
-const viewPaths={playview:'/play',forumview:'/forums',browseview:'/mods',subscriptionsview:'/subscriptions',libraryview:'/library',profilesview:'/members',moderation:'/admin',submissionsview:'/submissions',notificationsview:'/notifications'};
+const viewPaths={playview:'/play',forumview:'/forums',browseview:'/mods',gamblingview:'/gambling',subscriptionsview:'/subscriptions',libraryview:'/library',profilesview:'/members',moderation:'/admin',submissionsview:'/submissions',notificationsview:'/notifications'};
 function showView(name,stay=false) {
   if(!stay){return navigatePage(viewPaths[name] || '/forums');}
-  for (const id of ['packview','playview','browseview','subscriptionsview','libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
+  for (const id of ['packview','playview','browseview','gamblingview','subscriptionsview','libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
   updateNavigation();
   if(name==='playview') return loadPlayLab();
   if(name==='forumview') return (async()=>{await loadTopics();})();
   if(name==='browseview') return loadProviderBrowser();
+  if(name==='gamblingview') return loadGambling();
   if(name==='subscriptionsview') return loadSubscriptions();
   if(name==='libraryview') return loadLibrary();
   if(name==='packview') return loadSharedPack();
@@ -43,6 +44,7 @@ function showView(name,stay=false) {
   if (name === 'moderation') return loadAdmin();
 }
 $('browsenav').addEventListener('click',()=>action(()=>showView('browseview')));
+$('gamblingnav').addEventListener('click',()=>action(()=>showView('gamblingview')));
 $('subscriptionsnav').addEventListener('click',()=>action(()=>showView('subscriptionsview')));
 $('librarynav').addEventListener('click', () => action(() => showView('libraryview')));
 $('forumnav').addEventListener('click', () => action(() => showView('forumview')));
@@ -189,7 +191,7 @@ async function loadAdminMembers(){
   $('memberlist').replaceChildren(...members.map(member => {
     const row = document.createElement('div'); row.className = 'entry';
     const info = document.createElement('div'); const title = document.createElement('strong'); title.textContent = member.username;
-    const meta = document.createElement('p'); meta.textContent = `${member.role.toUpperCase()} · ${member.banned ? 'Banned' : member.verified ? 'Active' : 'Awaiting email verification'}`;
+    const meta = document.createElement('p'); meta.textContent = `${memberRoleLabel(member)} · ${member.banned ? 'Banned' : member.verified ? 'Active' : 'Awaiting email verification'}`;
     info.append(title,meta); const tools = document.createElement('div'); tools.className = 'row';
     if (member.verified) tools.append(button('Profile',() => openProfile(member.id),'/members/'+member.id));
     if (member.id !== currentUser.id && member.role !== 'owner' && (currentUser.role === 'owner' || member.role !== 'admin')) tools.append(button(member.banned ? 'Unban' : 'Ban',async () => {
@@ -205,7 +207,7 @@ async function loadAdminMembers(){
       }));
     }
     if(member.id!==currentUser.id && member.role!=='owner' && (currentUser.role==='owner' || member.role!=='admin')) tools.append(button('Log out devices',async()=>{if(!await cannaConfirm(`Log out all devices for ${member.username}?`))return;await api(`admin/users/${member.id}/sessions`,{method:'POST'});message('Devices logged out.');}));
-    row.dataset.search=member.username.toLowerCase();row.append(info,tools); return row;
+    row.dataset.search=member.username.toLowerCase();row.append(info,tools); if(typeof appendAdminMemberRoles==='function')appendAdminMemberRoles(row,member); return row;
   }));
 }
 function viewSource(id) { window.open(`/review/mods/${encodeURIComponent(id)}`,'_blank','noopener'); }

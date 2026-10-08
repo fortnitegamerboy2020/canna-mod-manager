@@ -584,8 +584,15 @@ pub async fn report(
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
         .optional()?;
+    drop(db);
     let mut result = if let Some((status, text, hash)) = row {
+        if text.len() as u64 > REPORT_LIMIT {
+            return Err(bad("Source analysis report exceeds limits"));
+        }
         let mut v: Value = serde_json::from_str(&text).map_err(|_| bad("Invalid report"))?;
+        if !v.is_object() {
+            return Err(bad("Invalid report"));
+        }
         v["status"] = json!(status);
         v["sha256"] = json!(hash);
         v
@@ -593,6 +600,9 @@ pub async fn report(
         json!({"status":"pending","files":[],"findings":[]})
     };
     result["mod_name"] = json!(name);
+    // Derived for legacy reports too. This value is never persisted or used by
+    // the approval policy, and no supplied worker overview is trusted.
+    result["review_overview"] = crate::review_guide::overview(&result);
     Ok(axum::Json(result))
 }
 #[derive(Deserialize)]
@@ -749,6 +759,130 @@ pub async fn decisions(
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[tokio::test]
+    async fn report_overview_is_staff_only_derived_and_does_not_persist_or_approve() {
+        let (_dir, app) = fixture();
+        let member = account(&app, "guide-member", false);
+        let owner = account(&app, "guide-owner", true);
+        let id = Uuid::new_v4().to_string();
+        let stored = json!({"status":"complete","sha256":"worker-supplied-hash","coverage_complete":false,
+            "review_overview":{"approved":true,"suggestions":[]},"inventory":[{"name":"archive/plugin.dll","size":40}],
+            "files":[{"name":"decompiled/plugin/Plugin.cs","kind":"decompiled","text":"class Plugin { void Awake() { Process.Start(\"helper\"); } }"}],
+            "findings":[{"id":"process","rule":"commands","file":"decompiled/plugin/Plugin.cs","line":1}]}).to_string();
+        {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "INSERT INTO mods VALUES(?1,1,1686940,'Guide fixture','1','','actual-hash',100)",
+                [&id],
+            )
+            .unwrap();
+            db.execute("INSERT INTO mod_reviews VALUES(?1,0)", [&id])
+                .unwrap();
+            db.execute(
+                "INSERT INTO mod_scans VALUES(?1,'actual-hash','complete',?2,0)",
+                params![id, stored],
+            )
+            .unwrap();
+        }
+        let url = format!("/api/v1/mods/{id}/analysis");
+        assert_eq!(
+            call(app.clone(), "GET", &url, Value::Null, None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(app.clone(), "GET", &url, Value::Null, Some(&member))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        let result = value(call(app.clone(), "GET", &url, Value::Null, Some(&owner)).await).await;
+        assert_eq!(result["sha256"], "actual-hash");
+        assert_eq!(result["review_overview"]["version"], "canna-review-guide-1");
+        assert!(result["review_overview"].get("approved").is_none());
+        assert_eq!(result["review_overview"]["coverage"]["state"], "incomplete");
+        assert_eq!(result["findings"][0]["accepted"], Value::Null);
+        let db = app.db.lock().unwrap();
+        let persisted: String = db
+            .query_row(
+                "SELECT report FROM mod_scans WHERE mod_id=?1",
+                [&id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(persisted, stored);
+        let approved: bool = db
+            .query_row(
+                "SELECT approved FROM mod_reviews WHERE mod_id=?1",
+                [&id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(!approved);
+        assert!(require_review(&db, &id).is_err());
+        let decisions: i64 = db
+            .query_row(
+                "SELECT COUNT(*) FROM mod_scan_decisions WHERE mod_id=?1",
+                [&id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(decisions, 0);
+    }
+
+    #[tokio::test]
+    async fn report_overview_handles_pending_and_rejects_invalid_or_oversized_stored_reports() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "guide-invalid-owner", true);
+        let id = Uuid::new_v4().to_string();
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO mods VALUES(?1,1,1686940,'Guide pending','1','','hash',100)",
+                [&id],
+            )
+            .unwrap();
+        let url = format!("/api/v1/mods/{id}/analysis");
+        let pending = value(call(app.clone(), "GET", &url, Value::Null, Some(&owner)).await).await;
+        assert_eq!(pending["review_overview"]["analysis_status"], "pending");
+        assert_eq!(
+            pending["review_overview"]["suggestions"][0]["id"],
+            "analysis-status"
+        );
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO mod_scans VALUES(?1,'hash','complete','null',0)",
+                [&id],
+            )
+            .unwrap();
+        for raw in [
+            "null".to_string(),
+            "[]".to_string(),
+            "\"string\"".to_string(),
+            "{malformed".to_string(),
+            format!("{{\"note\":\"{}\"}}", "x".repeat(REPORT_LIMIT as usize)),
+        ] {
+            app.db
+                .lock()
+                .unwrap()
+                .execute(
+                    "UPDATE mod_scans SET report=?1 WHERE mod_id=?2",
+                    params![raw, id],
+                )
+                .unwrap();
+            assert_eq!(
+                call(app.clone(), "GET", &url, Value::Null, Some(&owner))
+                    .await
+                    .status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+    }
+
     #[tokio::test]
     async fn approval_rejects_stale_analysis_without_changing_review_or_audit() {
         let (_dir, app) = fixture();

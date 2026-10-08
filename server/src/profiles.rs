@@ -20,7 +20,12 @@ pub async fn directory(
     let db = app.db.lock().unwrap();
     let total:i64=db.query_row("SELECT COUNT(*) FROM users WHERE verified=1 AND banned=0 AND instr(lower(username),lower(?1))>0",[page.term()],|r|r.get(0))?;
     let mut stmt=db.prepare("SELECT u.id,u.username,u.role,p.status,p.avatar FROM users u LEFT JOIN profiles p ON p.user_id=u.id WHERE u.verified=1 AND u.banned=0 AND instr(lower(u.username),lower(?1))>0 ORDER BY u.username,u.id LIMIT ?2 OFFSET ?3")?;
-    let users=stmt.query_map(params![page.term(),page.limit(500),page.offset()],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"role":r.get::<_,String>(2)?,"status":r.get::<_,Option<String>>(3)?.unwrap_or_default(),"avatar":r.get::<_,Option<String>>(4)?.is_some()})))?.collect::<Result<Vec<_>,_>>()?;
+    let mut users=stmt.query_map(params![page.term(),page.limit(500),page.offset()],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?,"role":r.get::<_,String>(2)?,"status":r.get::<_,Option<String>>(3)?.unwrap_or_default(),"avatar":r.get::<_,Option<String>>(4)?.is_some()})))?.collect::<Result<Vec<_>,_>>()?;
+    for user in &mut users {
+        let id = user["id"].as_i64().unwrap();
+        user["roles"] = json!(admin_settings::roles(&db, id)?);
+        user["can_rebound"] = json!(admin_settings::has_rebound(&db, id)?);
+    }
     Ok(axum::Json(page.response(users, total)))
 }
 pub async fn profile(
@@ -65,6 +70,9 @@ pub async fn profile(
     info["stars"] = json!(stars);
     info["ratings_count"] = json!(votes);
     info["my_rating"] = json!(own_rating);
+    info["roles"] = json!(admin_settings::roles(&db, target)?);
+    info["can_rebound"] = json!(admin_settings::has_rebound(&db, target)?);
+    info["cosmetics"] = gambling::equipped(&db, target)?;
     let mut stmt=db.prepare("SELECT c.id,c.author,u.username,c.body,c.created FROM profile_comments c JOIN users u ON u.id=c.author WHERE c.target=?1 ORDER BY c.created DESC,c.rowid DESC LIMIT 100")?;
     let items=stmt.query_map([target],|r|Ok(json!({"id":r.get::<_,String>(0)?,"author_id":r.get::<_,i64>(1)?,"author":r.get::<_,String>(2)?,"body":r.get::<_,String>(3)?,"created":r.get::<_,i64>(4)?})))?.collect::<Result<Vec<_>,_>>()?;
     info["comments"] = json!(items);
@@ -269,6 +277,65 @@ pub async fn delete_comment(
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[tokio::test]
+    async fn additional_beta_role_is_visible_without_elevating_primary_role() {
+        let (_dir, app) = fixture();
+        let auth = account(&app, "tester", false);
+        app.db
+            .lock()
+            .unwrap()
+            .execute("INSERT INTO user_roles VALUES(1,'beta')", [])
+            .unwrap();
+        let directory = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/profiles",
+                Value::Null,
+                Some(&auth),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(directory[0]["role"], "member");
+        assert_eq!(directory[0]["roles"], json!(["member", "beta"]));
+        assert_eq!(directory[0]["can_rebound"], true);
+        let profile = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/profiles/1",
+                Value::Null,
+                Some(&auth),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(profile["role"], "member");
+        assert_eq!(profile["roles"], json!(["member", "beta"]));
+        assert_eq!(profile["can_rebound"], true);
+        assert_eq!(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/admin/gambling",
+                Value::Null,
+                Some(&auth)
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        app.db
+            .lock()
+            .unwrap()
+            .execute("DELETE FROM user_roles WHERE user_id=1", [])
+            .unwrap();
+        let profile =
+            value(call(app, "GET", "/api/v1/profiles/1", Value::Null, Some(&auth)).await).await;
+        assert_eq!(profile["roles"], json!(["member"]));
+        assert_eq!(profile["can_rebound"], false);
+    }
     #[tokio::test]
     async fn avatar_round_trip_is_encrypted_and_private() {
         use tower::ServiceExt;

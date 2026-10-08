@@ -12,7 +12,7 @@ function renderPeople() {
     const row = document.createElement('div'); row.className = 'membercard';
     if (member.avatar) { const image = document.createElement('img'); image.className = 'avatar'; image.src = `/api/v1/profiles/${member.id}/avatar`; image.width = image.height = 48; image.alt = ''; image.loading='lazy'; row.append(image); }
     const info = document.createElement('div'); const title = document.createElement('strong'); title.textContent = member.username;
-    const status = document.createElement('p'); status.textContent = `${member.role.toUpperCase()}${member.status ? ` · ${member.status}` : ''}`;
+    const status = document.createElement('p'); status.textContent = `${memberRoleLabel(member)}${member.status ? ` · ${member.status}` : ''}`;
     info.append(title,status);const link=button('View profile',() => openProfile(member.id));link.dataset.page='/members/'+member.id;row.append(info,link); return row;
   }));
   if (!filtered.length) $('people').textContent = 'No members found.';
@@ -26,10 +26,11 @@ async function openProfile(id) {
   $('people').replaceChildren();
   await showView('profilesview',true); $('profilecard').hidden = false;
   $('profilename').textContent = profile.username;
-  $('profilebadges').textContent = `${profile.role.toUpperCase()} · ${profile.rank} · ${profile.points} XP${profile.banned ? ' · Banned' : ''}`;
+  $('profilebadges').textContent = `${memberRoleLabel(profile)} · ${profile.rank} · ${profile.points} XP${profile.banned ? ' · Banned' : ''}`;
   $('profilestatus').textContent = profile.status; $('profilebio').textContent = profile.bio;
   $('profileavatar').hidden = !profile.avatar;
   if (profile.avatar) $('profileavatar').src = `/api/v1/profiles/${id}/avatar?t=${Date.now()}`;
+  applyProfileCosmetics(profile);
   $('profilerep').textContent = profile.ratings_count ? `★ ${profile.stars.toFixed(1)} / 5 · ${profile.ratings_count} rating${profile.ratings_count === 1 ? '' : 's'} · ${profile.posts_count} forum posts` : `No ratings yet · ${profile.posts_count} forum posts`;
   const own = id === currentUser.id;
   $('editprofile').hidden = $('avatarform').hidden = !own;
@@ -53,6 +54,16 @@ async function openProfile(id) {
   if (!profile.comments.length) $('profilecomments').textContent = 'No comments yet. Say hello.';
   $('profilecard').scrollIntoView({behavior:'smooth',block:'start'});
 }
+function applyProfileCosmetics(profile){
+ const card=$('profilecard');let banner=$('profilebanner');if(!banner){banner=document.createElement('div');banner.id='profilebanner';banner.className='profilebanner';card.prepend(banner);}
+ const item=profile.cosmetics?.banner;banner.className='profilebanner';banner.replaceChildren();banner.hidden=!item;
+ if(item){banner.setAttribute('aria-label',item.name+' profile banner');const image=profileCosmeticImage(item);if(image)banner.append(image);else{banner.className='profilebanner';if(/^[a-z0-9_-]{1,80}$/.test(item.style||item.id||''))banner.classList.add('cosmetic-'+(item.style||item.id));}}
+ const avatar=$('profileavatar');let portrait=$('profileportrait');if(!portrait){portrait=document.createElement('div');portrait.id='profileportrait';portrait.className='profileportrait';avatar.before(portrait);portrait.append(avatar);const initial=document.createElement('span');initial.id='profileinitial';portrait.append(initial);}
+ $('profileinitial').textContent=profile.username.slice(0,1).toUpperCase();$('profileinitial').hidden=!!profile.avatar;
+ let frame=$('profileframe');if(!frame){frame=document.createElement('div');frame.id='profileframe';portrait.append(frame);}frame.className='profileframe';frame.replaceChildren();frame.hidden=!profile.cosmetics?.frame;
+ if(profile.cosmetics?.frame){const cosmetic=profile.cosmetics.frame;frame.setAttribute('aria-label',cosmetic.name+' avatar frame');const image=profileCosmeticImage(cosmetic);if(image)frame.append(image);else{frame.className='profileframe';if(/^[a-z0-9_-]{1,80}$/.test(cosmetic.style||cosmetic.id||''))frame.classList.add('cosmetic-'+(cosmetic.style||cosmetic.id));}}
+}
+function profileCosmeticImage(item){if(typeof item.asset!=='string'||!/^\/api\/v1\/cosmetics\/assets\/[a-zA-Z0-9_-]+$/.test(item.asset))return null;const image=document.createElement('img');image.src=item.asset;image.alt='';return image;}
 $('editprofile').addEventListener('submit',event => { event.preventDefault(); action(async () => {
   await json('profiles/me',{status:$('editstatus').value,bio:$('editbio').value}); await openProfile(currentUser.id); message('Profile saved.');
 }); });

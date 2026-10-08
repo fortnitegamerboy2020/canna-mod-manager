@@ -15,7 +15,9 @@ async function api(path, options = {}) {
   if (!response.ok) {
     if(response.status===401) location.replace(location.pathname);
     const error = await response.json().catch(() => ({}));
-    throw new Error(error.error || `Request failed (${response.status})`);
+    const failure = new Error(error.error || `Request failed (${response.status})`);
+    failure.status=response.status;
+    throw failure;
   }
   return response;
 }
@@ -103,22 +105,33 @@ async function refresh() {
   currentUser=await (await api('me')).json();
   $('admin').hidden=currentUser.role!=='owner';$('adminnav').hidden=!currentUser.admin;
   $('newinvite').disabled=!currentUser.can_invite;
-  $('allowance').textContent=currentUser.role==='owner'?'Create individual invites or an invite wave. New members get one friend invite.':currentUser.role==='admin'?'Admins cannot issue invites. The Owner manages invitation waves.':`${currentUser.invites_remaining} friend invitation remaining. Each code works once and expires after seven days.`;
-  $('rolebadge').textContent=currentUser.role.toUpperCase();$('welcome').textContent=currentUser.username;$('kashbalance').textContent=(currentUser.kash||0).toLocaleString()+' Kash';$('sideusername').textContent=currentUser.username;$('siderole').textContent=`${currentUser.role.toUpperCase()} · Canna community`;
+  $('newwave').disabled=!currentUser.can_invite;
+  $('allowance').textContent=currentUser.role==='owner'?(currentUser.can_invite?'Create individual invites or an invite wave. New members get one friend invite.':'Invitation creation is paused. Resume it in Admin panel → Invitations.'):currentUser.role==='admin'?'Admins cannot issue invites. The Owner manages invitation waves.':`${currentUser.invites_remaining} friend invitation remaining. Each code works once and expires after seven days.`;
+  renderAccountBadges();
   if(!communityPageReady){await openCommunityPage();communityPageReady=true;}
   else if(!$('libraryview').hidden)await loadLibrary();
   else if(!$('moderation').hidden && currentUser.admin)await loadAdmin();
+  else if(!$('gamblingview').hidden)await loadGambling();
   updateNavigation();
   $('space').removeAttribute('data-booting');$('bootstatus').hidden=true;
   setupPagePrefetch();
   if(externalLanding){externalLanding=false;await showView("libraryview",true);openExternalImport();}
   if(devicesLanding){devicesLanding=false;await openProfile(currentUser.id);$('loggeddevices').scrollIntoView({block:'start'});}
 }
+function memberRoleLabel(member){
+  const primary=String(member.role||'member');
+  const roles=[primary,...(Array.isArray(member.roles)?member.roles:[])];
+  return [...new Set(roles.filter(role=>['owner','admin','vip','member','beta'].includes(role)))].map(role=>role.toUpperCase()).join(' · ');
+}
+function renderAccountBadges(){
+  $('adminnav').hidden=!currentUser.admin;
+  $('rolebadge').textContent=memberRoleLabel(currentUser);$('welcome').textContent=currentUser.username;$('kashbalance').textContent=(currentUser.kash||0).toLocaleString()+' Kash';$('sideusername').textContent=currentUser.username;$('siderole').textContent=`${memberRoleLabel(currentUser)} · Canna community`;
+}
 $('logout').addEventListener('click',()=>action(async()=>{await api('logout',{method:'POST'});location.assign('/');}));
 $('forgetdevices').addEventListener('click',()=>action(async()=>{if(!await cannaConfirm('Forget all trusted devices and sign out everywhere?'))return;await api('trusted-devices',{method:'DELETE'});location.assign('/');}));
 async function inviteAction(id,callback) {
   const btn=$(id);btn.disabled=true;$('invitestatus').textContent='Generating invitations…';
-  try {await callback();$('inviteout').focus();}catch(error){$('invitestatus').textContent=error.message;message(error.message);}finally {btn.disabled=id==='newinvite' && !currentUser.can_invite;}
+  try {await callback();$('inviteout').focus();}catch(error){$('invitestatus').textContent=error.message;message(error.message);}finally {btn.disabled=!currentUser.can_invite;}
 }
 $('newinvite').addEventListener('click',()=>inviteAction('newinvite',async()=>{
   const result=await json('invites',{});$('inviteout').value=result.invite;$('waveid').value='';$('revokewave').disabled=true;await refresh();if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent='Invitation created. Copy the code below and give it to one person. It expires in seven days.';
@@ -196,6 +209,7 @@ async function navigatePage(path,back=false){
  try{
   // Revalidate the session even when route data was warmed on hover.
   currentUser=await(await api('me')).json();
+  renderAccountBadges();
   if(!back)history.pushState(null,'',path);
   openThread='';threadData=undefined;topicPage=0;profileId=0;
   $('topicfilter').value='';$('thread').hidden=true;$('newtopic').hidden=true;$('profilecard').hidden=true;
@@ -204,7 +218,7 @@ async function navigatePage(path,back=false){
  }finally{navigating=false;}
 }
 function setupPagePrefetch(){
- const paths={playnav:'/play',forumnav:'/forums',browsenav:'/mods',subscriptionsnav:'/subscriptions',librarynav:'/library',peoplenav:'/members',adminnav:'/admin',submissionsnav:'/submissions',notificationsnav:'/notifications',myprofilenav:'/members/'+currentUser.id,welcome:'/members/'+currentUser.id,forumback:'/forums',latestdiscussions:'/forums/latest'};
+ const paths={playnav:'/play',forumnav:'/forums',browsenav:'/mods',gamblingnav:'/gambling',subscriptionsnav:'/subscriptions',librarynav:'/library',peoplenav:'/members',adminnav:'/admin',submissionsnav:'/submissions',notificationsnav:'/notifications',myprofilenav:'/members/'+currentUser.id,welcome:'/members/'+currentUser.id,forumback:'/forums',latestdiscussions:'/forums/latest'};
  for(const [id,path] of Object.entries(paths))$(id).dataset.page=path;
  if(prefetchReady)return;prefetchReady=true;
  const intent=event=>{
