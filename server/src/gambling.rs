@@ -766,8 +766,23 @@ struct CosmeticCatalog {
 }
 
 fn build_catalog(source: &str) -> ApiResult<CosmeticCatalog> {
-    let catalog: Value =
+    let mut catalog: Value =
         serde_json::from_str(source).map_err(|_| bad("Cosmetics catalog is unavailable"))?;
+    let paused = catalog["paused_collections"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    for item in catalog["items"]
+        .as_array_mut()
+        .ok_or_else(|| bad("Cosmetics catalog is unavailable"))?
+    {
+        if paused
+            .iter()
+            .any(|collection| collection == &item["collection"])
+        {
+            item["paused"] = json!(true);
+        }
+    }
     let items = catalog["items"]
         .as_array()
         .ok_or_else(|| bad("Cosmetics catalog is unavailable"))?;
@@ -872,6 +887,9 @@ fn case_pool<'a>(catalog: &'a Value, id: &str) -> ApiResult<(Vec<&'a Value>, u64
         .as_array()
         .ok_or_else(|| bad("Cosmetics catalog is unavailable"))?
     {
+        if item["paused"] == true {
+            continue;
+        }
         if collection
             .is_some_and(|collection| item["collection"] != collection || item["kind"] != kind)
         {
@@ -912,7 +930,8 @@ fn cases_view(catalog: &Value) -> ApiResult<Value> {
         .map(|id| {
             let (name, collection, kind) = case_definition(id)?;
             let (pool, sum) = case_pool(catalog, id)?;
-            Ok(json!({"id":id,"name":name,"cost":catalog["case"]["price"],"collection":collection,"kind":kind,"item_count":pool.len(),"available":sum>0,"contents":name,"items":pool.iter().map(|item|json!({"id":item["id"],"odds_percent":100.0*item["weight"].as_u64().unwrap() as f64/sum as f64})).collect::<Vec<_>>(),"duplicates":"Duplicates increase your collection count; there is no sale or trade."}))
+            let paused = catalog["paused_collections"].as_array().is_some_and(|paused| collection.is_some_and(|collection| paused.iter().any(|value| value == collection)));
+            Ok(json!({"id":id,"name":name,"cost":catalog["case"]["price"],"collection":collection,"kind":kind,"item_count":pool.len(),"available":sum>0,"paused":paused,"pause_reason":if paused {Some("Paused due to artwork quality. Owned calling cards are saved.")} else {None},"contents":name,"items":pool.iter().map(|item|json!({"id":item["id"],"odds_percent":100.0*item["weight"].as_u64().unwrap() as f64/sum as f64})).collect::<Vec<_>>(),"duplicates":"Duplicates increase your collection count; there is no sale or trade."}))
         })
         .collect::<ApiResult<Vec<_>>>()
         .map(|cases| json!(cases))
@@ -960,8 +979,13 @@ pub fn equipped(db: &Connection, actor: i64) -> ApiResult<Value> {
     let catalog = catalog()?;
     let items = catalog["items"].as_array().unwrap();
     let find = |id: Option<String>| {
-        id.and_then(|id| items.iter().find(|item| item["id"] == id).cloned())
-            .unwrap_or(Value::Null)
+        id.and_then(|id| {
+            items
+                .iter()
+                .find(|item| item["id"] == id && item["paused"] != true)
+                .cloned()
+        })
+        .unwrap_or(Value::Null)
     };
     Ok(json!({"frame":find(frame),"banner":find(banner)}))
 }
@@ -988,7 +1012,7 @@ pub async fn case_open(
         |db| {
             let (_, sum) = case_pool(catalog, &input.case_id)?;
             if sum == 0 {
-                return Err(bad("Cosmetic case is unavailable"));
+                return Err(bad("Cosmetic case is unavailable or paused"));
             }
             let item = select_case_item(catalog, &input.case_id, OsRng.gen_range(0..sum))?;
             debit(db, actor, catalog["case"]["price"].as_i64().unwrap())?;
@@ -1018,15 +1042,31 @@ pub async fn equip(
     let catalog = catalog()?;
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let previous: (Option<String>, Option<String>) = tx
+        .query_row(
+            "SELECT frame,banner FROM gambling_equipped WHERE user_id=?1",
+            [actor],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .unwrap_or_default();
     for (kind, id) in [("frame", &input.frame), ("banner", &input.banner)] {
         if let Some(id) = id {
-            if !catalog["items"]
+            let item = catalog["items"]
                 .as_array()
                 .unwrap()
                 .iter()
-                .any(|i| i["id"] == *id && i["kind"] == kind)
-            {
-                return Err(bad("Choose an item of the correct cosmetic kind"));
+                .find(|i| i["id"] == *id && i["kind"] == kind)
+                .ok_or_else(|| bad("Choose an item of the correct cosmetic kind"))?;
+            let previous_id = if kind == "frame" {
+                &previous.0
+            } else {
+                &previous.1
+            };
+            if item["paused"] == true && previous_id.as_ref() != Some(id) {
+                return Err(bad(
+                    "This cosmetic collection is paused due to artwork quality",
+                ));
             }
             let owned: bool = tx.query_row(
                 "SELECT EXISTS(SELECT 1 FROM gambling_cosmetics WHERE user_id=?1 AND item_id=?2)",
@@ -2701,6 +2741,134 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn mw2_pause_blocks_drops_and_new_equips_preserves_ownership_and_selection() {
+        let (_dir, app) = fixture();
+        let auth = account(&app, "paused-collector", false);
+        balance(&app, 1, 1000);
+        let catalog = cached_catalog().unwrap();
+        let cards: Vec<_> = catalog.value["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|item| item["collection"] == "mw2")
+            .collect();
+        assert_eq!(cards.len(), 398);
+        assert!(cards.iter().all(|item| item["paused"] == true));
+        let a = cards[0]["id"].as_str().unwrap();
+        let b = cards[1]["id"].as_str().unwrap();
+        let (pool, sum) = case_pool(&catalog.value, "mw2-calling-cards").unwrap();
+        assert!(pool.is_empty());
+        assert_eq!(sum, 0);
+        let mixed = case_pool(&catalog.value, "canna-case").unwrap().0;
+        assert!(!mixed.is_empty());
+        assert!(mixed.iter().all(|item| item["collection"] != "mw2"));
+        for id in ["bo2-calling-cards", "avatar-frames"] {
+            assert!(case_pool(&catalog.value, id).unwrap().1 > 0);
+        }
+        {
+            let db = app.db.lock().unwrap();
+            for id in [a, b, "frame-mint-halo"] {
+                db.execute("INSERT INTO gambling_cosmetics VALUES(1,?1,2)", [id])
+                    .unwrap();
+            }
+            db.execute(
+                "INSERT INTO gambling_equipped(user_id,banner) VALUES(1,?1)",
+                [a],
+            )
+            .unwrap();
+            assert!(equipped(&db, 1).unwrap()["banner"].is_null());
+        }
+        let response = call(
+            app.clone(),
+            "POST",
+            "/api/v1/gambling/cases/open",
+            json!({"request_id":"paused-case","case_id":"mw2-calling-cards"}),
+            Some(&auth),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let response = call(
+            app.clone(),
+            "POST",
+            "/api/v1/gambling/cosmetics/equip",
+            json!({"frame":null,"banner":b}),
+            Some(&auth),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        // Changing a frame can preserve the already-selected paused banner.
+        let response = call(
+            app.clone(),
+            "POST",
+            "/api/v1/gambling/cosmetics/equip",
+            json!({"frame":"frame-mint-halo","banner":a}),
+            Some(&auth),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        {
+            let db = app.db.lock().unwrap();
+            assert_eq!(wallet(&db, 1).unwrap().0, 1000);
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM gambling_requests WHERE user_id=1",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count FROM gambling_cosmetics WHERE user_id=1 AND item_id=?1",
+                    [a],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                2
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT banner FROM gambling_equipped WHERE user_id=1",
+                    [],
+                    |r| r.get::<_, String>(0)
+                )
+                .unwrap(),
+                a
+            );
+            let profile = equipped(&db, 1).unwrap();
+            assert!(profile["banner"].is_null());
+            assert_eq!(profile["frame"]["id"], "frame-mint-halo");
+        }
+        let response = call(
+            app.clone(),
+            "POST",
+            "/api/v1/gambling/cosmetics/equip",
+            json!({"frame":"frame-mint-halo","banner":null}),
+            Some(&auth),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let response = call(
+            app.clone(),
+            "POST",
+            "/api/v1/gambling/cosmetics/equip",
+            json!({"frame":"frame-mint-halo","banner":a}),
+            Some(&auth),
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        // A future resume retains the same IDs, weights and source assets.
+        let mut source: Value =
+            serde_json::from_str(include_str!("../web/cosmetics/catalog.json")).unwrap();
+        source["paused_collections"] = json!([]);
+        let resumed = build_catalog(&source.to_string()).unwrap();
+        assert!(case_pool(&resumed.value, "mw2-calling-cards").unwrap().1 > 0);
+        assert_ne!(resumed.version, catalog.version);
+        assert_eq!(resumed.value["items"], source["items"]);
+    }
+
+    #[tokio::test]
     async fn cases_show_full_odds_duplicate_request_awards_once_and_equip_checks_ownership() {
         let (_dir, app) = fixture();
         let a = account(&app, "collector", false);
@@ -2884,7 +3052,6 @@ mod tests {
         }
         for (index, (id, collection, kind)) in [
             ("bo2-calling-cards", "bo2", "banner"),
-            ("mw2-calling-cards", "mw2", "banner"),
             ("avatar-frames", "frames", "frame"),
         ]
         .into_iter()
@@ -2955,7 +3122,7 @@ mod tests {
             );
         }
         let db = app.db.lock().unwrap();
-        assert_eq!(wallet(&db, 1).unwrap().0, 700);
+        assert_eq!(wallet(&db, 1).unwrap().0, 800);
         assert_eq!(
             db.query_row(
                 "SELECT count(*) FROM gambling_requests WHERE user_id=1",
@@ -2963,7 +3130,7 @@ mod tests {
                 |r| r.get::<_, i64>(0)
             )
             .unwrap(),
-            3
+            2
         );
         assert_eq!(equipped(&db, 1).unwrap()["frame"]["id"], "frame-mint-halo");
     }

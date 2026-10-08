@@ -65,7 +65,7 @@ async function openProfile(id) {
 }
 function applyProfileCosmetics(profile){
  const card=$('profilecard');let banner=$('profilebanner');if(!banner){banner=document.createElement('div');banner.id='profilebanner';banner.className='profilebanner';card.prepend(banner);}
- const item=profile.cosmetics?.banner;banner.className='profilebanner';banner.replaceChildren();banner.hidden=!item;
+ const item=profile.cosmetics?.banner?.paused?null:profile.cosmetics?.banner;banner.className='profilebanner';banner.replaceChildren();banner.hidden=!item;
  if(item){banner.setAttribute('aria-label',item.name+(item.animated?' animated':'')+' profile banner');banner.setAttribute('role','img');banner.title=item.name;const image=profileCosmeticImage(item);if(image){if(item.collection==='mw2'){banner.classList.add('mw2-banner');const width=callingCardDisplayWidth(item);if(width)image.style.width=width+'px';}banner.append(image);}else{if(/^[a-z0-9_-]{1,80}$/.test(item.style||item.id||''))banner.classList.add('cosmetic-'+(item.style||item.id));}}
  const avatar=$('profileavatar');let portrait=$('profileportrait');if(!portrait){portrait=document.createElement('div');portrait.id='profileportrait';portrait.className='profileportrait';avatar.before(portrait);portrait.append(avatar);const initial=document.createElement('span');initial.id='profileinitial';portrait.append(initial);}
  $('profileinitial').textContent=profile.username.slice(0,1).toUpperCase();$('profileinitial').hidden=!!profile.avatar;

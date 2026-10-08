@@ -66,3 +66,11 @@ and the pack's individual custom art retain their original owners' rights.
 Source availability and attribution do not assert a blanket license. No external
 messages were sent. Cosmetic and poster routes require the existing authenticated
 asset API; posters are not separate crate prizes.
+
+## Community 0.3.65 availability
+
+MW2 calling cards are paused due to insufficient source image quality. Their
+files, provenance, IDs, odds weights, ownership and stored selections are retained
+for a future resume. The MW2 crate and new equips are disabled, mixed-case drops
+exclude them, and the collection/profile UI hides them. BO2 and avatar frames
+remain active. No asset pixels changed in this pause.
