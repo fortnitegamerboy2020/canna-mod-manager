@@ -51,6 +51,7 @@ static class NetworkGuardTests
         p = Ready(); p.BeginRoom(1, "bad"); p.ReplaceRoster(new[] { 1, 2 }); Check(!p.Evaluate().Allowed, "Malformed room epoch denies");
         ManifestChecks();
         ConfigChecks();
+        AnonymousReportChecks();
         JsonChecks();
         var stamps = new ContentStampPolicy();
         Check(stamps.NeedsVerification("first", false), "Initial content stamp requires a full hash");
@@ -102,6 +103,27 @@ static class NetworkGuardTests
         local.ConfigDigest=ManifestContract.ComponentFingerprint(expected,"config");peer.ConfigDigest=ManifestContract.ComponentFingerprint(changed,"config");
         local.ConfigEvidence=PeerAdvertisement.DescribeConfig(expected);peer.ConfigEvidence=PeerAdvertisement.DescribeConfig(changed);
         Check(PeerAdvertisement.ConfigDifference(local,peer).Contains("active card pool"),"Runtime card pool mismatch has a readable label");
+    }
+
+    static void AnonymousReportChecks()
+    {
+        var p=new AnonymousReportPolicy();
+        Check(!p.TryBegin(Hash,0),"Anonymous reporting is off by default");p.Enable(true);
+        Check(p.TryBegin(Hash,0),"Explicit opt-in permits a report");Check(!p.TryBegin(Other,1),"Concurrent report uploads are bounded");p.Complete(true);
+        Check(!p.TryBegin(Hash,61),"Unchanged accepted reports are not resent");Check(!p.TryBegin(Other,20),"Report uploads are limited to one per minute");
+        Check(p.TryBegin(Other,61),"Changed evidence can be reported after the limit");p.Complete(false);p.Enable(false);
+        Check(!p.TryBegin(Hash,200),"Turning reporting off prevents later uploads");
+        var manifest=Manifest();manifest.files=new[]{new FileRow { root="config",path="private-user.cfg",sha256=Other }};
+        var local=Ad(1);local.ModsDigest=Hash;local.AssetsDigest=Hash;local.ConfigDigest=ManifestContract.ComponentFingerprint(manifest,"config");local.ConfigEvidence=PeerAdvertisement.DescribeConfig(manifest);
+        var peer=Ad(2);peer.ModsDigest=Hash;peer.AssetsDigest=Hash;peer.ConfigDigest=local.ConfigDigest;peer.ConfigEvidence=local.ConfigEvidence;
+        string report=PeerAdvertisement.AnonymousReport(local,new[]{peer},Epoch,"settings");
+        using(var doc=System.Text.Json.JsonDocument.Parse(report)) {
+            Check(doc.RootElement.GetProperty("consent").GetBoolean() && doc.RootElement.GetProperty("peers").GetArrayLength()==1,"Report contains explicit consent and bounded peer evidence");
+            Check(doc.RootElement.GetProperty("local").GetProperty("files")[0].GetProperty("key").GetString().StartsWith("other:"),"Unknown config names are anonymized before upload");
+        }
+        Check(!report.Contains("private-user") && !report.Contains("setting_values") && !report.Contains("username"),"Report excludes raw config paths, setting values and account names");
+        Check(PeerAdvertisement.AnonymousReport(local,new[]{peer},"bad","settings")==null,"Unbound room sessions cannot be reported");
+        Check(PeerAdvertisement.AnonymousReport(local,new[]{peer},Epoch,"arbitrary private text")==null,"Report reason is a fixed category, never log text");
     }
 
     static CompatibilityManifest Manifest(string asset = null, string config = null, string patcher = null)

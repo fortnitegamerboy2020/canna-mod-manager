@@ -325,7 +325,7 @@ namespace UnityEngine
     public class MonoBehaviour : Object { }
     public static class Time { public static float realtimeSinceStartup; }
     public struct Rect { public Rect(float x, float y, float w, float h) { } }
-    public static class GUI { public static void Box(Rect rect, string text) { } public static void Label(Rect rect, string text) { } }
+    public static class GUI { public static void Box(Rect rect, string text) { } public static void Label(Rect rect, string text) { } public static bool Toggle(Rect rect,bool value,string text) { return value; } }
     public static class JsonUtility
     { public static T FromJson<T>(string text) { return new JavaScriptSerializer().Deserialize<T>(text); } }
 }

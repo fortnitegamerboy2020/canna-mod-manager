@@ -3,9 +3,11 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using System.Threading;
 #if GUARD_RUNTIME
 using System.Collections;
 using System.IO;
+using System.Net;
 using System.Reflection;
 using BepInEx;
 using BepInEx.Configuration;
@@ -72,6 +74,27 @@ namespace Canna.DuctTapePlusPlus
             return different.Length == 0 ? "" : " Different: " + String.Join(", ", different) + ".";
         }
 
+        public static string AnonymousReport(PeerAdvertisement local, IEnumerable<PeerAdvertisement> peers, string epoch, string category)
+        {
+            if (!IsEpoch(epoch) || !ValidReportPeer(local) || !new[] { "settings", "mods", "assets", "game", "waiting", "invalid" }.Contains(category)) return null;
+            var entries = peers.Where(ValidReportPeer).Where(peer => peer.Actor != local.Actor && peer.Epoch == epoch).GroupBy(peer => peer.Actor).Select(group => group.First()).OrderBy(peer => peer.Actor).Take(16).ToArray();
+            string body = "{\"schema\":1,\"consent\":true,\"session\":\"" + epoch + "\",\"actor\":" + local.Actor + ",\"guard_version\":\"0.1.3\",\"category\":\"" + category + "\",\"local\":" + ReportPeer(local) + ",\"peers\":[" + String.Join(",", entries.Select(ReportPeer)) + "]}";
+            return Encoding.UTF8.GetByteCount(body) <= 16384 ? body : null;
+        }
+
+        static bool ValidReportPeer(PeerAdvertisement peer)
+        { return peer != null && peer.Actor > 0 && peer.Actor <= 64 && new[] { peer.GameHash, peer.ContentDigest, peer.ModsDigest, peer.AssetsDigest, peer.ConfigDigest }.All(IsHash); }
+
+        static string ReportPeer(PeerAdvertisement peer)
+        {
+            var rows = ConfigRows(peer);
+            string files = rows == null ? "" : String.Join(",", rows.OrderBy(row => row.Key, StringComparer.Ordinal).Select(row => {
+                string key = row.Key == "Canna.Rebound.Runtime/cards" ? "cards" : row.Key == "Canna.Rebound.Runtime/maps" ? "maps" : row.Key == "UnboundLib.cfg" ? "unbound" : row.Key == "com.XAngelMoonX.rounds.CosmicRounds.cfg" ? "cr" : row.Key == "root.classes.manager.reborn.cfg" ? "classes" : "other:" + ManifestContract.Hash(Encoding.UTF8.GetBytes(row.Key));
+                return "{\"key\":\"" + key + "\",\"sha256\":\"" + row.Value + "\"}";
+            }));
+            return "{\"actor\":" + peer.Actor + ",\"game\":\"" + peer.GameHash + "\",\"content\":\"" + peer.ContentDigest + "\",\"mods\":\"" + peer.ModsDigest + "\",\"assets\":\"" + peer.AssetsDigest + "\",\"config\":\"" + peer.ConfigDigest + "\",\"files\":[" + files + "]}";
+        }
+
         public static bool IsHash(string value)
         { return value != null && value.Length == 64 && value.All(c => c >= '0' && c <= '9' || c >= 'a' && c <= 'f'); }
         public static bool IsEpoch(string value)
@@ -92,6 +115,16 @@ namespace Canna.DuctTapePlusPlus
         { return force || currentStamp == null || lastAttempt != currentStamp; }
         public void RecordAttempt(string stamp) { lastAttempt = stamp; }
         public void Invalidate() { lastAttempt = null; }
+    }
+
+    public sealed class AnonymousReportPolicy
+    {
+        readonly object sync = new object();
+        bool enabled, busy; string last, pending; double next;
+        public void Enable(bool value) { lock(sync) { enabled=value; if(!value) last=null; } }
+        public bool TryBegin(string fingerprint, double now)
+        { lock(sync) { if(!enabled || busy || !PeerAdvertisement.IsHash(fingerprint) || fingerprint==last || now<next) return false; busy=true;pending=fingerprint;next=now+60;return true; } }
+        public void Complete(bool accepted) { lock(sync) { if(accepted)last=pending;pending=null;busy=false; } }
     }
 
     // No Unity, Photon or filesystem dependencies: callbacks supply the actual Photon actor ID.
@@ -184,7 +217,7 @@ namespace Canna.DuctTapePlusPlus
 #if GUARD_RUNTIME
 namespace Canna.DuctTapePlusPlus
 {
-    [BepInPlugin("canna.ducttapeplusplus.networkguard", "Canna Rebound compatibility guard", "0.1.2")]
+    [BepInPlugin("canna.ducttapeplusplus.networkguard", "Canna Rebound compatibility guard", "0.1.3")]
     [BepInDependency("rounds-port.runtime")]
     [BepInDependency("com.willis.rounds.unbound", BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency("io.olavim.rounds.rwf", BepInDependency.DependencyFlags.SoftDependency)]
@@ -196,6 +229,12 @@ namespace Canna.DuctTapePlusPlus
         const string ModsKey = "dtpp.mods", AssetsKey = "dtpp.assets", ConfigKey = "dtpp.config";
         const string ConfigEvidenceKey = "dtpp.config.rows";
         static NetworkGuard instance;
+        readonly AnonymousReportPolicy reportPolicy = new AnonymousReportPolicy();
+        readonly object reportSync = new object();
+        bool reportEnabled;
+        HttpWebRequest reportRequest;
+        volatile string reportStatus = "Off. No reports are sent.";
+        float nextReportCheck;
         readonly RoomCompatibilityPolicy policy = new RoomCompatibilityPolicy();
         readonly HashSet<MethodBase> patched = new HashSet<MethodBase>();
         readonly HashSet<MethodBase> unsupported = new HashSet<MethodBase>();
@@ -253,6 +292,7 @@ namespace Canna.DuctTapePlusPlus
             if (!PhotonNetwork.InRoom || PhotonNetwork.OfflineMode) return;
             if (!joined) JoinCurrentRoom();
             RefreshRoom();
+            MaybeReport();
             // Resume only a start that the game already requested, after every peer becomes compatible.
             if (pendingStart != null && Evaluate().Allowed)
             {
@@ -713,6 +753,39 @@ namespace Canna.DuctTapePlusPlus
             policy.ObservePeer(actualPlayer.ActorNumber, peer, policy.Generation);
         }
 
+        void MaybeReport()
+        {
+            if (!reportEnabled || String.IsNullOrEmpty(lastMessage) || local == null || !PeerAdvertisement.IsEpoch(epoch)) return;
+            if(Time.realtimeSinceStartup<nextReportCheck) return;
+            nextReportCheck=Time.realtimeSinceStartup+5f;
+            string category = lastMessage.Contains("active gameplay settings") ? "settings" : lastMessage.Contains("DLLs") || lastMessage.Contains("Rebound release") ? "mods" : lastMessage.Contains("assets or patchers") ? "assets" : lastMessage.Contains("game assembly") ? "game" : lastMessage.Contains("Waiting") || lastMessage.Contains("not advertised") ? "waiting" : "invalid";
+            var peers = PhotonNetwork.PlayerList.Select(player => {
+                var p=player.CustomProperties;
+                return new PeerAdvertisement(p[ProtocolKey] as string,p[ProfileKey] as string,p[GameKey] as string,p[DigestKey] as string,player.ActorNumber,p[PeerEpochKey] as string,p[ModsKey] as string,p[AssetsKey] as string,p[ConfigKey] as string,p[ConfigEvidenceKey] as string);
+            }).ToArray();
+            // The current local snapshot is not actor-bound until it is advertised.
+            var own=new PeerAdvertisement(local.Protocol,local.Profile,local.GameHash,local.ContentDigest,PhotonNetwork.LocalPlayer.ActorNumber,epoch,local.ModsDigest,local.AssetsDigest,local.ConfigDigest,local.ConfigEvidence);
+            string body=PeerAdvertisement.AnonymousReport(own,peers,epoch,category);
+            if(body==null || !reportPolicy.TryBegin(ManifestContract.Hash(Encoding.UTF8.GetBytes(body)),Time.realtimeSinceStartup)) return;
+            reportStatus="Sending hashes only…";
+            ThreadPool.QueueUserWorkItem(_ => {
+                bool accepted=false;HttpWebRequest request=null;
+                try {
+                    lock(reportSync) {
+                        if(!reportEnabled) return;
+                        request=(HttpWebRequest)WebRequest.Create("https://cannamods.vip/api/v1/rebound/diagnostics");
+                        request.Method="POST";request.ContentType="application/json";request.Timeout=10000;request.ReadWriteTimeout=10000;request.AllowAutoRedirect=false;
+                        request.Credentials=null;request.UseDefaultCredentials=false;request.CookieContainer=null;reportRequest=request;
+                    }
+                    byte[] bytes=Encoding.UTF8.GetBytes(body);request.ContentLength=bytes.Length;
+                    using(var stream=request.GetRequestStream())stream.Write(bytes,0,bytes.Length);
+                    using(var response=(HttpWebResponse)request.GetResponse())accepted=response.StatusCode==HttpStatusCode.OK;
+                    reportStatus=accepted?"Anonymous report sent. No setting values included.":"Report not accepted. Retry is rate limited.";
+                } catch { reportStatus="Report unavailable; gameplay settings are unchanged."; }
+                finally { lock(reportSync) { if(reportRequest==request)reportRequest=null; } reportPolicy.Complete(accepted); }
+            });
+        }
+
         void ClearConnection()
         {
             joined = false; epoch = null; pendingEpoch = null; failedEpoch = null; pendingStart = null; lastMessage = null;
@@ -727,13 +800,17 @@ namespace Canna.DuctTapePlusPlus
         void OnGUI()
         {
             if (!PhotonNetwork.InRoom || PhotonNetwork.OfflineMode || String.IsNullOrEmpty(lastMessage)) return;
-            float height = lastMessage.Length > 200 ? 180 : 110;
+            float height = (lastMessage.Length > 200 ? 180 : 110) + 70;
             GUI.Box(new Rect(18, 18, 520, height), "Canna Rebound multiplayer compatibility");
-            GUI.Label(new Rect(32, 47, 490, height - 38), lastMessage + "\nEvery participant needs the same prepared mods, assets and gameplay configuration.");
+            GUI.Label(new Rect(32, 47, 490, height - 108), lastMessage + "\nEvery participant needs the same prepared mods, assets and gameplay configuration.");
+            bool enabled=GUI.Toggle(new Rect(32,height-42,490,24),reportEnabled,"Optional: send anonymous compatibility reports");
+            if(enabled!=reportEnabled) { lock(reportSync) {reportEnabled=enabled;reportPolicy.Enable(enabled);nextReportCheck=0;reportStatus=enabled?"Waiting for valid compatibility hashes…":"Off. No new reports are sent.";if(!enabled)reportRequest?.Abort();} }
+            GUI.Label(new Rect(32,height-16,490,36),reportStatus);
         }
 
         void OnDestroy()
         {
+            lock(reportSync) { reportEnabled=false;reportPolicy.Enable(false);reportRequest?.Abort(); }
             ClearConnection(); PhotonNetwork.RemoveCallbackTarget(this);
             // Keep installed gates fail-closed if this plugin is removed during an online session.
             if (instance == this) instance = null;
