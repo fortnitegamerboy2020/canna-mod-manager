@@ -414,6 +414,36 @@ pub fn remember_applied(game: &InstalledGame, pack: &Modpack) -> Result<()> {
     )?;
     Ok(())
 }
+pub fn last_applied(game: &InstalledGame) -> Result<Option<Modpack>> {
+    let path = state().join(format!("applied-{}.json", target_key(game)));
+    last_applied_at(&path, game.app_id)
+}
+fn last_applied_at(path: &Path, app_id: u32) -> Result<Option<Modpack>> {
+    crate::runtime::no_links(path)?;
+    if !path.exists() {
+        return Ok(None);
+    }
+    let metadata = fs::symlink_metadata(path)?;
+    anyhow::ensure!(
+        metadata.is_file() && metadata.len() <= 2 * 1024 * 1024,
+        "Applied pack metadata exceeds limits or is not a file"
+    );
+    let mut bytes = Vec::new();
+    fs::File::open(path)?
+        .take(2 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)?;
+    anyhow::ensure!(
+        bytes.len() <= 2 * 1024 * 1024,
+        "Applied pack metadata grew beyond limits"
+    );
+    let pack: Modpack = serde_json::from_slice(&bytes)?;
+    pack.validate()?;
+    anyhow::ensure!(
+        pack.game.app_id == app_id,
+        "Applied pack belongs to another game"
+    );
+    Ok(Some(pack))
+}
 pub fn before_change(game: &InstalledGame, next: &Modpack) -> Result<()> {
     let policy = Policy::load();
     if !policy.automatic {
@@ -668,6 +698,24 @@ fn preserve_other_configs(path: &Path, base: &Path, stage: &Path) -> Result<()> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn last_applied_pack_rejects_other_games_and_unbounded_or_invalid_metadata() {
+        fixture(|root, game, pack, _| {
+            let file = root.join("applied-test.json");
+            assert!(last_applied_at(&file, game.app_id).unwrap().is_none());
+            fs::write(&file, serde_json::to_vec(&pack).unwrap()).unwrap();
+            assert_eq!(
+                last_applied_at(&file, game.app_id).unwrap().unwrap().id,
+                pack.id
+            );
+            assert!(last_applied_at(&file, 1557740).is_err());
+            fs::write(&file, b"invalid").unwrap();
+            assert!(last_applied_at(&file, game.app_id).is_err());
+            fs::write(&file, vec![b' '; 2 * 1024 * 1024 + 1]).unwrap();
+            assert!(last_applied_at(&file, game.app_id).is_err());
+            assert!(last_applied_at(root, game.app_id).is_err());
+        });
+    }
     fn fixture(run: impl FnOnce(&Path, InstalledGame, Modpack, Policy)) {
         let root = std::env::temp_dir().join(format!(
             "canna-workflow-{}-{}",

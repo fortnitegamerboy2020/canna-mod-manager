@@ -95,6 +95,8 @@ pub struct PackUi {
 pub enum RuntimeAction {
     Stop(u32),
 
+    RestoreVanilla(u32),
+
     Setup(Modpack),
 
     Install(Modpack),
@@ -963,6 +965,14 @@ impl PackUi {
                         .push_back(RuntimeAction::Launch(pack.clone(), false));
                 }
 
+                if pack.game.app_id != u32::MAX
+                    && crate::model::source_addons(pack.game.app_id).is_none()
+                    && ui.button("Restore vanilla files").clicked()
+                {
+                    self.runtime_requests
+                        .push_back(RuntimeAction::RestoreVanilla(pack.game.app_id));
+                }
+
                 if primary(ui, "Edit modpack").clicked() {
                     action = Some(Action::Edit(pack.clone()));
                 }
@@ -1669,7 +1679,9 @@ impl PackUi {
                         | RuntimeAction::Install(p)
                         | RuntimeAction::Launch(p, _) => p.id != pack.id,
 
-                        RuntimeAction::LaunchCurrent(_) | RuntimeAction::Stop(_) => true,
+                        RuntimeAction::LaunchCurrent(_)
+                        | RuntimeAction::RestoreVanilla(_)
+                        | RuntimeAction::Stop(_) => true,
                     });
 
                     self.group_members.remove(&pack.id);

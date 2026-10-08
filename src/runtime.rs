@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 use std::{
     fs,
-    io::{Cursor, Read},
+    io::{Cursor, Read, Write},
     path::{Path, PathBuf},
     process::Command,
     time::Duration,
@@ -300,6 +300,7 @@ fn setup_with_framework(
         return crate::source_addons::setup(game);
     }
     ensure_closed(game)?;
+    crate::unity_restore::resume(game, false)?;
     let il2cpp = game.path.join("GameAssembly.dll").is_file();
     let core = if il2cpp {
         "BepInEx/core/BepInEx.Unity.IL2CPP.dll"
@@ -340,7 +341,18 @@ fn setup_with_framework(
             anyhow::anyhow!("The Canna server does not have a compatible framework for this game")
         })?
     };
-    let entries = framework_entries(&bytes, il2cpp, game.app_id)?;
+    let mut entries = framework_entries(&bytes, il2cpp, game.app_id)?;
+    // A new bootstrap must be inert for direct Steam launches until Launch modded.
+    // Existing manual loader settings are handled by the early return above.
+    for (path, data) in &mut entries {
+        if path == Path::new("doorstop_config.ini") {
+            anyhow::ensure!(
+                data.len() <= 256 * 1024,
+                "Doorstop configuration exceeds its safety limit"
+            );
+            *data = doorstop_text(std::str::from_utf8(data)?, false)?.into_bytes();
+        }
+    }
     if let Some(profile) = crate::game_profiles::by_id(game.app_id) {
         let exe = profile
             .executables
@@ -373,7 +385,9 @@ fn setup_with_framework(
         dependencies: Vec::new(),
     };
     let _ = crate::website::remember_mod(pack, &framework, &bytes, true);
+    crate::unity_restore::preflight_framework(game)?;
     write_new(&game.path, &entries)?;
+    crate::unity_restore::record_framework(game, &entries)?;
     fs::create_dir_all(game.path.join("BepInEx/plugins"))?;
     fs::create_dir_all(game.path.join("BepInEx/config"))?;
     Ok(())
@@ -536,6 +550,8 @@ pub(crate) fn prepare_install_with_configs(
         crate::game_compat::check_pack(game, pack)?;
     }
     ensure_closed(game)?;
+    // Restore only receipt-owned loader files; user configs stay in place for preflight.
+    crate::unity_restore::resume(game, false)?;
     let support = if translate {
         progress("Verifying Canna Rebound Beta access…");
         Some(crate::rebound_support::authorized_bundle(token)?)
@@ -819,17 +835,7 @@ fn activate_stage(root: &Path, stage: &Path, configs: Vec<(PathBuf, Vec<u8>)>) -
     }
     Ok(())
 }
-pub fn set_mode(root: &Path, modded: bool) -> Result<()> {
-    let path = root.join("doorstop_config.ini");
-    no_links(&path)?;
-    if !path.exists() {
-        if modded {
-            bail!("Set up BepInEx first")
-        } else {
-            return Ok(());
-        }
-    }
-    let original = fs::read_to_string(&path)?;
+pub(crate) fn doorstop_text(original: &str, modded: bool) -> Result<String> {
     let mut general = false;
     let mut changed = false;
     let updated = original
@@ -857,22 +863,65 @@ pub fn set_mode(root: &Path, modded: bool) -> Result<()> {
     if !changed {
         bail!("Doorstop configuration has no General.enabled setting")
     }
-    let backup = root.join("doorstop_config.canna-original.ini");
-    if !backup.exists() {
-        fs::write(backup, original)?;
+    Ok(updated)
+}
+pub fn set_mode(root: &Path, modded: bool) -> Result<()> {
+    let path = root.join("doorstop_config.ini");
+    no_links(&path)?;
+    if !path.exists() {
+        if modded {
+            bail!("Set up BepInEx first")
+        } else {
+            return Ok(());
+        }
     }
-    fs::write(path, updated)?;
+    anyhow::ensure!(
+        fs::metadata(&path)?.len() <= 256 * 1024,
+        "Doorstop configuration exceeds its safety limit"
+    );
+    let original = fs::read_to_string(&path)?;
+    let updated = doorstop_text(&original, modded)?;
+    let backup = root.join("doorstop_config.canna-original.ini");
+    no_links(&backup)?;
+    if !backup.exists() {
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(backup)?
+            .write_all(original.as_bytes())?;
+    }
+    crate::unity_restore::replace_file(&path, updated.as_bytes())?;
     Ok(())
 }
+pub fn has_parked_managed(game: &InstalledGame) -> Result<bool> {
+    crate::unity_restore::has_parked_managed(game)
+}
+pub fn restore_vanilla(game: &InstalledGame) -> Result<String> {
+    anyhow::ensure!(
+        crate::model::framework(game.app_id) == "bepinex" && game.app_id != u32::MAX,
+        "Restore vanilla files is available for supported Unity games"
+    );
+    anyhow::ensure!(
+        crate::model::supported_catalog()
+            .iter()
+            .any(|entry| entry.app_id == game.app_id),
+        "This game is not a supported Unity game"
+    );
+    crate::unity_restore::restore(game)
+}
 pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::OwnedGame> {
-    if modded {
-        crate::game_compat::check_current(game)?;
-    }
     ensure_closed(game)?;
     if crate::model::source_addons(game.app_id).is_some() {
+        if modded {
+            crate::game_compat::check_current(game)?;
+        }
         crate::source_addons::set_mode(game, modded)?;
+    } else if modded {
+        crate::unity_restore::resume(game, true)?;
+        crate::game_compat::check_current(game)?;
+        set_mode(&game.path, true)?;
     } else {
-        set_mode(&game.path, modded)?;
+        restore_vanilla(game)?;
     }
     let earliest = crate::owned_game::OwnedGame::now();
     if crate::model::source_addons(game.app_id).is_some() {
@@ -1456,6 +1505,68 @@ mod tests {
                 .unwrap()
                 .contains("enabled=false")
         );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn new_framework_is_receipted_and_inert_until_modded_launch() {
+        let root = temporary_preparation_root("vanilla-bootstrap");
+        crate::modpacks::with_test_root(root.join("test-state"), || {
+            fs::create_dir(root.join("Rounds_Data")).unwrap();
+            let mut pe = vec![0u8; 256];
+            pe[..2].copy_from_slice(b"MZ");
+            pe[0x3c..0x40].copy_from_slice(&0x80u32.to_le_bytes());
+            pe[0x80..0x84].copy_from_slice(b"PE\0\0");
+            pe[0x84..0x86].copy_from_slice(&0x8664u16.to_le_bytes());
+            fs::write(root.join("Rounds.exe"), &pe).unwrap();
+            let mut writer = zip::ZipWriter::new(Cursor::new(Vec::new()));
+            for (name, data) in [
+            ("BepInEx/core/BepInEx.dll", b"fixture core".as_slice()),
+            ("winhttp.dll", pe.as_slice()),
+            ("doorstop_config.ini", b"[UnityDoorstop]\nenabled=true\ntargetAssembly=BepInEx\\core\\BepInEx.Preloader.dll\n".as_slice()),
+            ("BepInEx/config/BepInEx.cfg", b"Value = default".as_slice()),
+        ] {
+            writer.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            writer.write_all(data).unwrap();
+        }
+            let framework = writer.finish().unwrap().into_inner();
+            let (mut game, mut pack) = preparation_fixture(&root);
+            game.app_id = 1557740;
+            pack.game.app_id = 1557740;
+            pack.game.name = "ROUNDS".into();
+            pack.game.folder = "rounds".into();
+            setup_with_framework(&game, &pack, "", Some(&framework)).unwrap();
+            assert!(
+                fs::read_to_string(root.join("doorstop_config.ini"))
+                    .unwrap()
+                    .contains("enabled=false")
+            );
+            fs::write(
+                root.join("BepInEx/config/BepInEx.cfg"),
+                b"Value = user setting",
+            )
+            .unwrap();
+            set_mode(&root, true).unwrap();
+            setup_with_framework(&game, &pack, "", Some(&framework)).unwrap();
+            assert!(
+                fs::read_to_string(root.join("doorstop_config.ini"))
+                    .unwrap()
+                    .contains("enabled=true")
+            );
+            restore_vanilla(&game).unwrap();
+            assert!(!root.join("winhttp.dll").exists());
+            assert_eq!(fs::read(root.join("Rounds.exe")).unwrap(), pe);
+            setup_with_framework(&game, &pack, "", Some(&framework)).unwrap();
+            assert!(root.join("winhttp.dll").is_file());
+            assert!(
+                fs::read_to_string(root.join("doorstop_config.ini"))
+                    .unwrap()
+                    .contains("enabled=false")
+            );
+            assert_eq!(
+                fs::read(root.join("BepInEx/config/BepInEx.cfg")).unwrap(),
+                b"Value = user setting"
+            );
+        });
         fs::remove_dir_all(root).unwrap();
     }
     #[test]

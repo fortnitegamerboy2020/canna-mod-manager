@@ -30,6 +30,7 @@ mod skins;
 mod source_addons;
 mod steam;
 mod ui_helpers;
+mod unity_restore;
 mod updater;
 mod website;
 
@@ -760,13 +761,34 @@ impl Canna {
     }
 }
 impl Canna {
+    fn queue_vanilla_cleanup(&mut self, id: u32) {
+        if self.games.iter().any(|game| {
+            game.app_id == id && id != u32::MAX && model::source_addons(id).is_none()
+        }) && !self.pack_ui.runtime_requests.iter().any(|request| {
+            matches!(request, pack_ui::RuntimeAction::RestoreVanilla(queued) if *queued == id)
+        }) {
+            self.pack_ui.runtime_requests.push_front(pack_ui::RuntimeAction::RestoreVanilla(id));
+        }
+    }
     fn stop_game(&mut self, id: u32) {
         let result = self.owned_games.get(&id).map(|game| game.stop());
         self.runtime_status = match result {
             Some(Ok(())) => {
-                self.owned_games.remove(&id);
                 self.launch_watch = None;
-                "Game stopped.".into()
+                if self.owned_games.get(&id).is_some_and(|game| game.running()) {
+                    // TerminateProcess is asynchronous. Retain ownership so the
+                    // normal exit poll schedules cleanup after the process closes.
+                    "Stopping game. Waiting for its process to close…".into()
+                } else {
+                    self.owned_games.remove(&id);
+                    self.queue_vanilla_cleanup(id);
+                    if id != u32::MAX && model::source_addons(id).is_none() {
+                        "Game stopped. Restoring vanilla files…"
+                    } else {
+                        "Game stopped."
+                    }
+                    .into()
+                }
             }
             Some(Err(error)) => format!("Could not stop game: {error}"),
             None => "No running game owned by Canna.".into(),
@@ -984,14 +1006,20 @@ impl Canna {
             pack_ui::RuntimeAction::Setup(p)
             | pack_ui::RuntimeAction::Install(p)
             | pack_ui::RuntimeAction::Launch(p, _) => p.game.app_id,
-            pack_ui::RuntimeAction::LaunchCurrent(id) => *id,
+            pack_ui::RuntimeAction::LaunchCurrent(id)
+            | pack_ui::RuntimeAction::RestoreVanilla(id) => *id,
         };
         let Some(game) = self.games.iter().find(|g| g.app_id == id).cloned() else {
             self.runtime_status = "Install this game through Steam first.".into();
             return;
         };
         self.runtime_busy = true;
-        self.runtime_status = "Preparing game…".into();
+        self.runtime_status = if matches!(request, pack_ui::RuntimeAction::RestoreVanilla(_)) {
+            "Restoring vanilla files…"
+        } else {
+            "Preparing game…"
+        }
+        .into();
         self.pack_ui.set_runtime_status(&self.runtime_status);
         let tx = self.tx.clone();
         let ctx = ctx.clone();
@@ -1007,6 +1035,7 @@ impl Canna {
             let result = (|| -> anyhow::Result<String> {
                 match request {
                     pack_ui::RuntimeAction::Stop(_) => unreachable!(),
+                    pack_ui::RuntimeAction::RestoreVanilla(_) => runtime::restore_vanilla(&game),
                     pack_ui::RuntimeAction::Setup(pack) => {
                         runtime::setup_with_options(&game, &pack, &token, options, &progress)?;
                         Ok("Mod framework is ready. Choose mods for your pack.".into())
@@ -1044,6 +1073,16 @@ impl Canna {
                         .into())
                     }
                     pack_ui::RuntimeAction::LaunchCurrent(_) => {
+                        if runtime::has_parked_managed(&game)?
+                            && let Some(pack) = play_backup::last_applied(&game)?
+                        {
+                            let prepared =
+                                runtime::prepare_install(&game, &pack, &token, options, &progress)?;
+                            let applied = prepared.effective_pack().clone();
+                            play_backup::before_change(&game, &applied)?;
+                            runtime::install_prepared(&game, prepared, &token, &progress)?;
+                            play_backup::remember_applied(&game, &applied)?;
+                        }
                         let requested = std::time::SystemTime::now();
                         let owned = runtime::launch(&game, true)?;
                         let _ = tx.send(Event::Launched(game.app_id, true, requested, owned));
@@ -1074,7 +1113,15 @@ impl Canna {
             chrome::CANVAS,
         );
         self.events(ctx);
-        self.owned_games.retain(|_, game| game.running());
+        let exited: Vec<_> = self
+            .owned_games
+            .iter()
+            .filter_map(|(id, game)| (!game.running()).then_some(*id))
+            .collect();
+        for id in exited {
+            self.owned_games.remove(&id);
+            self.queue_vanilla_cleanup(id);
+        }
         self.pack_ui.owned_games = self.owned_games.keys().copied().collect();
         if !self.owned_games.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_secs(1));
@@ -1631,6 +1678,7 @@ impl Canna {
                             if self.owned_games.contains_key(&game.app_id) && ui.button("Stop instance").clicked() { self.stop_game(game.app_id); }
                             if ui.button("Launch vanilla").clicked() { self.queue_game_launch(&game, &info, false); }
                             if ui.button("Launch modded").clicked() { self.queue_game_launch(&game, &info, true); }
+                            if model::source_addons(game.app_id).is_none() && ui.add_enabled(!self.runtime_busy,egui::Button::new("Restore vanilla files")).clicked() {self.queue_vanilla_cleanup(game.app_id);}
                         });
                         ui.add_space(16.0); ui.heading("Family mods");
                         if info.mods.is_empty() { ui.label("No mods published for this game yet. You can still create a pack and import local mods."); }
@@ -1780,6 +1828,7 @@ impl Canna {
                                 ui.separator();
                                 if ui.add_enabled(!self.runtime_busy,egui::Button::new("Launch vanilla")).clicked() {self.queue_game_launch(&game,&pack_game,false);ui.close();}
                                 if ui.add_enabled(!self.runtime_busy,egui::Button::new("Launch modded")).clicked() {self.queue_game_launch(&game,&pack_game,true);ui.close();}
+                                if model::source_addons(game.app_id).is_none() && ui.add_enabled(!self.runtime_busy,egui::Button::new("Restore vanilla files")).clicked() {self.queue_vanilla_cleanup(game.app_id);ui.close();}
                                 ui.separator();
                                 if ui.button("Open game folder").clicked() {if let Err(error)=std::process::Command::new("explorer.exe").arg(&game.path).spawn(){self.warnings.push(error.to_string());}ui.close();}
                                 if ui.button("Copy game folder").clicked() {ui.ctx().copy_text(game.path.display().to_string());ui.close();}
@@ -1871,7 +1920,57 @@ impl eframe::App for Canna {
         egui::Rgba::from(chrome::CANVAS).to_array()
     }
 }
+fn restore_vanilla_cli_id(args: &[String]) -> anyhow::Result<Option<u32>> {
+    let Some(index) = args.iter().position(|arg| arg == "--restore-vanilla") else {
+        return Ok(None);
+    };
+    anyhow::ensure!(
+        args.iter()
+            .filter(|arg| *arg == "--restore-vanilla")
+            .count()
+            == 1,
+        "Specify --restore-vanilla once with a Steam app ID"
+    );
+    let value = args
+        .get(index + 1)
+        .ok_or_else(|| anyhow::anyhow!("Use --restore-vanilla followed by a Steam app ID"))?;
+    anyhow::ensure!(
+        !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()),
+        "Invalid Steam app ID"
+    );
+    let id: u32 = value.parse()?;
+    anyhow::ensure!(id > 0 && id != u32::MAX, "Invalid Steam app ID");
+    Ok(Some(id))
+}
 fn main() -> eframe::Result {
+    match restore_vanilla_cli_id(&std::env::args().collect::<Vec<_>>()) {
+        Ok(Some(id)) => {
+            let settings = Settings::load();
+            let result = steam::scan(&settings.steam_path)
+                .games
+                .into_iter()
+                .find(|game| game.app_id == id)
+                .ok_or_else(|| {
+                    anyhow::anyhow!("Install this supported Unity game through Steam first")
+                })
+                .and_then(|game| runtime::restore_vanilla(&game));
+            match result {
+                Ok(message) => {
+                    println!("{message}");
+                    return Ok(());
+                }
+                Err(error) => {
+                    eprintln!("Vanilla restore: {error:#}");
+                    std::process::exit(1);
+                }
+            }
+        }
+        Ok(None) => (),
+        Err(error) => {
+            eprintln!("Vanilla restore: {error:#}");
+            std::process::exit(1);
+        }
+    }
     #[cfg(debug_assertions)]
     if std::env::args().any(|a| a == "--provider-smoke-test") {
         match provider_browser::live_check() {
@@ -1974,6 +2073,61 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod ui_tests {
     use super::*;
+    #[test]
+    fn vanilla_cli_rejects_ambiguous_or_invalid_targets_before_game_access() {
+        let parse = |values: &[&str]| {
+            restore_vanilla_cli_id(&values.iter().map(|v| (*v).into()).collect::<Vec<_>>())
+        };
+        assert_eq!(parse(&["canna", "--scan"]).unwrap(), None);
+        assert_eq!(
+            parse(&["canna", "--restore-vanilla", "1557740"]).unwrap(),
+            Some(1557740)
+        );
+        for args in [
+            vec!["canna", "--restore-vanilla"],
+            vec!["canna", "--restore-vanilla", "0"],
+            vec!["canna", "--restore-vanilla", "4294967295"],
+            vec!["canna", "--restore-vanilla", "../ROUNDS"],
+            vec![
+                "canna",
+                "--restore-vanilla",
+                "1557740",
+                "--restore-vanilla",
+                "1686940",
+            ],
+        ] {
+            assert!(parse(&args).is_err());
+        }
+    }
+    #[test]
+    fn owned_unity_exit_cleanup_precedes_launch_requests_and_deduplicates() {
+        let ctx = egui::Context::default();
+        let mut app = Canna::new_with_context(&ctx, false);
+        let game = |id| InstalledGame {
+            app_id: id,
+            name: "Cleanup dispatch fixture".into(),
+            path: Default::default(),
+            loader: "Fixture".into(),
+            plugins: 0,
+            icon: None,
+        };
+        app.games = vec![game(1557740), game(550), game(u32::MAX)];
+        app.pack_ui
+            .runtime_requests
+            .push_back(pack_ui::RuntimeAction::LaunchCurrent(1557740));
+        for id in [1557740, 1557740, 550, u32::MAX, 42] {
+            app.queue_vanilla_cleanup(id);
+        }
+        assert_eq!(app.pack_ui.runtime_requests.len(), 2);
+        assert!(matches!(
+            app.pack_ui.runtime_requests.pop_front(),
+            Some(pack_ui::RuntimeAction::RestoreVanilla(1557740))
+        ));
+        assert!(matches!(
+            app.pack_ui.runtime_requests.pop_front(),
+            Some(pack_ui::RuntimeAction::LaunchCurrent(1557740))
+        ));
+    }
     #[test]
     fn rebound_checkbox_requires_verified_beta_and_idle_state() {
         for authorized in [false, true] {

@@ -2,7 +2,7 @@
 
 A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and the private Canna server as the mod catalog. Uploads and external imports are managed on the website.
 
-Canna 0.2.42 uses a compact icon sidebar and a borderless window. The yellow
+Canna 0.2.43 uses a compact icon sidebar and a borderless window. The yellow
 button in the top right minimizes; green maximizes/restores; red closes Canna. Drag
 the header to move the window, or double-click it to maximize/restore. Hover
 sidebar icons for their names. Drag any window edge or corner to resize.
@@ -13,14 +13,23 @@ uses its game cover. Website Play Lab uses numbered expandable cards. Mod review
 show scan progress, dependency blockers, retries and queue totals; shared libraries
 scan first. Public Help / FAQ describes the current workflow and verification limits.
 
-Desktop 0.2.42 and Community 0.3.58 add server-verified Beta access for the
+Desktop 0.2.43 and Community 0.3.59 offer server-verified Beta access for the
 Rebound runtime preview, searchable official Minecraft version choices and result
 counts. The website adds an Admin overview, invitation and registration pause
 controls, Crash, Blackjack and cosmetic cases, plus email-only Forgot password
 and Forgot username forms. Staff review now has an advisory overview, a full
-archive/source browser, source outlines, search and line navigation. New static-7
+archive/source browser, source outlines, search and line navigation. Crash now
+has a smooth flight curve and progress bar that pause when server updates are
+stale, with reduced-motion support and server-authoritative cashouts. Cosmetics
+open to your owned collection, with immediate drop equip buttons and profile
+links; classic MW2 cards retain their original compact pixel-art dimensions.
+New static-8
 analyses record reconstruction origins, tool results, safe partial output and
-coverage limits. These tools do not establish mod safety or full game/multiplayer
+coverage limits. Exact canonical license prose is separated from code while
+appended and disguised code remains inspected. Reflection, decoding and code
+loading have distinct labels; advisory patcher checks and bounded, untrusted CLR
+payload-name hints help trace components without clearing findings. These tools
+do not establish mod safety or full game/multiplayer
 compatibility; Minecraft account/launch API approval remains pending.
 
 ## Run
@@ -44,7 +53,27 @@ Build a portable executable with `./build.ps1`. Rust and Windows C++ build tools
 - Counts local plugin DLLs, opens the game folder, and launches installed games through Steam.
 - Reads game metadata, icons, framework packages and mod listings from the authenticated Canna server on a background thread. Reports expired sessions, malformed metadata and network errors.
 
-Creating a modpack automatically sets up BepInEx. **Add Mods** opens **Discover**, where you can search the family catalog, choose a compatible modpack, and add or update only the selected pinned package without adding or re-enabling its libraries; **Import local mod** adds a DLL or plugin ZIP. **Apply modpack** installs the enabled selections in `BepInEx/plugins/Canna` with the game closed. Saving selection changes does not install those mod files. **Launch modded** installs the selected pack and launches through Steam. **Launch vanilla** disables Doorstop before launching. **Stop instance** terminates the game process Canna launched, using a retained Windows handle. It appears in the pack, its right-click menu, game details, and navigation while that process runs. Independently launched games are never adopted. The last mode remains selected until changed. Existing plugins outside Canna are preserved and also load in modded mode.
+Creating a modpack automatically sets up BepInEx. Fresh setup creates Canna Doorstop configuration disabled and preserves existing manual configuration. Modded launch enables the loader. **Add Mods** opens **Discover**, where you can search the family catalog, choose a compatible modpack, and add or update only the selected pinned package without adding or re-enabling its libraries; **Import local mod** adds a DLL or plugin ZIP. **Apply modpack** installs the enabled selections in `BepInEx/plugins/Canna` with the game closed. It intentionally leaves that prepared setup until restoration; saving selection changes does not install files. **Launch modded** installs the selected pack and launches through Steam. **Launch vanilla** restores Canna-managed Unity files and disables Doorstop before launching. **Stop instance** terminates the game process Canna launched, using a retained Windows handle. It appears in the pack, its right-click menu, game details, and navigation while that process runs. Independently launched games are never adopted. Existing plugins outside Canna are preserved and also load in modded mode.
+
+Desktop 0.2.43 adds **Restore vanilla files**, without launching the game, in
+Unity game details, the Library right-click menu and modpack actions. Close the
+game first; this also refuses restoration while ROUNDS runs directly through
+Steam. Canna reversibly parks its managed plugin/patcher trees, including
+interrupted `.previous` backups, outside BepInEx. It also parks unchanged loader
+files recorded as Canna-owned; legacy, unreceipted or modified files remain and
+Doorstop is disabled. Manual plugins, mod configuration, saves and game assemblies
+are preserved. Third-party game-assembly patches require their own restoration;
+this action does not undo arbitrary DuctTape or other patcher changes.
+
+Keep Canna open until a game it launched exits, or use **Stop instance**, for
+automatic cleanup after confirmed exit. Games launched independently through
+Steam are not adopted or automatically cleaned. Next Setup or Launch modded
+restores the tracked runtime and prepares the current pack. Launching a parked
+Rebound pack rechecks current server-verified Beta access before reapplying it.
+The same account-free restore action is available from source with
+`cargo run --release -- --restore-vanilla 1557740` for ROUNDS; it does not launch
+the game. Cleanup validation uses isolated temporary game folders; new live
+ROUNDS restoration, launch and multiplayer checks remain unverified.
 
 Desktop 0.2.40's **Discover → Browse providers** page (**Browse mods**) includes approved entries from the synced Canna library under **All sources**. Choose **Canna** in the source menu to show those entries alone, or choose an external provider. Canna results use game, search, content-type and page filters; provider-specific categories can exclude them. Canna pages are alphabetical and external providers retain their own sorting, with no promised global ranking. **Refresh library** updates the synced listings after a newly approved release.
 
@@ -148,7 +177,7 @@ Each modpack's Content table has an **Enabled** checkbox; right-click a mod for 
 
 The enabled official [DuctTape package by kieron_exe](https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape/) requires the public ROUNDS branch (Steam → Properties → Betas → None). Canna recognizes its Thunderstore project identity `kieron_exe-DuctTape` and suppresses only the inferred old-branch requirement from UnboundLib 3.2.14 / MMHook 1.0.0. Explicit legacy branch requirements, the original HollowPurple requirement and the guard against enabling original HollowPurple together with HollowPurple Fixed remain. The author's guide says to retain UnboundLib, MMHook and RoundsWithFriends as installed packages; DuctTape substitutes their assemblies during launch. This branch-check change has fixture coverage; live DuctTape gameplay and multiplayer integration have not been verified by these checks.
 
-**Desktop 0.2.42 with Community 0.3.58** requires server-verified Beta access and
+**Desktop 0.2.42 with Community 0.3.58 or newer** requires server-verified Beta access and
 downloads protected Rebound support separately. Previously distributed desktop
 0.2.41 still contains its original opt-in support bundle; updating replaces that
 distribution model but cannot remove already distributed files retroactively.
