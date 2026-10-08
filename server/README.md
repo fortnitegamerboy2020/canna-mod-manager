@@ -4,7 +4,7 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.65
+## Current release: Community 0.3.66
 
 MW2 banner correction cleans the baked screenshot matte in 260 tiny source images, including Stuck on You, with audited alpha masks, transparent-only crops and lossless PNG output. Retained RGB pixels, all 654 cosmetic IDs, crate odds and equipment routes remain unchanged. Fifty-two ambiguous/full-art JPEGs and 86 existing transparent MW2 PNGs are kept intact. MW2 profile and crate previews cap artwork at twice its source width and shrink on small screens. This is a source-matte and excessive-stretch correction, not an HD replacement; isolated one-pixel JPEG fringes may remain. Reloading obtains changed checksum URLs without re-equipping.
 
@@ -452,7 +452,23 @@ checks do not establish live game, account connection or multiplayer behavior.
 
 Community 0.3.63 cancels stale navigation and participant reads without cancelling submitted mutations. Member mutation requests carry an optional expected-member header, checked against current authenticated identity before any wallet write; old clients remain compatible. Live state identifies its member, and the new client refuses stale-account state and cross-account replay. Same-member ambiguous replies retain their original request ID. A fresh session identifying a different member clears prefetched reads and reloads before adopting that account. Cached responses are member-bound and refused if identity changes while awaiting them. Synthetic client and real-router identity tests passed; final release QA reruns the full suite.
 
-MW2 calling cards are paused in Community0.3.65 due to source artwork quality.
+MW2 calling cards are paused in Community0.3.66 due to source artwork quality.
 The MW2 crate and new equips are disabled; mixed cases exclude MW2 drops.
 Paused artwork is hidden in collections/profiles. Ownership and existing stored
 selections are retained; BO2 and avatar-frame cosmetics remain active.
+
+Community 0.3.66 recognizes exact reviewed Rebound-supplied dependency releases
+when Beta members share ROUNDS packs. Shared original archives retain a preview
+requirement; recipients still need their own verified Beta access before support
+download/storage and installation. Unknown missing dependency pins remain blocked.
+Rebound peer parity uses bound active settings, retains unknown configs, and
+ignores config comments/order, two known inactive plugin configs and local mouse
+lock. Gameplay values and immutable content still must match. Warnings separate
+DLL/support, asset/patcher and gameplay-setting mismatches. Both players must
+close ROUNDS and reapply their pack after a support update. Offline/Harmony tests
+are not proof of a full live multiplayer match.
+
+The exact archived CR 2.7.0 ZIP (db059e5c...ee5ea7) also records four
+legacy patch requirements retired by its reviewed curated adaptation. Only that
+archive pin can omit CardThemeLib 1.1.7, GravityPatch 0.0.0, ZeroGBulletPatch
+1.1.0 and StopShootingYoureDead 0.0.0. Unknown CR archives remain blocked.

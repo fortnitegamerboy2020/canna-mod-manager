@@ -1,5 +1,78 @@
 use super::*;
 
+const REBOUND_PROFILE: &str = "rounds-public-1.1.2";
+
+// Exact reviewed provider releases supplied by the current Rebound payload.
+// Names alone never qualify: a different author or version must be installed.
+fn rebound_dependency(
+    details: &Value,
+    parent: &Value,
+    parent_version: &str,
+    parent_hash: &str,
+) -> Option<String> {
+    if details["provider"] != "thunderstore"
+        || !details["source_url"]
+            .as_str()?
+            .starts_with("https://thunderstore.io/c/rounds/p/")
+    {
+        return None;
+    }
+    let alias = format!(
+        "{}-{}",
+        details["id"].as_str()?,
+        details["release_id"].as_str()?
+    );
+    let (author, project) = details["id"].as_str()?.split_once('-')?;
+    if details["source_url"].as_str()?
+        != format!("https://thunderstore.io/c/rounds/p/{author}/{project}/")
+    {
+        return None;
+    }
+    let supported: Value =
+        serde_json::from_str(include_str!("fixtures/rebound-dependencies.json")).ok()?;
+    let supplied = supported
+        .as_array()?
+        .iter()
+        .any(|entry| entry.as_str() == Some(&alias));
+    // The exact archived CR release is replaced by the reviewed curated adapter.
+    // These four metadata-only legacy patches are absent from its validated hard
+    // dependency closure. The exception cannot apply to another CR archive.
+    let retired = parent["provider"] == "thunderstore"
+        && parent["id"] == "XAngelMoonX-CR"
+        && parent["source_url"] == "https://thunderstore.io/c/rounds/p/XAngelMoonX/CR/"
+        && parent_version == "2.7.0"
+        && parent_hash == "db059e5c38fb365cba8f019320f40e0d9510938fa2983442e82a58b9a8ee5ea7"
+        && matches!(
+            alias.as_str(),
+            "Root-CardThemeLib-1.1.7"
+                | "Root-GravityPatch-0.0.0"
+                | "TeamDK-ZeroGBulletPatch-1.1.0"
+                | "willuwontu-StopShootingYoureDead-0.0.0"
+        );
+    (supplied || retired).then_some(alias)
+}
+
+fn requires_rebound(manifest: &Value) -> bool {
+    manifest["mods"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|item| {
+            item["enabled"] == true
+                && item["provenance"]["compatibility_profile"] == REBOUND_PROFILE
+        })
+}
+
+fn authorize_publish(db: &Connection, manifest: &Value, user: i64) -> ApiResult<()> {
+    if requires_rebound(manifest) && !admin_settings::has_rebound(db, user)? {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            "Sharing this pack requires Canna Rebound Beta access",
+        ));
+    }
+    Ok(())
+}
+
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS pack_meta(id TEXT PRIMARY KEY REFERENCES packs(id) ON DELETE CASCADE,revision INTEGER NOT NULL,updated INTEGER NOT NULL);
       INSERT OR IGNORE INTO pack_meta SELECT id,1,0 FROM packs;
@@ -32,6 +105,13 @@ fn canonical(db: &Connection, input: &Value) -> ApiResult<Value> {
     };
     let mut mods = Vec::new();
     let mut seen = std::collections::HashSet::new();
+    let enabled_files: std::collections::HashSet<&str> = input["mods"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|item| item["enabled"].as_bool().unwrap_or(true))
+        .filter_map(|item| item["file"].as_str())
+        .collect();
     for item in input["mods"].as_array().unwrap() {
         let id = item["file"]
             .as_str()
@@ -75,14 +155,44 @@ fn canonical(db: &Connection, input: &Value) -> ApiResult<Value> {
         }
         let deps = if let Some(ids) = d["dependency_ids"].as_array() {
             let mut names = Vec::new();
+            let mut supplied = Vec::new();
             for dep in ids.iter().filter_map(Value::as_str) {
-                if external::details(db, dep)?["framework_root"].is_string() {
+                let dependency = external::details(db, dep)?;
+                if dependency["framework_root"].is_string() {
                     continue;
                 }
-                let dep_name: String = db
-                    .query_row("SELECT name FROM mods WHERE id=?1", [dep], |r| r.get(0))
+                let (dep_game, dep_name, dep_version): (u32, String, String) = db
+                    .query_row(
+                        "SELECT app_id,name,version FROM mods WHERE id=?1",
+                        [dep],
+                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                    )
                     .map_err(|_| bad("Required dependency was removed"))?;
+                if dep_game != game && !(game == u32::MAX && dep_game == 0) {
+                    return Err(bad("Required dependency belongs to a different game"));
+                }
+                if item["enabled"].as_bool().unwrap_or(true)
+                    && !enabled_files.contains(format!("Mods/{dep}.zip").as_str())
+                {
+                    if game == 1557740
+                        && dependency["release_id"] == dep_version
+                        && let Some(alias) = rebound_dependency(&dependency, &d, &version, &hash)
+                    {
+                        supplied.push(alias);
+                        continue;
+                    }
+                    return Err(bad(
+                        "Add and enable the exact required dependency versions before sharing",
+                    ));
+                }
                 names.push(dep_name);
+            }
+            if !supplied.is_empty() {
+                provenance["compatibility_profile"] = json!(REBOUND_PROFILE);
+                provenance["required_game_branch"] = json!("public");
+                provenance["rebound_supplied_dependencies"] = json!(supplied);
+                // Keep exact provider aliases for the translator's dependency closure.
+                provenance["dependencies"] = d["dependencies"].clone();
             }
             names
         } else {
@@ -153,7 +263,7 @@ fn available(db: &Connection, manifest: &Value) -> bool {
 fn information(db: &Connection, id: &str, user: i64) -> ApiResult<Value> {
     let (owner, author, revision, updated, manifest) = raw(db, id)?;
     Ok(
-        json!({"id":id,"url":format!("https://cannamods.vip/packs/{id}"),"author":author,"revision":revision,"updated":updated,"can_update":owner==user,"ready":available(db,&manifest),"manifest":manifest}),
+        json!({"id":id,"url":format!("https://cannamods.vip/packs/{id}"),"author":author,"revision":revision,"updated":updated,"can_update":owner==user,"ready":available(db,&manifest),"requires_rebound":requires_rebound(&manifest),"manifest":manifest}),
     )
 }
 pub fn download_manifest(db: &Connection, id: &str) -> ApiResult<String> {
@@ -176,6 +286,7 @@ pub async fn publish(
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction()?;
     let mut manifest = canonical(&tx, &input)?;
+    authorize_publish(&tx, &manifest, user)?;
     let count: i64 = tx.query_row("SELECT COUNT(*) FROM packs WHERE user_id=?1", [user], |r| {
         r.get(0)
     })?;
@@ -252,6 +363,7 @@ pub async fn update(
         ));
     }
     let mut manifest = canonical(&tx, &input["manifest"])?;
+    authorize_publish(&tx, &manifest, user)?;
     if manifest["game"]["app_id"] != old["game"]["app_id"] {
         return Err(bad("Create a new shared pack to change games"));
     }
@@ -279,6 +391,202 @@ mod tests {
     use crate::tests::{account, call, fixture, value};
     fn manifest() -> Value {
         json!({"format":"canna_modpack","schema_version":1,"name":"Family pack","description":"Game night","game":{"app_id":1686940},"mods":[],"token":"must-not-share","repository":{"token":"must-not-share"},"device_name":"must-not-share"})
+    }
+    #[test]
+    fn exact_user_cr_archive_can_share_its_complete_provider_dependency_list() {
+        let (_dir, app) = fixture();
+        let _owner = account(&app, "cr-pack-fixture", false);
+        let db = app.db.lock().unwrap();
+        let fixture: Value =
+            serde_json::from_str(include_str!("fixtures/rounds-dependencies.json")).unwrap();
+        let id = Uuid::new_v4().to_string();
+        let hash = "db059e5c38fb365cba8f019320f40e0d9510938fa2983442e82a58b9a8ee5ea7";
+        db.execute(
+            "INSERT INTO mods VALUES(?1,1,1557740,'CR','2.7.0','Original',?2,1)",
+            params![id, hash],
+        )
+        .unwrap();
+        let mut ids = Vec::new();
+        for alias in fixture["packages"]["XAngelMoonX-CR"]["dependencies"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_str)
+        {
+            let (project, _) = alias.rsplit_once('-').unwrap();
+            if project.starts_with("BepInEx-") {
+                continue;
+            }
+            let version = fixture["packages"][project]["version"].as_str().unwrap();
+            let dep = Uuid::new_v4().to_string();
+            let (author, name) = project.split_once('-').unwrap();
+            db.execute(
+                "INSERT INTO mods VALUES(?1,1,1557740,?2,?3,'Original',?4,1)",
+                params![dep, name, version, "a".repeat(64)],
+            )
+            .unwrap();
+            db.execute("INSERT INTO mod_details VALUES(?1,?2,?3)",params![dep,format!("fixture:{project}"),json!({"provider":"thunderstore","id":project,"release_id":version,"source_url":format!("https://thunderstore.io/c/rounds/p/{author}/{name}/")}).to_string()]).unwrap();
+            ids.push(dep);
+        }
+        assert_eq!(ids.len(), 13);
+        db.execute("INSERT INTO mod_details VALUES(?1,'fixture:actual-cr',?2)",params![id,json!({"provider":"thunderstore","id":"XAngelMoonX-CR","source_url":"https://thunderstore.io/c/rounds/p/XAngelMoonX/CR/","dependency_ids":ids,"dependencies":fixture["packages"]["XAngelMoonX-CR"]["dependencies"]}).to_string()]).unwrap();
+        let mut pack = manifest();
+        pack["game"]["app_id"] = json!(1557740);
+        pack["mods"] = json!([{"file":format!("Mods/{id}.zip"),"sha256":hash,"enabled":true}]);
+        let result = canonical(&db, &pack).unwrap();
+        assert_eq!(
+            result["mods"][0]["provenance"]["rebound_supplied_dependencies"]
+                .as_array()
+                .unwrap()
+                .len(),
+            13
+        );
+        assert!(requires_rebound(&result));
+        // An altered archive with identical branding cannot use retired-patch exceptions.
+        let unknown_hash = "b".repeat(64);
+        db.execute(
+            "UPDATE mods SET sha256=?1 WHERE id=?2",
+            params![unknown_hash, id],
+        )
+        .unwrap();
+        pack["mods"][0]["sha256"] = json!(unknown_hash);
+        assert!(canonical(&db, &pack).is_err());
+    }
+    #[tokio::test]
+    async fn beta_can_share_exact_rebound_dependencies_without_shipping_support() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "rebound-pack-owner", false);
+        let id = Uuid::new_v4().to_string();
+        let dep = Uuid::new_v4().to_string();
+        let hash = "a".repeat(64);
+        let data = json!({"provider":"thunderstore","id":"willis81808-UnboundLib","release_id":"3.2.14","source_url":"https://thunderstore.io/c/rounds/p/willis81808/UnboundLib/"});
+        {
+            let db = app.db.lock().unwrap();
+            for (mod_id, name) in [(&id, "CR"), (&dep, "UnboundLib")] {
+                db.execute(
+                    "INSERT INTO mods VALUES(?1,1,1557740,?2,?3,'Original',?4,1)",
+                    params![
+                        mod_id,
+                        name,
+                        if name == "UnboundLib" {
+                            "3.2.14"
+                        } else {
+                            "2.7.0"
+                        },
+                        hash
+                    ],
+                )
+                .unwrap();
+                db.execute(
+                    "INSERT INTO mod_reviews(mod_id,approved) VALUES(?1,1)",
+                    [mod_id],
+                )
+                .unwrap();
+            }
+            db.execute("INSERT INTO mod_details VALUES(?1,'test:cr',?2)",params![id,json!({"dependency_ids":[dep],"dependencies":["willis81808-UnboundLib-3.2.14"]}).to_string()]).unwrap();
+            db.execute(
+                "INSERT INTO mod_details VALUES(?1,'test:unbound',?2)",
+                params![dep, data.to_string()],
+            )
+            .unwrap();
+        }
+        let mut pack = manifest();
+        pack["game"]["app_id"] = json!(1557740);
+        pack["mods"] = json!([{"file":format!("Mods/{id}.zip"),"sha256":hash,"enabled":true}]);
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/packs",
+                pack.clone(),
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        app.db
+            .lock()
+            .unwrap()
+            .execute("INSERT INTO user_roles VALUES(1,'beta')", [])
+            .unwrap();
+        let info = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/packs",
+                pack.clone(),
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(info["ready"], true);
+        assert_eq!(info["requires_rebound"], true);
+        let m = &info["manifest"];
+        assert_eq!(m["mods"].as_array().unwrap().len(), 1);
+        assert_eq!(
+            m["mods"][0]["provenance"]["compatibility_profile"],
+            REBOUND_PROFILE
+        );
+        assert_eq!(
+            m["mods"][0]["provenance"]["dependencies"],
+            json!(["willis81808-UnboundLib-3.2.14"])
+        );
+        assert_eq!(m["mods"][0]["dependencies"], json!([]));
+        let reread = value(
+            call(
+                app.clone(),
+                "GET",
+                &format!("/api/v1/packs/{}/info", info["id"].as_str().unwrap()),
+                Value::Null,
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(reread["manifest"], *m);
+        for (key, bad_value) in [
+            ("release_id", "9.9.9"),
+            ("provider", "local"),
+            ("id", "Other-UnboundLib"),
+            (
+                "source_url",
+                "https://thunderstore.io/c/bopl-battle/p/willis81808/UnboundLib/",
+            ),
+        ] {
+            let mut forged = data.clone();
+            forged[key] = json!(bad_value);
+            app.db
+                .lock()
+                .unwrap()
+                .execute(
+                    "UPDATE mod_details SET data=?1 WHERE mod_id=?2",
+                    params![forged.to_string(), dep],
+                )
+                .unwrap();
+            assert_eq!(
+                call(
+                    app.clone(),
+                    "POST",
+                    "/api/v1/packs",
+                    pack.clone(),
+                    Some(&owner)
+                )
+                .await
+                .status(),
+                StatusCode::BAD_REQUEST,
+                "{key}"
+            );
+        }
+        assert!(
+            app.db
+                .lock()
+                .unwrap()
+                .query_row("SELECT COUNT(*) FROM packs", [], |r| r.get::<_, i64>(0))
+                .unwrap()
+                == 1
+        );
     }
     #[tokio::test]
     async fn links_have_private_metadata_owner_revisions_and_atomic_transfers() {
