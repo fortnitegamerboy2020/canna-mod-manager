@@ -274,9 +274,11 @@ fn framework_entries(bytes: &[u8], il2cpp: bool, app_id: u32) -> Result<Vec<(Pat
     );
     Ok(entries)
 }
+#[cfg(test)]
 pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
     setup_with_framework(game, pack, token, None)
 }
+#[cfg(test)]
 pub fn setup_with_options(
     game: &InstalledGame,
     pack: &Modpack,
@@ -480,6 +482,7 @@ impl InstallOptions {
 pub struct PreparedInstall {
     pack: Modpack,
     files: Option<PluginEntries>,
+    source_files: Option<Vec<(String, Vec<u8>)>>,
     history: Vec<(crate::model::ModInfo, Vec<u8>)>,
     framework: Option<Vec<u8>>,
     game_sha256: Option<String>,
@@ -489,6 +492,13 @@ pub struct PreparedInstall {
 impl PreparedInstall {
     pub fn effective_pack(&self) -> &Modpack {
         &self.pack
+    }
+    pub fn cache_downloads(&self, progress: &dyn Fn(&str)) -> Result<()> {
+        for (item, bytes) in &self.history {
+            crate::website::remember_mod(&self.pack, item, bytes, false)?;
+        }
+        progress("Pack prepared in Canna's download cache. Files activate only on Launch modded.");
+        Ok(())
     }
     pub(crate) fn verify_game(&self, game: &InstalledGame) -> Result<()> {
         if let Some(expected) = &self.game_sha256 {
@@ -505,7 +515,7 @@ impl PreparedInstall {
         }
         Ok(())
     }
-    fn verify_inputs(&self, game: &InstalledGame) -> Result<()> {
+    pub(crate) fn verify_inputs(&self, game: &InstalledGame) -> Result<()> {
         self.verify_game(game)?;
         if let Some(expected) = &self.config_sha256 {
             anyhow::ensure!(
@@ -541,6 +551,13 @@ pub(crate) fn prepare_install_with_configs(
         return Ok(PreparedInstall {
             pack: pack.clone(),
             files: None,
+            source_files: if crate::model::source_addons(game.app_id).is_some() {
+                Some(crate::source_addons::prepare_files(
+                    game, pack, token, progress,
+                )?)
+            } else {
+                None
+            },
             history: vec![],
             framework: None,
             game_sha256: None,
@@ -553,8 +570,8 @@ pub(crate) fn prepare_install_with_configs(
         crate::game_compat::check_pack(game, pack)?;
     }
     ensure_closed(game)?;
-    // Restore only receipt-owned loader files; user configs stay in place for preflight.
-    crate::unity_restore::resume(game, false)?;
+    // Preparation never restores loader/plugin files into the game. Missing
+    // compatibility references are staged in the external preview workspace.
     let support = if translate {
         progress("Verifying Canna Rebound Beta access…");
         Some(crate::rebound_support::authorized_bundle(token)?)
@@ -565,6 +582,7 @@ pub(crate) fn prepare_install_with_configs(
     let mut prepared = PreparedInstall {
         pack: pack.clone(),
         files: Some(PluginEntries::default()),
+        source_files: None,
         history: vec![],
         framework: None,
         game_sha256: None,
@@ -909,7 +927,13 @@ pub fn install_prepared(
         return crate::minecraft::restore_play_pack(game, pack);
     }
     if crate::model::source_addons(game.app_id).is_some() {
-        return crate::source_addons::install(game, pack, token, progress);
+        return crate::source_addons::install_files(
+            game,
+            prepared
+                .source_files
+                .context("Source preparation is missing")?,
+            progress,
+        );
     }
     pack.validate()?;
     ensure_closed(game)?;
@@ -1102,10 +1126,12 @@ pub fn set_mode(root: &Path, modded: bool) -> Result<()> {
     crate::unity_restore::replace_file(&path, updated.as_bytes())?;
     Ok(())
 }
-pub fn has_parked_managed(game: &InstalledGame) -> Result<bool> {
-    crate::unity_restore::has_parked_managed(game)
-}
 pub fn restore_vanilla(game: &InstalledGame) -> Result<String> {
+    if crate::model::source_addons(game.app_id).is_some() {
+        ensure_closed(game)?;
+        crate::source_addons::set_mode(game, false)?;
+        return Ok("Vanilla files restored: Canna Source addons disabled.".into());
+    }
     anyhow::ensure!(
         crate::model::framework(game.app_id) == "bepinex" && game.app_id != u32::MAX,
         "Restore vanilla files is available for supported Unity games"
@@ -1164,6 +1190,47 @@ pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::O
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn preparation_and_download_cache_leave_parked_loader_and_game_files_inactive() {
+        let root = temporary_preparation_root("launch-only");
+        crate::modpacks::with_test_root(root.clone(), || {
+            let game_root = root.join("game");
+            fs::create_dir_all(&game_root).unwrap();
+            let (game, mut pack) = preparation_fixture(&game_root);
+            let input = root.join("fixture.dll");
+            fs::write(&input, b"fixture bytes never executed").unwrap();
+            pack.mods = vec![crate::modpacks::add_local(&input).unwrap()];
+            fs::write(
+                game_root.join("doorstop_config.ini"),
+                b"[UnityDoorstop]\nenabled=false\n",
+            )
+            .unwrap();
+            fs::create_dir_all(game_root.join("BepInEx/plugins/Canna")).unwrap();
+            fs::write(
+                game_root.join("BepInEx/plugins/Canna/old.dll"),
+                b"old fixture",
+            )
+            .unwrap();
+            crate::unity_restore::restore(&game).unwrap();
+            let before = fs::read(game_root.join(".canna-runtime/state.json")).unwrap();
+            let before_ini = fs::read(game_root.join("doorstop_config.ini")).unwrap();
+            let prepared =
+                prepare_install(&game, &pack, "", InstallOptions::default(), &|_| {}).unwrap();
+            prepared.cache_downloads(&|_| {}).unwrap();
+            assert_eq!(
+                fs::read(game_root.join(".canna-runtime/state.json")).unwrap(),
+                before
+            );
+            assert!(!game_root.join("BepInEx/plugins/Canna").exists());
+            assert!(!game_root.join("winhttp.dll").exists());
+            assert_eq!(
+                fs::read(game_root.join("doorstop_config.ini")).unwrap(),
+                before_ini
+            );
+            fs::remove_dir_all(crate::runtime_cache::root(&game)).unwrap();
+        });
+        fs::remove_dir_all(root).unwrap();
+    }
     fn preparation_fixture(root: &Path) -> (InstalledGame, Modpack) {
         let game = InstalledGame {
             app_id: 1686940,
@@ -1252,6 +1319,7 @@ mod tests {
                 plugins: vec![(REBOUND_MANIFEST.into(), manifest)],
                 ..PluginEntries::default()
             }),
+            source_files: None,
             history: vec![],
             framework: None,
             game_sha256: Some(game_hash),
@@ -1721,6 +1789,7 @@ mod tests {
             let prepared = PreparedInstall {
                 pack,
                 files: Some(PluginEntries::default()),
+                source_files: None,
                 history: vec![],
                 framework: None,
                 game_sha256: Some(if changed_game {
@@ -1775,6 +1844,7 @@ mod tests {
         let prepared = PreparedInstall {
             pack,
             files: Some(PluginEntries::default()),
+            source_files: None,
             history: vec![],
             framework: None,
             game_sha256: Some(crate::ducttape::game_hash(&game).unwrap()),
@@ -1848,6 +1918,7 @@ mod tests {
         let prepared = PreparedInstall {
             pack,
             files: Some(PluginEntries::default()),
+            source_files: None,
             history: vec![],
             framework: None,
             game_sha256: None,
@@ -2219,6 +2290,7 @@ mod tests {
                     )],
                     ..PluginEntries::default()
                 }),
+                source_files: None,
                 history: vec![],
                 framework: loader,
                 game_sha256: Some(crate::ducttape::game_hash(&game).unwrap()),

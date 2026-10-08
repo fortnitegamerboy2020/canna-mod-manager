@@ -37,6 +37,8 @@ pub struct Modpack {
     pub game: PackGame,
     pub repository: Source,
     pub mods: Vec<ModInfo>,
+    #[serde(default = "default_auto_update")]
+    pub auto_update: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub shared: Option<SharedPack>,
 }
@@ -44,6 +46,9 @@ pub struct Modpack {
 pub struct SharedPack {
     pub id: String,
     pub revision: u64,
+}
+fn default_auto_update() -> bool {
+    true
 }
 fn new_id() -> String {
     let nanos = SystemTime::now()
@@ -155,6 +160,7 @@ impl Modpack {
             },
             repository,
             mods,
+            auto_update: true,
             shared: None,
         }
     }

@@ -189,7 +189,7 @@ impl PackUi {
     ) -> anyhow::Result<String> {
         self.add_catalog_mod(id, game, source, item)?;
 
-        Ok("Saved to modpack. Apply modpack or Launch modded to install its enabled mods.".into())
+        Ok("Saved to modpack. Launch modded installs its enabled mods; Prepare downloads is optional.".into())
     }
 
     pub fn catalog_pack_matches(&self, id: &str, game: &GameInfo, source: Option<&Source>) -> bool {
@@ -301,7 +301,7 @@ impl PackUi {
             }
         });
 
-        ui.label(RichText::new("Adding a mod saves your pack. Apply modpack or Launch modded to install its enabled mods.").small().color(MUTED));
+        ui.label(RichText::new("Adding a mod saves your pack. Launch modded installs its enabled mods; Prepare downloads is optional.").small().color(MUTED));
 
         let mut addition = None;
 
@@ -409,7 +409,8 @@ impl PackUi {
             match self.add_catalog_mod(&id, &game, source, item) {
                 Ok(()) => {
                     self.status =
-                        "Saved to modpack. Apply modpack or Launch modded when you're ready.".into()
+                        "Saved to modpack. Prepare downloads or Launch modded when you're ready."
+                            .into()
                 }
 
                 Err(error) => self.status = format!("Could not add mod: {error}"),
@@ -929,10 +930,10 @@ impl PackUi {
                 if ui
                     .add_enabled(
                         !connection_busy && !self.owned_games.contains(&pack.game.app_id),
-                        egui::Button::new("Apply modpack"),
+                        egui::Button::new("Prepare downloads"),
                     )
                     .on_hover_text(
-                        "Install this pack's enabled mods into the game. Close the game first.",
+                        "Cache this pack's downloads outside the game. Launch modded activates them; this step is optional.",
                     )
                     .clicked()
                 {
@@ -1038,7 +1039,7 @@ impl PackUi {
                     empty_panel(
                         ui,
                         "Room for a little chaos.",
-                        "Use Add Mods to choose mods from your family's catalog, then Apply modpack or Launch modded.",
+                        "Use Add Mods to choose mods from your family's catalog, then Prepare downloads or Launch modded.",
                     );
                 }
 
@@ -1207,7 +1208,7 @@ impl PackUi {
                     self.selected = Some(changed.id);
                 }
             } else {
-                panel().show(ui, |ui| { ui.set_min_width(ui.available_width()); ui.heading("About this pack"); ui.label(if pack.description.is_empty() { "No description yet." } else { &pack.description }); ui.add_space(14.0); ui.label(RichText::new("SOURCE REPOSITORY").small().color(GREEN)); ui.label(repository_label(&pack.repository)); ui.add_space(14.0); ui.label("Export format: .canna.zip"); ui.label(RichText::new("Contains mod selections, version pins and local files. Use Apply modpack or Launch modded after importing.").small().color(MUTED)); });
+                panel().show(ui, |ui| { ui.set_min_width(ui.available_width()); ui.heading("About this pack"); ui.label(if pack.description.is_empty() { "No description yet." } else { &pack.description }); ui.add_space(14.0); ui.label(RichText::new("SOURCE REPOSITORY").small().color(GREEN)); ui.label(repository_label(&pack.repository)); ui.add_space(14.0); ui.label("Export format: .canna.zip"); ui.label(RichText::new("Contains mod selections, version pins and local files. Use Prepare downloads or Launch modded after importing.").small().color(MUTED)); });
             }
         } else {
             ui.label(RichText::new("YOUR FAMILY COLLECTION").small().color(GREEN));
@@ -1527,6 +1528,7 @@ impl PackUi {
 
                     if id != pack.game.app_id && let Some(game) = catalog.iter().find(|g| g.app_id == id) {pack.game = crate::modpacks::PackGame {app_id: game.app_id, name: game.name.clone(), folder: game.folder.clone(), framework: crate::model::framework(game.app_id).into()};pack.repository = source.cloned().unwrap_or_else(empty_source);pack.mods.clear();}
 
+                    ui.checkbox(&mut pack.auto_update, "Automatically use approved updates on launch").on_hover_text("Local imports and disabled mods keep their selections. Turn off to retain exact version pins.");
                     ui.horizontal(|ui| {ui.label(RichText::new("FRAMEWORK").small().color(MUTED)); ui.label(RichText::new(crate::model::framework_label(pack.game.app_id)).color(GREEN));});
 
                     if crate::model::source_addons(pack.game.app_id).is_some() { ui.label("VPK packs launch in practice mode (-insecure). Vanilla removes Canna addons. Native plugins and bhop tools need their own supported setup."); }
@@ -1653,7 +1655,7 @@ impl PackUi {
                     Ok(()) => {
                         self.upsert(pack);
 
-                        self.status = "Mod state saved. Apply modpack or Launch modded to apply it with the game closed.".into();
+                        self.status = "Mod state saved. Prepare downloads or Launch modded to apply it with the game closed.".into();
                     }
 
                     Err(error) => self.status = error.to_string(),
@@ -1735,7 +1737,7 @@ impl PackUi {
                                 Ok(()) => {
                                     self.upsert(pack);
 
-                                    self.status="Local mod added. Use Apply modpack or Launch modded to apply it.".into();
+                                    self.status="Local mod added. Use Prepare downloads or Launch modded to apply it.".into();
                                 }
 
                                 Err(error) => self.status = error.to_string(),
@@ -1755,7 +1757,7 @@ impl PackUi {
                         self.upsert(pack);
 
                         self.status =
-                            "Removed from pack. Apply modpack to apply the change.".into();
+                            "Removed from pack. The change takes effect on your next Launch modded.".into();
                     }
 
                     Err(error) => self.status = error.to_string(),
@@ -1974,6 +1976,10 @@ impl PackUi {
         connect
     }
 
+    pub fn observe_prepared_pack(&mut self, pack: Modpack) {
+        self.upsert(pack);
+    }
+
     fn upsert(&mut self, pack: Modpack) {
         if !pack.group.is_empty() && !self.groups.contains(&pack.group) {
             self.groups.push(pack.group.clone());
@@ -2024,7 +2030,7 @@ fn pack_menu(
     ui.separator();
 
     for (label, next) in [
-        ("Apply modpack", Action::Install(pack.clone())),
+        ("Prepare downloads", Action::Install(pack.clone())),
         ("Launch modded", Action::Launch(pack.clone(), true)),
         ("Launch vanilla", Action::Launch(pack.clone(), false)),
     ] {

@@ -11,7 +11,7 @@ fn addons(game: &InstalledGame) -> Result<PathBuf> {
     Ok(path)
 }
 fn store(game: &InstalledGame) -> PathBuf {
-    game.path.join(".canna-source")
+    crate::runtime_cache::root(game).join("source")
 }
 pub fn setup(game: &InstalledGame) -> Result<()> {
     runtime::ensure_closed(game)?;
@@ -148,7 +148,11 @@ fn check_vpk(bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 fn entries(game: &InstalledGame) -> Result<Vec<(String, Vec<u8>)>> {
-    let root = store(game);
+    let root = if store(game).exists() {
+        store(game)
+    } else {
+        game.path.join(".canna-source")
+    };
     runtime::no_links(&root)?;
     if !root.exists() {
         return Ok(vec![]);
@@ -169,6 +173,10 @@ fn entries(game: &InstalledGame) -> Result<Vec<(String, Vec<u8>)>> {
         if !name.starts_with("canna-") || !item.file_type()?.is_file() {
             bail!("Unexpected file in Canna Source store");
         }
+        anyhow::ensure!(
+            entries.len() < 1000 && item.metadata()?.len() <= 32 * 1024 * 1024,
+            "Source store exceeds its limits"
+        );
         let data = fs::read(path)?;
         if name != format!("canna-{}.{}", hash(&data), extension) {
             bail!("Canna addon checksum mismatch");
@@ -222,17 +230,65 @@ pub fn set_mode(game: &InstalledGame, enabled: bool) -> Result<()> {
             }
         }
     }
+    if !enabled {
+        migrate_store(game)?;
+    }
     Ok(())
 }
-pub fn install(
+fn migrate_store(game: &InstalledGame) -> Result<()> {
+    let legacy = game.path.join(".canna-source");
+    runtime::no_links(&legacy)?;
+    if !legacy.exists() {
+        return Ok(());
+    }
+    anyhow::ensure!(
+        !store(game).exists(),
+        "Both old and current Source caches exist; preserve them for recovery"
+    );
+    let files = entries(game)?;
+    let root = store(game);
+    runtime::no_links(&root)?;
+    fs::create_dir_all(&root)?;
+    for (name, data) in &files {
+        let mut out = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(root.join(name))?;
+        std::io::Write::write_all(&mut out, data)?;
+        out.sync_all()?;
+    }
+    for (name, data) in &files {
+        anyhow::ensure!(
+            fs::read(root.join(name))? == *data && fs::read(legacy.join(name))? == *data,
+            "Source cache changed during migration; both copies preserved"
+        );
+    }
+    for (name, _) in files {
+        runtime::no_links(&legacy.join(&name))?;
+        fs::remove_file(legacy.join(name))?;
+    }
+    fs::remove_dir(legacy)?;
+    Ok(())
+}
+pub(crate) fn prepare_files(
     game: &InstalledGame,
     pack: &Modpack,
     token: &str,
     progress: &dyn Fn(&str),
-) -> Result<()> {
-    setup(game)?;
+) -> Result<Vec<(String, Vec<u8>)>> {
+    pack.validate()?;
+    runtime::ensure_closed(game)?;
+    anyhow::ensure!(
+        addons(game)?
+            .parent()
+            .unwrap()
+            .join("gameinfo.txt")
+            .is_file(),
+        "Source game content is missing; verify it in Steam"
+    );
     let api = runtime::client()?;
     let mut files = Vec::new();
+    let mut downloaded = 0usize;
     for item in pack.mods.iter().filter(|item| item.enabled) {
         anyhow::ensure!(
             item.provenance["external_only"] != true,
@@ -252,6 +308,13 @@ pub fn install(
             )?
             .context("Addon not available on the Canna server")?
         };
+        downloaded = downloaded
+            .checked_add(data.len())
+            .context("Source pack size overflow")?;
+        anyhow::ensure!(
+            downloaded <= 256 * 1024 * 1024,
+            "Source pack exceeds the preparation budget"
+        );
         if item.sha256.is_empty() || hash(&data) != item.sha256.to_lowercase() {
             bail!("Addon checksum mismatch: {}", item.name);
         }
@@ -293,9 +356,29 @@ pub fn install(
         }
         let _ = crate::website::remember_mod(pack, item, &data, false);
     }
+    Ok(files)
+}
+#[cfg(test)]
+pub fn install(
+    game: &InstalledGame,
+    pack: &Modpack,
+    token: &str,
+    progress: &dyn Fn(&str),
+) -> Result<()> {
+    let files = prepare_files(game, pack, token, progress)?;
+    install_files(game, files, progress)
+}
+pub(crate) fn install_files(
+    game: &InstalledGame,
+    files: Vec<(String, Vec<u8>)>,
+    progress: &dyn Fn(&str),
+) -> Result<()> {
+    setup(game)?;
     let root = store(game);
-    let stage = game.path.join(".canna-source-stage");
-    let previous = game.path.join(".canna-source-previous");
+    let stage = crate::runtime_cache::root(game).join("source-stage");
+    let previous = crate::runtime_cache::root(game).join("source-previous");
+    runtime::no_links(&stage)?;
+    fs::create_dir_all(crate::runtime_cache::root(game))?;
     for path in [&root, &stage, &previous] {
         runtime::no_links(path)?;
     }
@@ -331,6 +414,28 @@ pub fn install(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn legacy_source_store_moves_outside_game_on_vanilla_cleanup() {
+        let game = fixture();
+        let data = b"fixture cache bytes";
+        let name = format!("canna-{}.vpk", hash(data));
+        let legacy = game.path.join(".canna-source");
+        fs::create_dir(&legacy).unwrap();
+        fs::write(legacy.join(&name), data).unwrap();
+        fs::write(addons(&game).unwrap().join(&name), data).unwrap();
+        fs::write(addons(&game).unwrap().join("manual.vpk"), b"manual addon").unwrap();
+        set_mode(&game, false).unwrap();
+        assert!(!legacy.exists());
+        assert!(!addons(&game).unwrap().join(&name).exists());
+        assert_eq!(fs::read(store(&game).join(&name)).unwrap(), data);
+        assert_eq!(
+            fs::read(addons(&game).unwrap().join("manual.vpk")).unwrap(),
+            b"manual addon"
+        );
+        assert!(!store(&game).starts_with(&game.path));
+        fs::remove_dir_all(crate::runtime_cache::root(&game)).unwrap();
+        fs::remove_dir_all(game.path).unwrap();
+    }
     fn fixture() -> InstalledGame {
         let root = std::env::temp_dir().join(format!(
             "canna-source-test-{}",
@@ -386,7 +491,7 @@ mod tests {
     fn plugin_switching_manages_registration_and_preserves_unrelated_plugins() {
         let game = fixture();
         let bytes = test_dll();
-        fs::create_dir(store(&game)).unwrap();
+        fs::create_dir_all(store(&game)).unwrap();
         let name = format!("canna-{}.dll", hash(&bytes));
         fs::write(store(&game).join(&name), &bytes).unwrap();
         let target = addons(&game).unwrap();
@@ -409,7 +514,7 @@ mod tests {
         let game = fixture();
         let data = [0x34, 0x12, 0xaa, 0x55, 1, 0, 0, 0, 1, 0, 0, 0, 0];
         check_vpk(&data).unwrap();
-        fs::create_dir(store(&game)).unwrap();
+        fs::create_dir_all(store(&game)).unwrap();
         let name = format!("canna-{}.vpk", hash(&data));
         fs::write(store(&game).join(&name), data).unwrap();
         let target = addons(&game).unwrap();

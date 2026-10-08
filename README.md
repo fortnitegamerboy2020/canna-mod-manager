@@ -451,3 +451,5 @@ The exact archived CR 2.7.0 ZIP (db059e5c...ee5ea7) also records four
 legacy patch requirements retired by its reviewed curated adaptation. Only that
 archive pin can omit CardThemeLib 1.1.7, GravityPatch 0.0.0, ZeroGBulletPatch
 1.1.0 and StopShootingYoureDead 0.0.0. Unknown CR archives remain blocked.
+
+Beta invitations (Community 0.3.69): owner and Beta member friend links can grant additive Beta at signup. Owners can privately distribute these links to current Beta members or preview random/newest/oldest/most-posts existing-account access waves before granting. See public /help for expiry, eligibility and limits.

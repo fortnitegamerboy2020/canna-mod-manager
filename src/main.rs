@@ -14,6 +14,7 @@ mod model;
 mod modpacks;
 mod owned_game;
 mod pack_ui;
+mod pack_updates;
 mod play_backup;
 mod play_config;
 mod play_lab;
@@ -24,6 +25,7 @@ mod provider_browser;
 mod rebound_support;
 mod repository;
 mod runtime;
+mod runtime_cache;
 mod shared_packs;
 mod skin_catalog;
 mod skins;
@@ -73,6 +75,7 @@ enum Event {
     Update(Result<Option<updater::Ready>, String>),
     ConsoleData(Vec<(u32, console::Snapshot)>),
     Launched(u32, bool, std::time::SystemTime, owned_game::OwnedGame),
+    PackPrepared(modpacks::Modpack),
     RuntimeProgress(String),
     Runtime(Result<String, String>),
     Scanned(Scan),
@@ -499,6 +502,7 @@ impl Canna {
                         self.console.update(id, snapshot);
                     }
                 }
+                Event::PackPrepared(pack) => self.pack_ui.observe_prepared_pack(pack),
                 Event::RuntimeProgress(message) => {
                     self.console.record(&message, &self.token);
                     self.runtime_status = message;
@@ -763,7 +767,7 @@ impl Canna {
 impl Canna {
     fn queue_vanilla_cleanup(&mut self, id: u32) {
         if self.games.iter().any(|game| {
-            game.app_id == id && id != u32::MAX && model::source_addons(id).is_none()
+            game.app_id == id && id != u32::MAX
         }) && !self.pack_ui.runtime_requests.iter().any(|request| {
             matches!(request, pack_ui::RuntimeAction::RestoreVanilla(queued) if *queued == id)
         }) {
@@ -978,12 +982,6 @@ impl Canna {
             cache::Source::from_settings(&self.settings),
             vec![],
         );
-        // Game launch preserves the currently installed plugins.
-        if modded {
-            self.pack_ui
-                .runtime_requests
-                .push_back(pack_ui::RuntimeAction::Setup(pack.clone()));
-        }
         self.pack_ui.runtime_requests.push_back(if modded {
             pack_ui::RuntimeAction::LaunchCurrent(game.app_id)
         } else {
@@ -1036,34 +1034,41 @@ impl Canna {
                 match request {
                     pack_ui::RuntimeAction::Stop(_) => unreachable!(),
                     pack_ui::RuntimeAction::RestoreVanilla(_) => runtime::restore_vanilla(&game),
-                    pack_ui::RuntimeAction::Setup(pack) => {
-                        runtime::setup_with_options(&game, &pack, &token, options, &progress)?;
-                        Ok("Mod framework is ready. Choose mods for your pack.".into())
-                    }
+                    pack_ui::RuntimeAction::Setup(_) => Ok(
+                        "Pack selections saved. Launch modded prepares and activates them.".into(),
+                    ),
                     pack_ui::RuntimeAction::Install(pack) => {
+                        let pack = pack_updates::refresh(&pack, &token, &progress)?;
                         let prepared =
                             runtime::prepare_install(&game, &pack, &token, options, &progress)?;
-                        let applied = prepared.effective_pack().clone();
-                        play_backup::before_change(&game, &applied)?;
-                        runtime::install_prepared(&game, prepared, &token, &progress)?;
-                        play_backup::remember_applied(&game, &applied)?;
-                        Ok(format!(
-                            "Installed {} mods from {}",
-                            pack.mods.len(),
-                            pack.name
-                        ))
+                        prepared.cache_downloads(&progress)?;
+                        pack.save()?;
+                        let _ = tx.send(Event::PackPrepared(pack));
+                        Ok("Downloads prepared. Launch modded activates the selected mods.".into())
                     }
                     pack_ui::RuntimeAction::Launch(pack, modded) => {
                         if modded {
+                            let pack = pack_updates::refresh(&pack, &token, &progress)?;
                             let prepared =
                                 runtime::prepare_install(&game, &pack, &token, options, &progress)?;
+                            pack.save()?;
+                            let _ = tx.send(Event::PackPrepared(pack));
                             let applied = prepared.effective_pack().clone();
                             play_backup::before_change(&game, &applied)?;
-                            runtime::install_prepared(&game, prepared, &token, &progress)?;
+                            runtime::install_prepared(&game, prepared, &token, &progress)
+                                .inspect_err(|_| {
+                                    if runtime::ensure_closed(&game).is_ok() {
+                                        let _ = runtime::restore_vanilla(&game);
+                                    }
+                                })?;
                             play_backup::remember_applied(&game, &applied)?;
                         }
                         let requested = std::time::SystemTime::now();
-                        let owned = runtime::launch(&game, modded)?;
+                        let owned = runtime::launch(&game, modded).inspect_err(|_| {
+                            if modded && runtime::ensure_closed(&game).is_ok() {
+                                let _ = runtime::restore_vanilla(&game);
+                            }
+                        })?;
                         let _ = tx.send(Event::Launched(game.app_id, modded, requested, owned));
                         Ok(if modded {
                             "Steam launch requested (modded)."
@@ -1073,18 +1078,34 @@ impl Canna {
                         .into())
                     }
                     pack_ui::RuntimeAction::LaunchCurrent(_) => {
-                        if runtime::has_parked_managed(&game)?
-                            && let Some(pack) = play_backup::last_applied(&game)?
-                        {
+                        if let Some(last) = play_backup::last_applied(&game)? {
+                            let pack = modpacks::load_all()
+                                .0
+                                .into_iter()
+                                .find(|pack| pack.id == last.id)
+                                .unwrap_or(last);
+                            let pack = pack_updates::refresh(&pack, &token, &progress)?;
                             let prepared =
                                 runtime::prepare_install(&game, &pack, &token, options, &progress)?;
+                            pack.save()?;
+                            let _ = tx.send(Event::PackPrepared(pack));
                             let applied = prepared.effective_pack().clone();
                             play_backup::before_change(&game, &applied)?;
-                            runtime::install_prepared(&game, prepared, &token, &progress)?;
+                            runtime::install_prepared(&game, prepared, &token, &progress)
+                                .inspect_err(|_| {
+                                    if runtime::ensure_closed(&game).is_ok() {
+                                        let _ = runtime::restore_vanilla(&game);
+                                    }
+                                })?;
                             play_backup::remember_applied(&game, &applied)?;
                         }
                         let requested = std::time::SystemTime::now();
-                        let owned = runtime::launch_current(&game, &token, options, &progress)?;
+                        let owned = runtime::launch_current(&game, &token, options, &progress)
+                            .inspect_err(|_| {
+                                if runtime::ensure_closed(&game).is_ok() {
+                                    let _ = runtime::restore_vanilla(&game);
+                                }
+                            })?;
                         let _ = tx.send(Event::Launched(game.app_id, true, requested, owned));
                         Ok("Steam launch requested (current modded setup).".into())
                     }
@@ -2118,7 +2139,11 @@ mod ui_tests {
         for id in [1557740, 1557740, 550, u32::MAX, 42] {
             app.queue_vanilla_cleanup(id);
         }
-        assert_eq!(app.pack_ui.runtime_requests.len(), 2);
+        assert_eq!(app.pack_ui.runtime_requests.len(), 3);
+        assert!(matches!(
+            app.pack_ui.runtime_requests.pop_front(),
+            Some(pack_ui::RuntimeAction::RestoreVanilla(550))
+        ));
         assert!(matches!(
             app.pack_ui.runtime_requests.pop_front(),
             Some(pack_ui::RuntimeAction::RestoreVanilla(1557740))

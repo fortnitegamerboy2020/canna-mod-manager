@@ -636,7 +636,11 @@ pub fn restore(
         remove_recovery_tree(&game.path, &staged)?;
         return Err(error.into());
     }
-    if let Err(error) = crate::runtime::install_prepared(game, prepared, token, progress) {
+    let prepared_restore = prepared
+        .verify_inputs(game)
+        .and_then(|()| prepared.cache_downloads(progress))
+        .and_then(|()| crate::runtime::restore_vanilla(game).map(|_| ()));
+    if let Err(error) = prepared_restore {
         fs::rename(&config_root, &staged)?;
         if had_config {
             fs::rename(&previous, &config_root)?;
@@ -741,7 +745,15 @@ mod tests {
                 "winhttp.dll",
                 "doorstop_config.ini",
             ] {
-                fs::write(game_path.join(file), b"fixture").unwrap();
+                fs::write(
+                    game_path.join(file),
+                    if file == "doorstop_config.ini" {
+                        b"[UnityDoorstop]\nenabled=false\n".as_slice()
+                    } else {
+                        b"fixture".as_slice()
+                    },
+                )
+                .unwrap();
             }
             fs::write(
                 game_path.join("BepInEx/config/example.cfg"),
@@ -820,8 +832,10 @@ mod tests {
                 fs::read(game.path.join("BepInEx/config/example.cfg")).unwrap(),
                 b"Enabled = true\n"
             );
+            assert!(!game.path.join("BepInEx/plugins/Canna").exists());
             assert_eq!(
-                fs::read(game.path.join("BepInEx/plugins/Canna/0/example.dll")).unwrap(),
+                fs::read(crate::modpacks::local_directory().join(&restored.mods[0].local_file))
+                    .unwrap(),
                 b"original plugin"
             );
             assert_eq!(

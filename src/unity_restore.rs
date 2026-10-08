@@ -32,6 +32,8 @@ struct FileReceipt {
 #[serde(deny_unknown_fields)]
 struct Parked {
     source: String,
+    #[serde(default)]
+    external: bool,
     parked: String,
     directory: bool,
     sha256: String,
@@ -84,6 +86,204 @@ fn checked_path(root: &Path, relative: &str) -> Result<PathBuf> {
     let path = root.join(relative);
     runtime::no_links(&path)?;
     Ok(path)
+}
+fn parked_path(game: &InstalledGame, row: &Parked) -> Result<PathBuf> {
+    let external = checked_path(&crate::runtime_cache::root(game), &row.parked)?;
+    let legacy = checked_path(&game.path, &row.parked)?;
+    // A write-ahead migration can be interrupted before its move. Both locations
+    // remain bounded and content is verified before any restoration.
+    Ok(if row.external {
+        if external.exists() || !legacy.exists() {
+            external
+        } else {
+            legacy
+        }
+    } else {
+        legacy
+    })
+}
+fn content_hash(path: &Path, directory: bool) -> Result<String> {
+    if directory {
+        tree_hash(path)
+    } else {
+        Ok(digest_file(path)?.0)
+    }
+}
+fn copy_tree(
+    source: &Path,
+    destination: &Path,
+    depth: usize,
+    count: &mut usize,
+    bytes: &mut u64,
+) -> Result<()> {
+    *count += 1;
+    ensure!(
+        depth <= 64 && *count <= 20_000,
+        "Runtime copy exceeded its tree limit"
+    );
+    runtime::no_links(source)?;
+    runtime::no_links(destination)?;
+    if source.is_dir() {
+        fs::create_dir(destination)?;
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            copy_tree(
+                &entry.path(),
+                &destination.join(entry.file_name()),
+                depth + 1,
+                count,
+                bytes,
+            )?;
+        }
+    } else {
+        let mut input = fs::File::open(source)?.take(MAX_FILE + 1);
+        let mut output = fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(destination)?;
+        let size = std::io::copy(&mut input, &mut output)?;
+        *bytes += size;
+        ensure!(
+            size <= MAX_FILE && *bytes <= MAX_TREE,
+            "Runtime copy exceeded its limit"
+        );
+        output.sync_all()?;
+    }
+    Ok(())
+}
+fn remove_verified_tree(path: &Path, root: &Path) -> Result<()> {
+    runtime::no_links(path)?;
+    ensure!(
+        path.canonicalize()?.starts_with(root),
+        "Runtime cleanup escaped its verified source"
+    );
+    if path.is_dir() {
+        for entry in fs::read_dir(path)? {
+            remove_verified_tree(&entry?.path(), root)?;
+        }
+        fs::remove_dir(path)?;
+    } else {
+        fs::remove_file(path)?;
+    }
+    Ok(())
+}
+fn copy_relocate(source: &Path, destination: &Path, directory: bool, expected: &str) -> Result<()> {
+    ensure!(
+        !destination.exists(),
+        "Recovery destination already exists; files preserved"
+    );
+    ensure!(
+        content_hash(source, directory)? == expected,
+        "Runtime source changed; files preserved"
+    );
+    copy_tree(source, destination, 0, &mut 0, &mut 0)?;
+    ensure!(
+        content_hash(destination, directory)? == expected
+            && content_hash(source, directory)? == expected,
+        "Runtime changed during relocation; both copies preserved"
+    );
+    let canonical = source.canonicalize()?;
+    remove_verified_tree(source, &canonical)
+}
+fn relocate(source: &Path, destination: &Path, directory: bool, expected: &str) -> Result<()> {
+    runtime::no_links(source)?;
+    runtime::no_links(destination)?;
+    ensure!(
+        !destination.exists(),
+        "Recovery destination already exists; files preserved"
+    );
+    ensure!(
+        content_hash(source, directory)? == expected,
+        "Runtime source changed; files preserved"
+    );
+    match fs::rename(source, destination) {
+        Ok(()) => Ok(()),
+        Err(error) if error.raw_os_error() == Some(if cfg!(windows) { 17 } else { 18 }) => {
+            copy_relocate(source, destination, directory, expected)
+        }
+        Err(error) => Err(error.into()),
+    }
+}
+fn migrate_legacy(game: &InstalledGame, state: &mut State) -> Result<()> {
+    for index in 0..state.inactive.len() {
+        let row = state.inactive[index].clone();
+        let legacy = checked_path(&game.path, &row.parked)?;
+        if !legacy.exists() {
+            continue;
+        }
+        ensure!(
+            content_hash(&legacy, row.directory)? == row.sha256,
+            "Legacy parked runtime changed; recovery files preserved"
+        );
+        let external = checked_path(&crate::runtime_cache::root(game), &row.parked)?;
+        state.version = 2;
+        state.inactive[index].external = true;
+        save(game, state)?;
+        fs::create_dir_all(external.parent().context("Missing cache parent")?)?;
+        if external.exists() {
+            ensure!(
+                content_hash(&external, row.directory)? == row.sha256,
+                "Runtime recovery conflict; both copies preserved"
+            );
+            let canonical = legacy.canonicalize()?;
+            remove_verified_tree(&legacy, &canonical)?;
+        } else {
+            relocate(&legacy, &external, row.directory, &row.sha256)?;
+        }
+    }
+    // Older releases retained displaced generations after removing their active
+    // receipt. Move those recovery-only bytes as well, without activating them.
+    let legacy = checked_path(&game.path, ".canna-runtime/parked")?;
+    if legacy.exists() {
+        tree_hash(&legacy)?; // Bound and reject links before walking or copying.
+        let external = checked_path(&crate::runtime_cache::root(game), ".canna-runtime/parked")?;
+        fs::create_dir_all(&external)?;
+        for entry in fs::read_dir(&legacy)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            ensure!(
+                !name.is_empty()
+                    && name.len() <= 64
+                    && name.bytes().all(|b| b.is_ascii_digit() || b == b'-'),
+                "Unexpected legacy recovery batch; files preserved"
+            );
+            merge_recovery(&entry.path(), &external.join(name))?;
+        }
+        fs::remove_dir(legacy)?;
+    }
+    Ok(())
+}
+fn merge_recovery(source: &Path, target: &Path) -> Result<()> {
+    runtime::no_links(source)?;
+    runtime::no_links(target)?;
+    let directory = source.is_dir();
+    let hash = content_hash(source, directory)?;
+    if !target.exists() {
+        return relocate(source, target, directory, &hash);
+    }
+    ensure!(
+        directory == target.is_dir(),
+        "Recovery conflict; both copies preserved"
+    );
+    if directory {
+        for entry in fs::read_dir(source)? {
+            let entry = entry?;
+            let name = entry.file_name().to_string_lossy().into_owned();
+            ensure!(
+                safe_relative(&name),
+                "Unsafe recovery name; files preserved"
+            );
+            merge_recovery(&entry.path(), &target.join(name))?;
+        }
+        fs::remove_dir(source)?;
+    } else {
+        ensure!(
+            digest_file(target)?.0 == hash,
+            "Recovery copies differ; both files preserved"
+        );
+        fs::remove_file(source)?;
+    }
+    Ok(())
 }
 fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
     runtime::no_links(path)?;
@@ -169,7 +369,7 @@ fn tree_hash(root: &Path) -> Result<String> {
 }
 fn validate(state: &State, app_id: u32) -> Result<()> {
     ensure!(
-        state.version == 1 && state.app_id == app_id,
+        matches!(state.version, 1 | 2) && state.app_id == app_id,
         "Canna runtime receipt belongs to another game or version"
     );
     ensure!(
@@ -227,7 +427,7 @@ fn load(game: &InstalledGame) -> Result<State> {
     let path = checked_path(&game.path, STATE)?;
     if !path.exists() {
         return Ok(State {
-            version: 1,
+            version: 2,
             app_id: game.app_id,
             owned_loader: vec![],
             inactive: vec![],
@@ -237,7 +437,7 @@ fn load(game: &InstalledGame) -> Result<State> {
         .context("Canna runtime receipt is damaged; files were preserved")?;
     validate(&state, game.app_id)?;
     for row in &state.inactive {
-        checked_path(&game.path, &row.parked)?;
+        parked_path(game, row)?;
         checked_path(&game.path, &row.source)?;
     }
     Ok(state)
@@ -325,6 +525,7 @@ pub fn record_framework(game: &InstalledGame, files: &[(PathBuf, Vec<u8>)]) -> R
     }
     save(game, &state)
 }
+#[cfg(test)]
 pub fn has_parked_managed(game: &InstalledGame) -> Result<bool> {
     Ok(load(game)?
         .inactive
@@ -370,7 +571,9 @@ fn rollback_moves(moved: &[(PathBuf, PathBuf)]) -> Result<()> {
             !source.exists(),
             "A file appeared during rollback; both copies were preserved"
         );
-        fs::rename(parked, source)
+        let directory = parked.is_dir();
+        let hash = content_hash(parked, directory)?;
+        relocate(parked, source, directory, &hash)
             .context("Could not roll back runtime relocation; recovery files remain parked")?;
     }
     Ok(())
@@ -378,6 +581,7 @@ fn rollback_moves(moved: &[(PathBuf, PathBuf)]) -> Result<()> {
 pub fn restore(game: &InstalledGame) -> Result<String> {
     runtime::ensure_closed(game)?;
     let mut state = load(game)?;
+    migrate_legacy(game, &mut state)?;
     let previous_state = state.clone();
     let mut planned = Vec::new();
     let mut preserved = 0usize;
@@ -393,6 +597,7 @@ pub fn restore(game: &InstalledGame) -> Result<String> {
         );
         planned.push(Parked {
             source: source.into(),
+            external: true,
             parked: format!(".canna-runtime/parked/{id}/{source}"),
             directory: true,
             sha256: tree_hash(&path)?,
@@ -409,6 +614,7 @@ pub fn restore(game: &InstalledGame) -> Result<String> {
         }
         planned.push(Parked {
             source: receipt.path.clone(),
+            external: true,
             parked: format!(".canna-runtime/parked/{id}/{}", receipt.path),
             directory: false,
             sha256: receipt.sha256.clone(),
@@ -419,7 +625,7 @@ pub fn restore(game: &InstalledGame) -> Result<String> {
     // Validate every destination before moving anything. Keep all displaced generations as recovery files.
     for row in &planned {
         ensure!(
-            !checked_path(&game.path, &row.parked)?.exists(),
+            !parked_path(game, row)?.exists(),
             "Runtime recovery destination already exists"
         );
     }
@@ -438,7 +644,7 @@ pub fn restore(game: &InstalledGame) -> Result<String> {
     let result = (|| -> Result<()> {
         for row in &planned {
             let source = checked_path(&game.path, &row.source)?;
-            let parked = checked_path(&game.path, &row.parked)?;
+            let parked = parked_path(game, row)?;
             ensure!(
                 (if row.directory {
                     tree_hash(&source)?
@@ -448,7 +654,7 @@ pub fn restore(game: &InstalledGame) -> Result<String> {
                 "Runtime files changed during cleanup; retry when idle"
             );
             fs::create_dir_all(parked.parent().context("Missing parked parent")?)?;
-            fs::rename(&source, &parked)?;
+            relocate(&source, &parked, row.directory, &row.sha256)?;
             moved.push((source, parked));
         }
         if let Some((path, original, disabled)) = &ini {
@@ -486,6 +692,7 @@ pub fn restore(game: &InstalledGame) -> Result<String> {
 pub fn resume(game: &InstalledGame, managed: bool) -> Result<()> {
     runtime::ensure_closed(game)?;
     let mut state = load(game)?;
+    migrate_legacy(game, &mut state)?;
     let mut planned = Vec::new();
     let mut consumed = BTreeSet::new();
     for row in &state.inactive {
@@ -510,7 +717,7 @@ pub fn resume(game: &InstalledGame, managed: bool) -> Result<()> {
             consumed.insert(row.source.clone());
             continue;
         }
-        let parked = checked_path(&game.path, &row.parked)?;
+        let parked = parked_path(game, row)?;
         if row.directory {
             let manifest = parked.join("DuctTapePlusPlus/compatibility-manifest.json");
             runtime::no_links(&manifest)?;
@@ -536,7 +743,7 @@ pub fn resume(game: &InstalledGame, managed: bool) -> Result<()> {
     let result = (|| -> Result<()> {
         for row in &planned {
             let source = checked_path(&game.path, &row.source)?;
-            let parked = checked_path(&game.path, &row.parked)?;
+            let parked = parked_path(game, row)?;
             ensure!(
                 !source.exists(),
                 "Runtime destination changed during restoration"
@@ -550,7 +757,7 @@ pub fn resume(game: &InstalledGame, managed: bool) -> Result<()> {
                 "Parked runtime changed during restoration; files were preserved"
             );
             fs::create_dir_all(source.parent().context("Missing runtime parent")?)?;
-            fs::rename(&parked, &source)?;
+            relocate(&parked, &source, row.directory, &row.sha256)?;
             moved.push((parked, source));
         }
         state.inactive.retain(|row| !consumed.contains(&row.source));
@@ -569,6 +776,64 @@ pub fn resume(game: &InstalledGame, managed: bool) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn cross_volume_copy_verifies_before_removal_and_rejects_changed_or_occupied_paths() {
+        let f = Fixture::new();
+        f.put("copy-source/a/mod.dll", b"fixture plugin");
+        let source = f.0.path.join("copy-source");
+        let target = crate::runtime_cache::root(&f.0).join("copied");
+        fs::create_dir_all(target.parent().unwrap()).unwrap();
+        let hash = tree_hash(&source).unwrap();
+        assert!(copy_relocate(&source, &target, true, &"0".repeat(64)).is_err());
+        assert!(source.exists());
+        assert!(!target.exists());
+        copy_relocate(&source, &target, true, &hash).unwrap();
+        assert!(!source.exists());
+        assert_eq!(
+            fs::read(target.join("a/mod.dll")).unwrap(),
+            b"fixture plugin"
+        );
+        f.put("copy-source/a/mod.dll", b"new fixture");
+        assert!(copy_relocate(&source, &target, true, &tree_hash(&source).unwrap()).is_err());
+        assert_eq!(fs::read(source.join("a/mod.dll")).unwrap(), b"new fixture");
+    }
+    #[test]
+    fn legacy_parked_receipts_migrate_outside_game_without_activating_plugins() {
+        let f = Fixture::new();
+        f.ini();
+        f.put("BepInEx/plugins/Canna/mod.dll", b"legacy fixture");
+        let source = "BepInEx/plugins/Canna";
+        let relative = format!(".canna-runtime/parked/{}/{source}", batch());
+        let row = Parked {
+            source: source.into(),
+            external: false,
+            parked: relative.clone(),
+            directory: true,
+            sha256: tree_hash(&f.0.path.join(source)).unwrap(),
+        };
+        let destination = f.0.path.join(&relative);
+        fs::create_dir_all(destination.parent().unwrap()).unwrap();
+        fs::rename(f.0.path.join(source), &destination).unwrap();
+        let state = State {
+            version: 1,
+            app_id: f.0.app_id,
+            owned_loader: vec![],
+            inactive: vec![row],
+        };
+        save(&f.0, &state).unwrap();
+        restore(&f.0).unwrap();
+        let migrated = load(&f.0).unwrap();
+        assert!(migrated.inactive[0].external);
+        assert!(!destination.exists());
+        assert!(!f.0.path.join(source).exists());
+        assert!(
+            parked_path(&f.0, &migrated.inactive[0])
+                .unwrap()
+                .starts_with(crate::runtime_cache::root(&f.0))
+        );
+        resume(&f.0, true).unwrap();
+        assert_eq!(f.read("BepInEx/plugins/Canna/mod.dll"), b"legacy fixture");
+    }
     struct Fixture(InstalledGame);
     impl Fixture {
         fn new() -> Self {
@@ -615,6 +880,7 @@ mod tests {
         fn drop(&mut self) {
             // Test fixtures are uniquely created in TEMP; production cleanup never recursively deletes trees.
             let _ = fs::remove_dir_all(&self.0.path);
+            let _ = fs::remove_dir_all(crate::runtime_cache::root(&self.0));
         }
     }
 
@@ -656,7 +922,7 @@ mod tests {
         let state = load(&f.0).unwrap();
         assert_eq!(state.inactive.len(), 2);
         for row in &state.inactive {
-            assert!(f.0.path.join(&row.parked).is_dir());
+            assert!(parked_path(&f.0, row).unwrap().is_dir());
         }
         assert!(has_parked_managed(&f.0).unwrap());
     }
@@ -717,7 +983,7 @@ mod tests {
         resume(&f.0, true).unwrap();
         assert_eq!(f.read("BepInEx/plugins/Canna/mod.dll"), b"new pack");
         assert_eq!(
-            fs::read(f.0.path.join(old).join("mod.dll")).unwrap(),
+            fs::read(crate::runtime_cache::root(&f.0).join(old).join("mod.dll")).unwrap(),
             b"old pack"
         );
     }
@@ -739,7 +1005,12 @@ mod tests {
         let state = load(&f.0).unwrap();
         assert_eq!(state.inactive.len(), 2);
         assert_eq!(
-            fs::read(f.0.path.join(&state.inactive[0].parked).join("old.dll")).unwrap(),
+            fs::read(
+                parked_path(&f.0, &state.inactive[0])
+                    .unwrap()
+                    .join("old.dll")
+            )
+            .unwrap(),
             b"previous generation"
         );
     }
@@ -772,7 +1043,7 @@ mod tests {
             .iter()
             .find(|row| row.source == "winhttp.dll")
             .unwrap();
-        fs::write(f.0.path.join(&row.parked), b"tampered recovery").unwrap();
+        fs::write(parked_path(&f.0, row).unwrap(), b"tampered recovery").unwrap();
         assert!(resume(&f.0, false).is_err());
         assert!(!f.0.path.join("BepInEx/core/BepInEx.dll").exists());
         f.put("winhttp.dll", b"manual new proxy");
@@ -846,6 +1117,7 @@ mod tests {
             let path = f.0.path.join(source);
             state.inactive.push(Parked {
                 source: source.into(),
+                external: true,
                 parked: format!(".canna-runtime/parked/{id}/{source}"),
                 directory,
                 sha256: if directory {
@@ -857,7 +1129,7 @@ mod tests {
         }
         save(&f.0, &state).unwrap();
         let row = &state.inactive[0];
-        let parked = f.0.path.join(&row.parked);
+        let parked = parked_path(&f.0, row).unwrap();
         fs::create_dir_all(parked.parent().unwrap()).unwrap();
         fs::rename(f.0.path.join(&row.source), &parked).unwrap();
         // Simulate a PC restart between the first and second rename: one source is parked,
