@@ -61,7 +61,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.34 adds server-hosted modpack links directly from the desktop, dedicated member-only pack pages, creator-owned revisions and optional reviewed updates. Existing server archives are referenced; local files retain manual review requirements. Claimed downloads preserve their exact pack revision during concurrent publishing. This release also fixes offline caching of the full supported-game registry. Server 0.3.52 enforces ownership, game/hash/dependency pins and approval gates. Native/server fixtures, desktop/mobile pages, installer and updater checks were run; these do not establish live game or Minecraft-launch compatibility.
+Canna 0.2.35 fixes false unsafe-path warnings for game profiles without catalog artwork, including Left 4 Dead. Missing artwork is skipped; actual artwork retains the existing path safety and checksum checks. Regression tests cover every supported game profile and invalid artwork paths.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

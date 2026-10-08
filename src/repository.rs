@@ -29,6 +29,15 @@ pub fn valid_slug(s: &str) -> bool {
         && s != ".."
 }
 
+fn catalog_icon_path(game: &GameInfo) -> Result<Option<String>> {
+    if game.icon.is_empty() {
+        return Ok(None);
+    }
+    let path = format!("{}/{}", game.folder, game.icon);
+    anyhow::ensure!(valid_path(&path), "Unsafe catalog path");
+    Ok(Some(path))
+}
+
 pub(crate) fn fetch_optional(
     client: &reqwest::blocking::Client,
     _settings: &Settings,
@@ -108,13 +117,11 @@ pub fn sync(settings: &Settings, token: &str) -> Result<RepositoryData> {
                 && game.mods.iter().all(|m| valid_mod_file(&m.file)),
             "Invalid server catalog"
         );
-        match fetch_optional(
-            &client,
-            settings,
-            token,
-            &format!("{}/{}", game.folder, game.icon),
-            4 * 1024 * 1024,
-        ) {
+        let icon = catalog_icon_path(game).and_then(|path| match path {
+            Some(path) => fetch_optional(&client, settings, token, &path, 4 * 1024 * 1024),
+            None => Ok(None),
+        });
+        match icon {
             Ok(Some(icon)) => {
                 data.icons.insert(game.app_id, icon);
             }
@@ -127,6 +134,31 @@ pub fn sync(settings: &Settings, token: &str) -> Result<RepositoryData> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn optional_catalog_artwork_keeps_path_checks() {
+        for mut game in crate::model::supported_catalog() {
+            assert_eq!(catalog_icon_path(&game).unwrap(), None, "{}", game.name);
+            game.icon = "icon.png".into();
+            assert_eq!(
+                catalog_icon_path(&game).unwrap(),
+                Some(format!("{}/icon.png", game.folder))
+            );
+            for invalid in [
+                "../icon.png",
+                "/icon.png",
+                "https://example.test/icon.png",
+                "icons/%2e%2e/icon.png",
+                "icons\\icon.png",
+            ] {
+                game.icon = invalid.into();
+                assert!(
+                    catalog_icon_path(&game).is_err(),
+                    "{}: {invalid}",
+                    game.name
+                );
+            }
+        }
+    }
     #[test]
     fn paths_stay_in_repository() {
         for p in [
