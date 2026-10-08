@@ -2,7 +2,7 @@
 
 A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and the private Canna server as the mod catalog. Uploads and external imports are managed on the website.
 
-Canna 0.2.39 uses a compact icon sidebar and a borderless window. The yellow
+Canna 0.2.40 uses a compact icon sidebar and a borderless window. The yellow
 button in the top right minimizes; green maximizes/restores; red closes Canna. Drag
 the header to move the window, or double-click it to maximize/restore. Hover
 sidebar icons for their names. Drag any window edge or corner to resize.
@@ -33,6 +33,10 @@ Build a portable executable with `./build.ps1`. Rust and Windows C++ build tools
 - Reads game metadata, icons, framework packages and mod listings from the authenticated Canna server on a background thread. Reports expired sessions, malformed metadata and network errors.
 
 Creating a modpack automatically sets up BepInEx. **Add Mods** opens **Discover**, where you can search the family catalog, choose a compatible modpack, and add or update only the selected pinned package without adding or re-enabling its libraries; **Import local mod** adds a DLL or plugin ZIP. **Apply modpack** installs the enabled selections in `BepInEx/plugins/Canna` with the game closed. Saving selection changes does not install those mod files. **Launch modded** installs the selected pack and launches through Steam. **Launch vanilla** disables Doorstop before launching. **Stop instance** terminates the game process Canna launched, using a retained Windows handle. It appears in the pack, its right-click menu, game details, and navigation while that process runs. Independently launched games are never adopted. The last mode remains selected until changed. Existing plugins outside Canna are preserved and also load in modded mode.
+
+Desktop 0.2.40's **Discover → Browse providers** page (**Browse mods**) includes approved entries from the synced Canna library under **All sources**. Choose **Canna** in the source menu to show those entries alone, or choose an external provider. Canna results use game, search, content-type and page filters; provider-specific categories can exclude them. Canna pages are alphabetical and external providers retain their own sorting, with no promised global ranking. **Refresh library** updates the synced listings after a newly approved release.
+
+To find **HollowPurple Fixed 1.8.2**, select **ROUNDS**, choose **Canna**, refresh the library and search its name. Its card downloads that approved Canna release; the original-project link is attribution. Choose a pack whose actual game is ROUNDS in **Add downloads to**; a custom pack name does not determine compatibility. Without a compatible destination, downloads can still be saved in **Your downloads**. Add the selected entry and use **Apply modpack** or **Launch modded** with the game closed to install it. The existing public-branch, dependency-choice and original/fork guards still apply; browsing and download checks do not establish game or multiplayer compatibility.
 
 Bopl Battle uses the official Windows x64 BepInEx 5.4.23.5 archive from `bopl-battle/Framework/BepInEx.zip`. Harmony is included upstream; this is not a custom BepInEx fork. Other Unity games need their own compatible Windows BepInEx 5 package at `<game>/Framework/BepInEx.zip`. Existing complete loaders are preserved, and conflicting files are reported rather than overwritten. Close the game before setup, installation or mode changes. Gameplay compatibility still requires testing.
 

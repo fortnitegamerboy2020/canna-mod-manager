@@ -8,6 +8,7 @@ use std::{
     time::Duration,
 };
 const API: &str = "https://cannamods.vip/api/v1/";
+const CATALOG_PAGE_SIZE: usize = 20;
 #[derive(Clone, Debug, PartialEq)]
 struct Filters {
     provider: String,
@@ -51,6 +52,127 @@ impl Filters {
         ]);
         Ok(url)
     }
+}
+
+struct CatalogRow<'a> {
+    game: &'a crate::model::GameInfo,
+    item: &'a crate::model::ModInfo,
+    id: &'a str,
+}
+struct CatalogPage<'a> {
+    rows: Vec<CatalogRow<'a>>,
+    total: usize,
+    has_more: bool,
+}
+#[derive(Clone)]
+struct CatalogPin {
+    game: crate::model::GameInfo,
+    item: crate::model::ModInfo,
+    source: Option<crate::cache::Source>,
+}
+impl CatalogPin {
+    fn matches(
+        &self,
+        game: &crate::model::GameInfo,
+        item: &crate::model::ModInfo,
+        source: Option<&crate::cache::Source>,
+    ) -> bool {
+        self.source.as_ref() == source
+            && self.game.app_id == game.app_id
+            && self.game.folder == game.folder
+            && self.item.file == item.file
+            && self.item.version == item.version
+            && self.item.sha256.eq_ignore_ascii_case(&item.sha256)
+    }
+}
+fn catalog_id(item: &crate::model::ModInfo) -> Option<&str> {
+    if !item.local_file.is_empty()
+        || item.provenance["external_only"] == true
+        || item.sha256.len() != 64
+        || !item.sha256.bytes().all(|c| c.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    let id = item.file.strip_prefix("Mods/")?.strip_suffix(".zip")?;
+    (id.len() == 36
+        && id.bytes().enumerate().all(|(index, c)| {
+            if [8, 13, 18, 23].contains(&index) {
+                c == b'-'
+            } else {
+                c.is_ascii_hexdigit()
+            }
+        }))
+    .then_some(id)
+}
+fn catalog_page<'a>(filters: &Filters, catalog: &'a [crate::model::GameInfo]) -> CatalogPage<'a> {
+    let app_id = if filters.game == "minecraft" {
+        Some(u32::MAX)
+    } else {
+        crate::game_profiles::by_community(&filters.game).map(|g| g.app_id)
+    };
+    let query = filters.q.trim().to_lowercase();
+    let mut rows = Vec::new();
+    if matches!(filters.provider.as_str(), "all" | "canna") && filters.category.is_empty() {
+        for game in catalog.iter().filter(|g| Some(g.app_id) == app_id) {
+            for item in &game.mods {
+                let Some(id) = catalog_id(item) else { continue };
+                if !query.is_empty()
+                    && !format!("{} {}", item.name, item.description)
+                        .to_lowercase()
+                        .contains(&query)
+                {
+                    continue;
+                }
+                if !filters.content_type.is_empty() && item.content_type != filters.content_type {
+                    continue;
+                }
+                if [
+                    ("loaders", &filters.loader),
+                    ("game_versions", &filters.version),
+                ]
+                .iter()
+                .any(|(key, requested)| {
+                    !requested.is_empty()
+                        && !item.provenance[*key].as_array().is_some_and(|values| {
+                            values
+                                .iter()
+                                .any(|value| value.as_str() == Some(requested.as_str()))
+                        })
+                }) {
+                    continue;
+                }
+                rows.push(CatalogRow { game, item, id });
+            }
+        }
+    }
+    rows.sort_by(|a, b| {
+        a.item
+            .name
+            .to_lowercase()
+            .cmp(&b.item.name.to_lowercase())
+            .then_with(|| a.item.version.cmp(&b.item.version))
+            .then_with(|| a.id.cmp(b.id))
+    });
+    let total = rows.len();
+    let offset = (filters.page.saturating_sub(1) as usize).saturating_mul(CATALOG_PAGE_SIZE);
+    let has_more = total > offset.saturating_add(CATALOG_PAGE_SIZE);
+    let rows = rows
+        .into_iter()
+        .skip(offset)
+        .take(CATALOG_PAGE_SIZE)
+        .collect();
+    CatalogPage {
+        rows,
+        total,
+        has_more,
+    }
+}
+fn catalog_download_request(row: &CatalogRow<'_>) -> (Kind, reqwest::Url, Value) {
+    (
+        Kind::Download,
+        api("download-tickets"),
+        json!({"kind":"mods","id":row.id}),
+    )
 }
 #[derive(Clone, Copy)]
 enum Kind {
@@ -110,6 +232,7 @@ pub struct Browser {
     last_pending_poll: std::time::Instant,
     status_id: String,
     queued_pack_additions: Vec<(String, String)>,
+    catalog_pins: std::collections::BTreeMap<String, CatalogPin>,
     steam_version: Option<crate::steam::SteamVersion>,
     checked_game: String,
     checked_at: std::time::Instant,
@@ -151,6 +274,7 @@ impl Default for Browser {
             last_pending_poll: std::time::Instant::now(),
             status_id: String::new(),
             queued_pack_additions: Vec::new(),
+            catalog_pins: Default::default(),
             steam_version: None,
             checked_game: String::new(),
             checked_at: std::time::Instant::now(),
@@ -229,6 +353,9 @@ fn provider_requests(url: &reqwest::Url) -> Result<Vec<(String, reqwest::Url)>> 
         .get("game")
         .map(String::as_str)
         .unwrap_or("minecraft");
+    if fields.get("provider").is_some_and(|s| s == "canna") {
+        return Ok(Vec::new());
+    }
     let mut providers = if fields.get("provider").is_some_and(|s| s == "all") {
         if game == "minecraft" {
             vec!["modrinth", "curseforge"]
@@ -614,6 +741,7 @@ impl Browser {
             self.pending_pack = None;
             self.pending_downloads.clear();
             self.queued_pack_additions.clear();
+            self.catalog_pins.clear();
             self.loaded = false;
             self.provider_games = None;
             self.games_attempted = false;
@@ -632,9 +760,14 @@ impl Browser {
                         self.pending_pack = None;
                     }
                     if matches!(job.kind, Kind::Download) {
-                        for waiting in &mut self.pending_downloads {
-                            if waiting.id == self.imported_id {
-                                waiting.paused = true;
+                        if self.catalog_pins.remove(&self.imported_id).is_some() {
+                            self.pending_downloads.retain(|p| p.id != self.imported_id);
+                            self.imported_id.clear();
+                        } else {
+                            for waiting in &mut self.pending_downloads {
+                                if waiting.id == self.imported_id {
+                                    waiting.paused = true;
+                                }
                             }
                         }
                     }
@@ -786,6 +919,10 @@ impl Browser {
         self.loaded = true;
         clear_artwork(ctx, &self.page);
         self.page = Value::Null;
+        if self.filters.provider == "canna" {
+            self.status.clear();
+            return;
+        }
         match self.filters.url() {
             Ok(url) => self.start(ctx, Kind::Browse, reqwest::Method::GET, url, None),
             Err(e) => self.status = e.to_string(),
@@ -880,6 +1017,7 @@ impl Browser {
                         &mut self.filters.provider,
                         &[
                             ("all", "All sources"),
+                            ("canna", "Canna"),
                             ("modrinth", "Modrinth"),
                             ("curseforge", "CurseForge"),
                             ("thunderstore", "Thunderstore"),
@@ -1059,7 +1197,7 @@ impl Browser {
             ui.horizontal(|ui| {
                 let r = ui.add(
                     egui::TextEdit::singleline(&mut self.filters.q)
-                        .hint_text("Search provider mods…")
+                        .hint_text("Search mods…")
                         .desired_width((ui.available_width() - 115.0).max(100.0))
                         .char_limit(120),
                 );
@@ -1119,15 +1257,51 @@ impl Browser {
                 }
             });
         });
-        ui.label("Browsing loads metadata only. Choose a release to download and subscribe.");
+        ui.label("Browsing loads metadata only. Canna library downloads use the approved pinned archive; provider downloads retrieve a release and subscribe.");
         self.feedback(ui);
-        self.pagination(ui, false);
+        let library = catalog_page(&self.filters, catalog);
+        self.pagination(ui, false, library.has_more);
         let mut selected = None;
         let mut download = None;
+        let mut library_details = None;
+        let mut library_download = None;
         egui::ScrollArea::vertical()
             .id_salt("native-provider-results")
             .auto_shrink([false, false])
             .show(ui, |ui| {
+                if !library.rows.is_empty() {
+                    ui.heading("Canna library");
+                    ui.label(format!("{} matching approved archives · alphabetical", library.total));
+                }
+                for row in &library.rows {
+                    egui::Frame::new()
+                        .fill(egui::Color32::from_rgb(29, 39, 33))
+                        .inner_margin(12)
+                        .show(ui, |ui| {
+                            ui.set_min_width(ui.available_width());
+                            ui.horizontal(|ui| {
+                                crate::ui_helpers::mod_art(ui, row.item, egui::vec2(64.0, 64.0));
+                                ui.heading(&row.item.name);
+                            });
+                            ui.label(format!("Canna library · {}", row.item.version));
+                            credits(ui, &row.item.provenance);
+                            let description: String = row.item.description.chars().take(180).collect();
+                            ui.label(format!("{}{}", description, if row.item.description.chars().count()>180 {"…"}else{""}));
+                            let compatible_target = target.as_deref().filter(|id| packs.catalog_pack_matches(id, row.game, source));
+                            if target.is_some() && compatible_target.is_none() {
+                                ui.label(format!("Choose a {} modpack using this library to add this download.", row.game.name));
+                            }
+                            ui.horizontal_wrapped(|ui| {
+                                if ui.add_enabled(self.job.is_none(), download_button()).clicked() {
+                                    library_download = Some((row.id.to_owned(), compatible_target.map(str::to_owned), catalog_download_request(row), CatalogPin { game: row.game.clone(), item: row.item.clone(), source: source.cloned() }));
+                                }
+                                if ui.button("Details").clicked() {
+                                    library_details = Some((row.game.clone(), row.item.clone()));
+                                }
+                            });
+                        });
+                    ui.add_space(8.0);
+                }
                 for item in self.page["items"].as_array().into_iter().flatten() {
                     egui::Frame::new()
                         .fill(egui::Color32::from_rgb(29, 39, 33))
@@ -1180,10 +1354,24 @@ impl Browser {
                         });
                     ui.add_space(8.0);
                 }
-                if self.page["items"].as_array().is_some_and(Vec::is_empty) {
+                if library.rows.is_empty() && (self.filters.provider=="canna" || self.page["items"].as_array().is_some_and(Vec::is_empty)) {
                     ui.label("No matching projects. Try another filter.");
                 }
             });
+        if let Some((game, item)) = library_details {
+            packs.open_catalog_details(&game, source, target.as_deref(), item);
+        }
+        if let Some((id, pack, (kind, url, body), pin)) = library_download {
+            self.imported_id = id.clone();
+            self.catalog_pins.insert(id.clone(), pin);
+            self.pending_downloads.retain(|p| p.id != id);
+            self.pending_downloads.push_back(PendingDownload {
+                id: id.clone(),
+                pack,
+                paused: true,
+            });
+            self.start(ui.ctx(), kind, reqwest::Method::POST, url, Some(body));
+        }
         if download.is_some()
             && self.filters.game == "minecraft"
             && (self.filters.version.is_empty() || self.filters.loader.is_empty())
@@ -1216,7 +1404,8 @@ impl Browser {
         packs: &mut crate::pack_ui::PackUi,
         target: &mut Option<String>,
     ) {
-        // Native target selection uses the existing pack compatibility/dependency checks.
+        // Capture a Canna card's version/hash instead of silently adding a release
+        // from a later catalog refresh after its download finishes.
         self.queued_pack_additions.retain(|(pack, id)| {
             let Some((game, item)) = catalog.iter().find_map(|g| {
                 g.mods
@@ -1224,11 +1413,26 @@ impl Browser {
                     .find(|m| m.file == format!("Mods/{id}.zip"))
                     .map(|m| (g, m))
             }) else {
+                if self.catalog_pins.remove(id).is_some() {
+                    self.status = "Downloaded, but this Canna archive is no longer in the library. Refresh library to continue.".into();
+                    if self.imported_id == *id {
+                        self.imported_id.clear();
+                    }
+                    return false;
+                }
                 return true;
             };
-            self.status = packs
-                .provider_add(pack, game, source, item.clone())
-                .unwrap_or_else(|e| format!("Downloaded, but could not add to modpack: {e}"));
+            self.status = if let Some(pin) = self.catalog_pins.remove(id) {
+                if pin.matches(game, item, source) {
+                    packs.provider_add(pack, &pin.game, pin.source.as_ref(), pin.item)
+                        .unwrap_or_else(|e| format!("Downloaded, but could not add to modpack: {e}"))
+                } else {
+                    "Downloaded, but the Canna library changed. Refresh library and choose the current release.".into()
+                }
+            } else {
+                packs.provider_add(pack, game, source, item.clone())
+                    .unwrap_or_else(|e| format!("Downloaded, but could not add to modpack: {e}"))
+            };
             if self.imported_id == *id {
                 self.imported_id.clear();
             }
@@ -1242,6 +1446,24 @@ impl Browser {
                     .map(|m| (g, m))
             })
         {
+            let finished = self.job.is_none()
+                && !self
+                    .pending_downloads
+                    .iter()
+                    .any(|p| p.id == self.imported_id);
+            if !finished {
+                return;
+            }
+            if self
+                .catalog_pins
+                .get(&self.imported_id)
+                .is_some_and(|pin| !pin.matches(game, item, source))
+            {
+                ui.label(
+                    "The Canna library changed. Refresh library and choose the current release.",
+                );
+                return;
+            }
             if game.app_id == u32::MAX {
                 let target = crate::minecraft::content_target_ui(
                     ui,
@@ -1257,7 +1479,9 @@ impl Browser {
             }
             if ui
                 .add_enabled(
-                    target.is_some(),
+                    target
+                        .as_deref()
+                        .is_some_and(|id| packs.catalog_pack_matches(id, game, source)),
                     egui::Button::new(format!("Add {} to selected modpack", item.name)),
                 )
                 .clicked()
@@ -1270,6 +1494,15 @@ impl Browser {
                         item.clone(),
                     )
                     .unwrap_or_else(|e| e.to_string());
+            }
+            if target
+                .as_deref()
+                .is_some_and(|id| !packs.catalog_pack_matches(id, game, source))
+            {
+                ui.label(format!(
+                    "Choose a {} modpack using this library to add this download.",
+                    game.name
+                ));
             }
         }
     }
@@ -1310,7 +1543,7 @@ impl Browser {
             });
         }
     }
-    fn pagination(&mut self, ui: &mut egui::Ui, subscriptions: bool) {
+    fn pagination(&mut self, ui: &mut egui::Ui, subscriptions: bool, catalog_more: bool) {
         let page = if subscriptions {
             self.subscription_page
         } else {
@@ -1321,7 +1554,7 @@ impl Browser {
         } else {
             &self.page
         };
-        let more = data["has_more"] == true;
+        let more = data["has_more"] == true || (!subscriptions && catalog_more);
         let mut next = None;
         ui.horizontal(|ui| {
             if ui
@@ -1377,7 +1610,7 @@ impl Browser {
             self.subs(ui.ctx());
         }
         self.feedback(ui);
-        self.pagination(ui, true);
+        self.pagination(ui, true, false);
         let mut action = None;
         egui::ScrollArea::vertical()
             .id_salt("native-subscriptions")
@@ -1666,6 +1899,414 @@ pub fn live_check() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn library_item(number: u32, name: &str) -> crate::model::ModInfo {
+        crate::model::ModInfo {
+            name: name.into(),
+            version: "1.8.2".into(),
+            description: "Reviewed Canna archive fixture".into(),
+            content_type: "mod".into(),
+            provenance: json!({"provider":"canna","authors":["flofl"],"source_url":"https://thunderstore.io/c/rounds/p/flofl/HollowPurple/"}),
+            enabled: true,
+            file: format!("Mods/00000000-0000-4000-8000-{number:012x}.zip"),
+            sha256: "a".repeat(64),
+            local_file: String::new(),
+            dependencies: vec![],
+        }
+    }
+
+    fn rounds_library(items: Vec<crate::model::ModInfo>) -> crate::model::GameInfo {
+        let mut game = crate::model::bopl();
+        game.app_id = 1557740;
+        game.name = "ROUNDS".into();
+        game.folder = "rounds".into();
+        game.mods = items;
+        game
+    }
+
+    fn library_source() -> crate::cache::Source {
+        crate::cache::Source {
+            owner: "canna".into(),
+            repository: "server".into(),
+            branch: "main".into(),
+            catalog_folder: String::new(),
+        }
+    }
+
+    #[test]
+    fn canna_and_all_sources_show_fixed_separately_from_the_original_credit_url() {
+        let fixed = library_item(1, "HollowPurple Fixed");
+        let mut original = library_item(2, "HollowPurple");
+        original.provenance["provider"] = json!("thunderstore");
+        original.version = "1.8.1".into();
+        let catalog = vec![rounds_library(vec![fixed.clone(), original])];
+        let mut filters = Filters {
+            game: "rounds".into(),
+            q: "hOLLOWpURPLE".into(),
+            ..Default::default()
+        };
+        for provider in ["all", "canna"] {
+            filters.provider = provider.into();
+            let page = catalog_page(&filters, &catalog);
+            assert_eq!(page.total, 2);
+            assert_ne!(page.rows[0].id, page.rows[1].id);
+            assert_eq!(
+                page.rows[0].item.provenance["source_url"],
+                page.rows[1].item.provenance["source_url"]
+            );
+            let row = page
+                .rows
+                .iter()
+                .find(|row| row.item.name == "HollowPurple Fixed")
+                .unwrap();
+            let (kind, url, body) = catalog_download_request(row);
+            assert!(matches!(kind, Kind::Download));
+            assert_eq!(url.path(), "/api/v1/download-tickets");
+            assert_eq!(
+                body,
+                json!({"kind":"mods","id":"00000000-0000-4000-8000-000000000001"})
+            );
+            assert_eq!(row.item.version, fixed.version);
+            assert!(!body.to_string().contains("thunderstore"));
+        }
+        filters.provider = "thunderstore".into();
+        assert_eq!(catalog_page(&filters, &catalog).total, 0);
+        filters.provider = "canna".into();
+        assert!(
+            provider_requests(&filters.url().unwrap())
+                .unwrap()
+                .is_empty()
+        );
+        let mut browser = Browser {
+            filters,
+            page: json!({"items":[{"name":"Old external page"}]}),
+            ..Default::default()
+        };
+        browser.browse(&egui::Context::default());
+        assert!(browser.loaded);
+        assert!(browser.page.is_null());
+        assert!(
+            browser.job.is_none(),
+            "Canna browsing must not request an external provider"
+        );
+    }
+
+    #[test]
+    fn library_filters_use_known_game_and_content_metadata_without_inventing_categories() {
+        let mut known = library_item(1, "HollowPurple Fixed");
+        known.provenance["loaders"] = json!(["bepinex"]);
+        known.provenance["game_versions"] = json!(["current"]);
+        let mut pack = library_item(2, "HollowPurple maps");
+        pack.content_type = "resourcepack".into();
+        let mut bopl = crate::model::bopl();
+        bopl.mods = vec![library_item(3, "HollowPurple Bopl")];
+        let catalog = vec![rounds_library(vec![known, pack]), bopl];
+        let mut filters = Filters {
+            provider: "canna".into(),
+            game: "rounds".into(),
+            q: "HollowPurple".into(),
+            ..Default::default()
+        };
+        assert_eq!(catalog_page(&filters, &catalog).total, 2);
+        filters.content_type = "mod".into();
+        filters.loader = "bepinex".into();
+        filters.version = "current".into();
+        assert_eq!(catalog_page(&filters, &catalog).total, 1);
+        filters.version = "unknown".into();
+        assert_eq!(catalog_page(&filters, &catalog).total, 0);
+        filters.version.clear();
+        filters.loader = "fabric".into();
+        assert_eq!(catalog_page(&filters, &catalog).total, 0);
+        filters.loader.clear();
+        filters.category = "thunderstore:cards".into();
+        assert_eq!(catalog_page(&filters, &catalog).total, 0);
+        filters.category.clear();
+        filters.game = "bopl-battle".into();
+        let page = catalog_page(&filters, &catalog);
+        assert_eq!(page.total, 1);
+        assert_eq!(page.rows[0].game.app_id, 1686940);
+        filters.game = "unknown-game".into();
+        assert_eq!(catalog_page(&filters, &catalog).total, 0);
+    }
+
+    #[test]
+    fn recommendation_local_and_unverified_archives_never_become_canna_downloads() {
+        let valid = library_item(1, "Reviewed archive");
+        let mut items = vec![valid.clone()];
+        let mut recommendation = valid.clone();
+        recommendation.provenance["external_only"] = json!(true);
+        items.push(recommendation);
+        let mut missing_hash = valid.clone();
+        missing_hash.sha256.clear();
+        items.push(missing_hash);
+        let mut bad_hash = valid.clone();
+        bad_hash.sha256 = "x".repeat(64);
+        items.push(bad_hash);
+        let mut local = valid.clone();
+        local.local_file = "local-mods/test.zip".into();
+        items.push(local);
+        let mut bad_archive = valid.clone();
+        bad_archive.file = "Mods/../original.zip".into();
+        items.push(bad_archive);
+        let mut executable = valid.clone();
+        executable.file = "Mods/00000000-0000-4000-8000-000000000001.dll".into();
+        items.push(executable);
+        let catalog = vec![rounds_library(items)];
+        let page = catalog_page(
+            &Filters {
+                game: "rounds".into(),
+                ..Default::default()
+            },
+            &catalog,
+        );
+        assert_eq!(page.total, 1);
+        assert_eq!(page.rows[0].item.file, valid.file);
+    }
+
+    #[test]
+    fn canna_pages_remain_alphabetical_and_independent_of_external_provider_failures() {
+        let items = (0..CATALOG_PAGE_SIZE + 1)
+            .rev()
+            .map(|n| library_item(n as u32, &format!("Mod {n:02}")))
+            .collect();
+        let catalog = vec![rounds_library(items)];
+        let mut filters = Filters {
+            game: "rounds".into(),
+            order: "updated".into(),
+            ..Default::default()
+        };
+        assert!(
+            merge_pages(
+                vec![("thunderstore".into(), Err("unavailable".into()))],
+                &filters.order
+            )
+            .is_err()
+        );
+        let first = catalog_page(&filters, &catalog);
+        assert_eq!(first.total, CATALOG_PAGE_SIZE + 1);
+        assert_eq!(first.rows.len(), CATALOG_PAGE_SIZE);
+        assert_eq!(first.rows[0].item.name, "Mod 00");
+        assert!(first.has_more);
+        filters.page = 2;
+        let second = catalog_page(&filters, &catalog);
+        assert_eq!(second.rows.len(), 1);
+        assert_eq!(second.rows[0].item.name, "Mod 20");
+        assert!(!second.has_more);
+        filters.page = u32::MAX;
+        assert!(catalog_page(&filters, &catalog).rows.is_empty());
+    }
+
+    #[test]
+    fn canna_cards_render_at_desktop_and_compact_sizes_during_provider_outages() {
+        let catalog = vec![rounds_library(vec![library_item(1, "HollowPurple Fixed")])];
+        for size in [egui::vec2(1280.0, 800.0), egui::vec2(800.0, 600.0)] {
+            for provider in ["all", "canna"] {
+                let ctx = egui::Context::default();
+                let mut browser = Browser {
+                    filters: Filters {
+                        provider: provider.into(),
+                        game: "rounds".into(),
+                        q: "HollowPurple".into(),
+                        ..Default::default()
+                    },
+                    account: "ui-fixture".into(),
+                    loaded: true,
+                    status: "Provider temporarily unavailable".into(),
+                    ..Default::default()
+                };
+                let mut packs = crate::pack_ui::PackUi::new();
+                let mut target = None;
+                let input = || egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                    ..Default::default()
+                };
+                for _ in 0..3 {
+                    let _ = ctx.run(input(), |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            browser.show(ui, &catalog, None, &mut packs, &mut target)
+                        });
+                    });
+                }
+                let output = ctx.run(input(), |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        browser.show(ui, &catalog, None, &mut packs, &mut target)
+                    });
+                });
+                assert!(browser.job.is_none());
+                assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text() == "HollowPurple Fixed" && t.pos.y >= s.clip_rect.min.y && t.pos.y + 18.0 <= s.clip_rect.max.y)), "Canna result not visible at {size:?} / {provider}");
+                assert!(!output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Text(t) if t.galley.text().contains("null downloads"))));
+            }
+        }
+    }
+
+    #[test]
+    fn pinned_canna_download_uses_captured_pack_and_rejects_a_changed_catalog() {
+        let root = std::env::temp_dir().join(format!(
+            "canna-pinned-download-{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        crate::modpacks::with_test_root(root.clone(), || {
+            let item = library_item(1, "HollowPurple Fixed");
+            let game = rounds_library(vec![item.clone()]);
+            let source = library_source();
+            // Pack names are arbitrary: the game metadata determines compatibility.
+            let first = crate::modpacks::Modpack::create(
+                "Bopl".into(),
+                String::new(),
+                &game,
+                source.clone(),
+                vec![],
+            );
+            let stale = crate::modpacks::Modpack::create(
+                "Stale download".into(),
+                String::new(),
+                &game,
+                source.clone(),
+                vec![],
+            );
+            let wrong = crate::modpacks::Modpack::create(
+                "ROUNDS".into(),
+                String::new(),
+                &crate::model::bopl(),
+                source.clone(),
+                vec![],
+            );
+            for pack in [&first, &stale, &wrong] {
+                pack.save().unwrap();
+            }
+            let mut packs = crate::pack_ui::PackUi::new();
+            assert!(packs.catalog_pack_matches(&first.id, &game, Some(&source)));
+            assert!(!packs.catalog_pack_matches(&wrong.id, &game, Some(&source)));
+            let ctx = egui::Context::default();
+            let id = catalog_id(&item).unwrap().to_owned();
+            let deliver = |browser: &mut Browser, pack: &str| {
+                browser.imported_id = id.clone();
+                browser.catalog_pins.insert(
+                    id.clone(),
+                    CatalogPin {
+                        game: game.clone(),
+                        item: item.clone(),
+                        source: Some(source.clone()),
+                    },
+                );
+                browser.pending_downloads.push_back(PendingDownload {
+                    id: id.clone(),
+                    pack: Some(pack.into()),
+                    paused: true,
+                });
+                let (tx, rx) = mpsc::channel();
+                tx.send(Ok(json!({"id":id,"download_message":"Downloaded"})))
+                    .unwrap();
+                browser.job = Some(Job {
+                    kind: Kind::Download,
+                    rx,
+                    session: "fixture".into(),
+                });
+                browser.update(&ctx, "fixture");
+            };
+            let mut browser = Browser {
+                account: "fixture".into(),
+                ..Default::default()
+            };
+            deliver(&mut browser, &first.id);
+            let mut target = Some(wrong.id.clone());
+            let _ = ctx.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    browser.attachment(
+                        ui,
+                        std::slice::from_ref(&game),
+                        Some(&source),
+                        &mut packs,
+                        &mut target,
+                    )
+                });
+            });
+            let saved = crate::modpacks::load_all().0;
+            assert_eq!(
+                saved.iter().find(|p| p.id == first.id).unwrap().mods[0].sha256,
+                item.sha256
+            );
+            assert!(
+                saved
+                    .iter()
+                    .find(|p| p.id == wrong.id)
+                    .unwrap()
+                    .mods
+                    .is_empty()
+            );
+            assert!(browser.catalog_pins.is_empty());
+            deliver(&mut browser, &stale.id);
+            let mut changed = game.clone();
+            changed.mods[0].version = "different-version".into();
+            changed.mods[0].sha256 = "b".repeat(64);
+            let _ = ctx.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    browser.attachment(
+                        ui,
+                        std::slice::from_ref(&changed),
+                        Some(&source),
+                        &mut packs,
+                        &mut target,
+                    )
+                });
+            });
+            assert!(
+                crate::modpacks::load_all()
+                    .0
+                    .iter()
+                    .find(|p| p.id == stale.id)
+                    .unwrap()
+                    .mods
+                    .is_empty()
+            );
+            assert!(browser.status.contains("library changed"));
+            assert!(browser.catalog_pins.is_empty());
+            assert!(browser.queued_pack_additions.is_empty());
+        });
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn failed_canna_download_and_logout_clear_pins_without_enabling_attachment() {
+        let ctx = egui::Context::default();
+        let item = library_item(1, "HollowPurple Fixed");
+        let id = catalog_id(&item).unwrap().to_owned();
+        let pin = CatalogPin {
+            game: rounds_library(vec![item.clone()]),
+            item,
+            source: Some(library_source()),
+        };
+        let mut browser = Browser {
+            account: "fixture".into(),
+            imported_id: id.clone(),
+            ..Default::default()
+        };
+        browser.catalog_pins.insert(id.clone(), pin.clone());
+        browser.pending_downloads.push_back(PendingDownload {
+            id: id.clone(),
+            pack: Some("captured-pack".into()),
+            paused: true,
+        });
+        let (tx, rx) = mpsc::channel();
+        tx.send(Err("Download checksum mismatch".into())).unwrap();
+        browser.job = Some(Job {
+            kind: Kind::Download,
+            rx,
+            session: "fixture".into(),
+        });
+        browser.update(&ctx, "fixture");
+        assert!(browser.catalog_pins.is_empty());
+        assert!(browser.pending_downloads.is_empty());
+        assert!(browser.queued_pack_additions.is_empty());
+        assert!(browser.imported_id.is_empty());
+        browser.catalog_pins.insert(id, pin);
+        browser.update(&ctx, "");
+        assert!(browser.catalog_pins.is_empty());
+    }
+
     #[test]
     #[ignore = "Uses the signed-in account and downloads one already-approved small archive; no installation"]
     fn live_pending_download_resumes_after_ready_status() {

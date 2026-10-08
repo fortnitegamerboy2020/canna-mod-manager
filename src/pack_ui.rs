@@ -188,6 +188,31 @@ impl PackUi {
         Ok("Saved to modpack. Apply modpack or Launch modded to install its enabled mods.".into())
     }
 
+    pub fn catalog_pack_matches(&self, id: &str, game: &GameInfo, source: Option<&Source>) -> bool {
+        self.packs.iter().any(|pack| {
+            pack.id == id
+                && pack.game.app_id == game.app_id
+                && pack.game.folder == game.folder
+                && Some(&pack.repository) == source
+        })
+    }
+
+    pub fn open_catalog_details(
+        &mut self,
+        game: &GameInfo,
+        source: Option<&Source>,
+        target: Option<&str>,
+        item: crate::model::ModInfo,
+    ) {
+        let selected = target
+            .filter(|id| self.catalog_pack_matches(id, game, source))
+            .and_then(|id| self.packs.iter().find(|pack| pack.id == id))
+            .cloned();
+        self.mod_details = Some(item);
+        self.mod_details_context = Some((game.clone(), source.cloned(), selected));
+        self.mod_download_status.clear();
+    }
+
     pub fn discover(
         &mut self,
 
@@ -2225,6 +2250,83 @@ fn repository_label(source: &Source) -> String {
 mod tests {
 
     use super::*;
+
+    #[test]
+    fn catalog_details_preserve_the_exact_fork_and_match_actual_pack_metadata() {
+        let mut game = crate::model::bopl();
+        game.app_id = 1557740;
+        game.name = "ROUNDS".into();
+        game.folder = "rounds".into();
+        let source = Source {
+            owner: "canna".into(),
+            repository: "server".into(),
+            branch: "main".into(),
+            catalog_folder: String::new(),
+        };
+        let item = crate::model::ModInfo {
+            name: "HollowPurple Fixed".into(),
+            version: "1.8.2".into(),
+            content_type: "mod".into(),
+            description: "Pinned fork, upstream credited".into(),
+            provenance: serde_json::json!({"provider":"canna","source_url":"https://thunderstore.io/c/rounds/p/flofl/HollowPurple/"}),
+            enabled: true,
+            file: "Mods/00000000-0000-4000-8000-000000000001.zip".into(),
+            sha256: "a".repeat(64),
+            local_file: String::new(),
+            dependencies: vec!["UnboundLib".into()],
+        };
+        let compatible =
+            Modpack::create("Bopl".into(), String::new(), &game, source.clone(), vec![]);
+        let wrong_game = Modpack::create(
+            "ROUNDS".into(),
+            String::new(),
+            &crate::model::bopl(),
+            source.clone(),
+            vec![],
+        );
+        let mut page = PackUi::new();
+        page.packs = vec![compatible.clone(), wrong_game.clone()];
+        page.open_catalog_details(&game, Some(&source), Some(&compatible.id), item.clone());
+        assert_eq!(
+            serde_json::to_value(page.mod_details.as_ref().unwrap()).unwrap(),
+            serde_json::to_value(&item).unwrap()
+        );
+        assert_eq!(
+            page.mod_details_context
+                .as_ref()
+                .unwrap()
+                .2
+                .as_ref()
+                .unwrap()
+                .id,
+            compatible.id
+        );
+        assert!(
+            page.mod_download.is_none(),
+            "Opening details must not download or import the upstream project"
+        );
+        page.open_catalog_details(&game, Some(&source), Some(&wrong_game.id), item.clone());
+        assert!(page.mod_details_context.as_ref().unwrap().2.is_none());
+        let mut different_source = source.clone();
+        different_source.branch = "other".into();
+        page.open_catalog_details(
+            &game,
+            Some(&different_source),
+            Some(&compatible.id),
+            item.clone(),
+        );
+        assert!(page.mod_details_context.as_ref().unwrap().2.is_none());
+        let mut different_folder = game.clone();
+        different_folder.folder = "other-rounds".into();
+        assert!(!page.catalog_pack_matches(&compatible.id, &different_folder, Some(&source)));
+        assert!(
+            page.mod_details
+                .as_ref()
+                .unwrap()
+                .file
+                .ends_with("000000000001.zip")
+        );
+    }
 
     #[test]
     fn discover_cards_use_width_and_show_multiple_results() {
