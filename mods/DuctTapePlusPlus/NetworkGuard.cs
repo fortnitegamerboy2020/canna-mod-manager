@@ -8,6 +8,7 @@ using System.Collections;
 using System.IO;
 using System.Reflection;
 using BepInEx;
+using BepInEx.Configuration;
 using HarmonyLib;
 using Photon.Pun;
 using Photon.Realtime;
@@ -21,10 +22,13 @@ namespace Canna.DuctTapePlusPlus
     public sealed class PeerAdvertisement
     {
         public string Protocol, Profile, GameHash, ContentDigest, Epoch;
+        public string ModsDigest, AssetsDigest, ConfigDigest;
         public int Actor;
 
-        public PeerAdvertisement(string protocol, string profile, string gameHash, string digest, int actor, string epoch)
-        { Protocol = protocol; Profile = profile; GameHash = gameHash; ContentDigest = digest; Actor = actor; Epoch = epoch; }
+        public PeerAdvertisement(string protocol, string profile, string gameHash, string digest, int actor, string epoch,
+            string mods = null, string assets = null, string config = null)
+        { Protocol = protocol; Profile = profile; GameHash = gameHash; ContentDigest = digest; Actor = actor; Epoch = epoch;
+          ModsDigest = mods; AssetsDigest = assets; ConfigDigest = config; }
 
         public static bool IsHash(string value)
         { return value != null && value.Length == 64 && value.All(c => c >= '0' && c <= '9' || c >= 'a' && c <= 'f'); }
@@ -120,7 +124,15 @@ namespace Canna.DuctTapePlusPlus
                 if (!PeerAdvertisement.IsHash(peer.GameHash) || peer.GameHash != local.GameHash)
                     return new GuardVerdict(false, "Actor " + actor + " has a different or malformed game assembly hash.");
                 if (!PeerAdvertisement.IsHash(peer.ContentDigest) || peer.ContentDigest != local.ContentDigest)
+                {
+                    if (PeerAdvertisement.IsHash(local.ModsDigest) && PeerAdvertisement.IsHash(peer.ModsDigest) && local.ModsDigest != peer.ModsDigest)
+                        return new GuardVerdict(false, "Actor " + actor + " has different prepared mod DLLs or a different Rebound release. Update Canna and reapply the same pack on both PCs.");
+                    if (PeerAdvertisement.IsHash(local.AssetsDigest) && PeerAdvertisement.IsHash(peer.AssetsDigest) && local.AssetsDigest != peer.AssetsDigest)
+                        return new GuardVerdict(false, "Actor " + actor + " has different mod assets or patchers. Reapply the same pack on both PCs.");
+                    if (PeerAdvertisement.IsHash(local.ConfigDigest) && PeerAdvertisement.IsHash(peer.ConfigDigest) && local.ConfigDigest != peer.ConfigDigest)
+                        return new GuardVerdict(false, "Actor " + actor + " has different active gameplay settings. Match enabled cards, maps and mod settings on both PCs.");
                     return new GuardVerdict(false, "Actor " + actor + " has different mods, assets or gameplay configuration.");
+                }
             }
             return new GuardVerdict(true, "All current actors have matching Canna Rebound compatibility manifests.");
         }
@@ -130,7 +142,7 @@ namespace Canna.DuctTapePlusPlus
 #if GUARD_RUNTIME
 namespace Canna.DuctTapePlusPlus
 {
-    [BepInPlugin("canna.ducttapeplusplus.networkguard", "Canna Rebound compatibility guard", "0.1.0")]
+    [BepInPlugin("canna.ducttapeplusplus.networkguard", "Canna Rebound compatibility guard", "0.1.1")]
     [BepInDependency("rounds-port.runtime")]
     [BepInDependency("com.willis.rounds.unbound", BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency("io.olavim.rounds.rwf", BepInDependency.DependencyFlags.SoftDependency)]
@@ -139,6 +151,7 @@ namespace Canna.DuctTapePlusPlus
         const string EpochKey = "dtpp.room.v1";
         const string ProtocolKey = "dtpp.protocol", ProfileKey = "dtpp.profile", GameKey = "dtpp.game";
         const string DigestKey = "dtpp.digest", ActorKey = "dtpp.actor", PeerEpochKey = "dtpp.epoch";
+        const string ModsKey = "dtpp.mods", AssetsKey = "dtpp.assets", ConfigKey = "dtpp.config";
         static NetworkGuard instance;
         readonly RoomCompatibilityPolicy policy = new RoomCompatibilityPolicy();
         readonly HashSet<MethodBase> patched = new HashSet<MethodBase>();
@@ -268,11 +281,14 @@ namespace Canna.DuctTapePlusPlus
                 RejectOutsideContent(Paths.PluginPath, PreparedPlugins);
                 RejectOutsideContent(Paths.PatcherPluginPath, PreparedPatchers);
                 var current = ManifestContract.CreateRuntimeManifest(prepared, PreparedPlugins, PreparedPatchers, Paths.ConfigPath);
+                ApplyRuntimeConfig(current);
                 current.game_sha256 = game; current.digest = ManifestContract.Fingerprint(current);
                 string error;
                 if (!ManifestContract.VerifyImmutable(prepared, current, out error)) throw new InvalidDataException(error);
                 CheckLoadedPlugins(current);
-                local = new PeerAdvertisement(current.protocol, current.profile, game, current.digest, 0, null);
+                local = new PeerAdvertisement(current.protocol, current.profile, game, current.digest, 0, null,
+                    ManifestContract.ComponentFingerprint(current, "mods"), ManifestContract.ComponentFingerprint(current, "assets"),
+                    ManifestContract.ComponentFingerprint(current, "config"));
                 contentError = null;
                 policy.ConfigureLocal(local, patchError);
             }
@@ -285,6 +301,50 @@ namespace Canna.DuctTapePlusPlus
             if (stamp == null) contentStamps.Invalidate();
             else contentStamps.RecordAttempt(stamp);
             if (joined && (local == null || previousDigest != local.ContentDigest)) PublishLocal();
+        }
+
+        void ApplyRuntimeConfig(CompatibilityManifest current)
+        {
+            var bound = new Dictionary<string, ConfigFile>(StringComparer.OrdinalIgnoreCase);
+            foreach (var info in BepInEx.Bootstrap.Chainloader.PluginInfos.Values)
+            {
+                if (info.Instance == null) continue;
+                var standard = info.Instance.Config;
+                if (standard != null) bound[ManifestContract.Relative(Paths.ConfigPath, standard.ConfigFilePath)] = standard;
+                // The pinned Unbound port uses its public, already-initialized custom ConfigFile.
+                if (info.Instance.GetType().Assembly.GetName().Name == "UnboundLib")
+                {
+                    var field = info.Instance.GetType().GetField("config", BindingFlags.Public | BindingFlags.Static);
+                    if (field != null && field.FieldType == typeof(ConfigFile))
+                    {
+                        var config = field.GetValue(null) as ConfigFile;
+                        if (config != null) bound[ManifestContract.Relative(Paths.ConfigPath, config.ConfigFilePath)] = config;
+                    }
+                }
+            }
+            var rows = current.files.Where(r => r.root != "config").ToList();
+            foreach (var row in current.files.Where(r => r.root == "config"))
+            {
+                // These known plugin-owned configs cannot affect a pack without their owner.
+                if ((row.path == "fr.flofl.rounds.hollowpurple.cfg" && !BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey("fr.flofl.rounds.hollowpurple"))
+                    || (row.path == "local.rounds.cardcontrol.cfg" && !BepInEx.Bootstrap.Chainloader.PluginInfos.ContainsKey("local.rounds.cardcontrol"))) continue;
+                if (bound.ContainsKey(row.path)) continue;
+                if (row.path.EndsWith(".cfg", StringComparison.OrdinalIgnoreCase))
+                    row.sha256 = ManifestContract.ConfigHash(File.ReadAllBytes(Path.Combine(Paths.ConfigPath, row.path.Replace('/', Path.DirectorySeparatorChar))));
+                rows.Add(row);
+            }
+            foreach (var entry in bound)
+            {
+                var values = new List<KeyValuePair<string, string>>();
+                foreach (var key in entry.Value.Keys)
+                {
+                    if (entry.Key == "UnboundLib.cfg" && key.Section == "Config Options" && key.Key == "LockMouse") continue;
+                    string identity = key.Section.Length + ":" + key.Section + key.Key.Length + ":" + key.Key;
+                    values.Add(new KeyValuePair<string, string>(identity, entry.Value[key].GetSerializedValue()));
+                }
+                if (values.Count != 0) rows.Add(new FileRow { root = "config", path = entry.Key, sha256 = ManifestContract.ConfigValuesHash(values) });
+            }
+            current.files = rows.ToArray();
         }
 
         string ReadContentStamp()
@@ -533,6 +593,8 @@ namespace Canna.DuctTapePlusPlus
                 { ProtocolKey, local == null ? null : local.Protocol }, { ProfileKey, local == null ? null : local.Profile },
                 { GameKey, local == null ? null : local.GameHash }, { DigestKey, local == null ? null : local.ContentDigest },
                 { ActorKey, PhotonNetwork.LocalPlayer.ActorNumber }, { PeerEpochKey, epoch }
+                , { ModsKey, local == null ? null : local.ModsDigest }, { AssetsKey, local == null ? null : local.AssetsDigest },
+                { ConfigKey, local == null ? null : local.ConfigDigest }
             };
             if (!PhotonNetwork.LocalPlayer.SetCustomProperties(ad)) Deny("Local compatibility advertisement could not be published.");
         }
@@ -543,7 +605,8 @@ namespace Canna.DuctTapePlusPlus
             PeerAdvertisement peer = null;
             if (props[ActorKey] is int)
                 peer = new PeerAdvertisement(props[ProtocolKey] as string, props[ProfileKey] as string,
-                    props[GameKey] as string, props[DigestKey] as string, (int)props[ActorKey], props[PeerEpochKey] as string);
+                    props[GameKey] as string, props[DigestKey] as string, (int)props[ActorKey], props[PeerEpochKey] as string,
+                    props[ModsKey] as string, props[AssetsKey] as string, props[ConfigKey] as string);
             policy.ObservePeer(actualPlayer.ActorNumber, peer, policy.Generation);
         }
 
@@ -553,7 +616,8 @@ namespace Canna.DuctTapePlusPlus
             policy.Clear();
             if (PhotonNetwork.LocalPlayer != null)
                 PhotonNetwork.LocalPlayer.SetCustomProperties(new PhotonHashtable {
-                    { ProtocolKey, null }, { ProfileKey, null }, { GameKey, null }, { DigestKey, null }, { ActorKey, null }, { PeerEpochKey, null }
+                    { ProtocolKey, null }, { ProfileKey, null }, { GameKey, null }, { DigestKey, null }, { ActorKey, null }, { PeerEpochKey, null },
+                    { ModsKey, null }, { AssetsKey, null }, { ConfigKey, null }
                 });
         }
 

@@ -50,6 +50,7 @@ static class RuntimeGuardFixtures
             var doStart = HarmonyLib.AccessTools.Method(typeof(GM_ArmsRace), "DoStartGame");
             earlyWrapper.Patch(doStart, postfix: new HarmonyLib.HarmonyMethod(typeof(RuntimeGuardFixtures), nameof(EarlyCoroutineWrapper)));
             Call(guard, "Awake"); Call(guard, "Start");
+            ConfigParityChecks(guard, plugins, patchers);
             // Same lowest priority as the guard, installed later: explicit owner ordering
             // must still place the final guard after Unbound's pass-through wrapper.
             var latePostfix = new HarmonyLib.HarmonyMethod(typeof(RuntimeGuardFixtures), nameof(LateCoroutineWrapper));
@@ -139,6 +140,43 @@ static class RuntimeGuardFixtures
     }
     static int HashPasses(object guard)
     { return (int)guard.GetType().GetField("fullHashPasses", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(guard); }
+    static void ConfigParityChecks(NetworkGuard guard, string plugins, string patchers)
+    {
+        string configRoot = BepInEx.Paths.ConfigPath;
+        string stale = Path.Combine(configRoot, "fr.flofl.rounds.hollowpurple.cfg");
+        string active = Path.Combine(configRoot, "UnboundLib.cfg");
+        File.WriteAllText(stale, "[Old]\nEnabled=false\n");
+        File.WriteAllText(active, "# old mod list\n[Cards]\nActive=true\nOldMod=false\n");
+        var config = new BepInEx.Configuration.ConfigFile { ConfigFilePath = active };
+        var card = new BepInEx.Configuration.ConfigDefinition { Section = "Cards", Key = "Active" };
+        var mouse = new BepInEx.Configuration.ConfigDefinition { Section = "Config Options", Key = "LockMouse" };
+        config.Add(card, new BepInEx.Configuration.ConfigEntryBase { Value = "true" });
+        config.Add(mouse, new BepInEx.Configuration.ConfigEntryBase { Value = "true" });
+        BepInEx.Bootstrap.Chainloader.PluginInfos["active-config-fixture"] = new BepInEx.PluginInfo { Instance = new BepInEx.BaseUnityPlugin { Config = config } };
+        Func<CompatibilityManifest> read = () => {
+            var result = new CompatibilityManifest { protocol = ManifestContract.Protocol, profile = ManifestContract.Profile,
+                game_sha256 = new string('a',64), assemblies = ManifestContract.CollectAssemblies(plugins),
+                files = ManifestContract.CollectFiles(plugins,patchers,configRoot) };
+            guard.GetType().GetMethod("ApplyRuntimeConfig",BindingFlags.Instance|BindingFlags.NonPublic).Invoke(guard,new object[]{result});
+            result.digest=ManifestContract.Fingerprint(result);return result;
+        };
+        try
+        {
+            var first=read();
+            Check(!first.files.Any(row=>row.path=="fr.flofl.rounds.hollowpurple.cfg"), "Inactive known mod config is excluded from peer parity without deleting it");
+            File.WriteAllText(active,"# another history\n[Cards]\nOldOtherMod=true\nActive=true\n");
+            config[mouse].Value="false";
+            Check(first.digest==read().digest, "Bound active settings ignore orphaned old keys and local mouse preference");
+            config[card].Value="false";
+            Check(first.digest!=read().digest, "Changed bound card setting blocks even before it is saved to disk");
+            BepInEx.Bootstrap.Chainloader.PluginInfos["fr.flofl.rounds.hollowpurple"]=new BepInEx.PluginInfo { Instance=new BepInEx.BaseUnityPlugin() };
+            Check(read().files.Any(row=>row.path=="fr.flofl.rounds.hollowpurple.cfg"), "Known mod config remains significant when its plugin is active");
+        }
+        finally
+        {
+            BepInEx.Bootstrap.Chainloader.PluginInfos.Clear(); File.Delete(stale);File.Delete(active);
+        }
+    }
     static string Field(object guard, string name)
     { return (string)guard.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic).GetValue(guard); }
 
@@ -251,10 +289,16 @@ namespace BepInEx
     [AttributeUsage(AttributeTargets.Class)] public class BepInPlugin : Attribute { public BepInPlugin(string id, string name, string version) { } }
     [AttributeUsage(AttributeTargets.Class, AllowMultiple = true)] public class BepInDependency : Attribute
     { public enum DependencyFlags { SoftDependency } public BepInDependency(string id) { } public BepInDependency(string id, DependencyFlags flags) { } }
-    public class BaseUnityPlugin : UnityEngine.MonoBehaviour { public readonly Log Logger = new Log(); }
+    public class BaseUnityPlugin : UnityEngine.MonoBehaviour { public readonly Log Logger = new Log(); public BepInEx.Configuration.ConfigFile Config; }
     public class Log { public void LogError(object message) { Console.WriteLine("LOG " + message); } public void LogWarning(object message) { } }
     public static class Paths { public static string PluginPath, ConfigPath, ManagedPath, PatcherPluginPath; }
     public class PluginInfo { public BaseUnityPlugin Instance; }
+}
+namespace BepInEx.Configuration
+{
+    public class ConfigDefinition { public string Section, Key; }
+    public class ConfigEntryBase { public string Value; public string GetSerializedValue() { return Value; } }
+    public class ConfigFile : Dictionary<ConfigDefinition, ConfigEntryBase> { public string ConfigFilePath; }
 }
 namespace BepInEx.Bootstrap
 { public static class Chainloader { public static Dictionary<string, BepInEx.PluginInfo> PluginInfos = new Dictionary<string, BepInEx.PluginInfo>(); public static UnityEngine.GameObject ManagerObject = new UnityEngine.GameObject(); } }

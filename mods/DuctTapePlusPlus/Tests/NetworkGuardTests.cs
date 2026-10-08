@@ -50,6 +50,7 @@ static class NetworkGuardTests
         p = Ready(); p.ReplaceRoster(new[] { 1, 2, 2 }); Check(!p.Evaluate().Allowed, "Duplicate actor roster denies");
         p = Ready(); p.BeginRoom(1, "bad"); p.ReplaceRoster(new[] { 1, 2 }); Check(!p.Evaluate().Allowed, "Malformed room epoch denies");
         ManifestChecks();
+        ConfigChecks();
         JsonChecks();
         var stamps = new ContentStampPolicy();
         Check(stamps.NeedsVerification("first", false), "Initial content stamp requires a full hash");
@@ -58,6 +59,31 @@ static class NetworkGuardTests
         Check(stamps.NeedsVerification("first", true), "Actual gate forces hashing despite identical metadata");
         stamps.Invalidate(); Check(stamps.NeedsVerification("first", false), "Unreadable or linked stamp invalidates cached verification");
         Console.WriteLine("Offline policy checks: " + passed + "; no game or multiplayer session was run.");
+    }
+
+    static void ConfigChecks()
+    {
+        Func<string, string> hash = s => ManifestContract.ConfigHash(System.Text.Encoding.UTF8.GetBytes(s));
+        string first = "# description\r\n[Game]\r\nLives = 3\r\nCards = true\r\n";
+        Check(hash(first) == hash("[Game]\nCards=true\n# other comment\nLives=3\n"), "Equivalent config order, comments, line endings and serialization spacing match");
+        Check(hash(first) != hash("[Game]\nLives=4\nCards=true\n"), "Different gameplay value remains significant");
+        Check(hash(first) != hash("[Other]\nLives=3\nCards=true\n"), "Section identities remain significant");
+        string duplicate="[Game]\nLives=3\nLives=4\n";
+        Check(hash(duplicate) == ManifestContract.Hash(System.Text.Encoding.UTF8.GetBytes(duplicate)), "Ambiguous duplicate config syntax retains exact-byte comparison");
+        var expected = Manifest(Hash, Hash, Hash);
+        var changed = Manifest(Hash, Other, Hash);
+        Check(ManifestContract.ComponentFingerprint(expected, "mods") == ManifestContract.ComponentFingerprint(changed, "mods")
+            && ManifestContract.ComponentFingerprint(expected, "config") != ManifestContract.ComponentFingerprint(changed, "config"), "Component diagnostics isolate configuration without weakening aggregate equality");
+        var p = Ready();
+        var local=Ad(1);local.ModsDigest=Hash;local.AssetsDigest=Hash;local.ConfigDigest=Hash;p.ConfigureLocal(local);
+        var peer=Ad(2,digest:Other);peer.ModsDigest=Hash;peer.AssetsDigest=Hash;peer.ConfigDigest=Other;p.ObservePeer(2,peer,p.Generation);
+        Check(!p.Evaluate().Allowed && p.Evaluate().Reason.Contains("active gameplay settings"), "Config mismatch gives actionable denial");
+        peer.ModsDigest=Other;p.ObservePeer(2,peer,p.Generation);
+        Check(!p.Evaluate().Allowed && p.Evaluate().Reason.Contains("Rebound release"), "Mod or support mismatch identifies prepared DLLs");
+        peer.ModsDigest=Hash;peer.AssetsDigest=Other;p.ObservePeer(2,peer,p.Generation);
+        Check(!p.Evaluate().Allowed && p.Evaluate().Reason.Contains("assets or patchers"), "Asset mismatch identifies immutable content");
+        peer.AssetsDigest=Hash;peer.ConfigDigest=Hash;p.ObservePeer(2,peer,p.Generation);
+        Check(!p.Evaluate().Allowed, "Equal component claims cannot override unequal full fingerprint");
     }
 
     static CompatibilityManifest Manifest(string asset = null, string config = null, string patcher = null)

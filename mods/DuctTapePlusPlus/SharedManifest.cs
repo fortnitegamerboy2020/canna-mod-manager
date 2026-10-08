@@ -108,6 +108,53 @@ namespace Canna.DuctTapePlusPlus
             return Hash(Encoding.UTF8.GetBytes(CanonicalText(manifest)));
         }
 
+        public static string ComponentFingerprint(CompatibilityManifest manifest, string component)
+        {
+            var subset = new CompatibilityManifest {
+                protocol = manifest.protocol, profile = manifest.profile, game_sha256 = manifest.game_sha256,
+                assemblies = component == "mods" ? manifest.assemblies : new AssemblyRow[0],
+                files = component == "mods" ? new FileRow[0] : manifest.files.Where(r =>
+                    component == "config" ? r.root == "config" : r.root != "config").ToArray()
+            };
+            return Fingerprint(subset);
+        }
+
+        // Values remain significant; serialization comments, spacing and row order do not.
+        // Unsupported or duplicate syntax retains the original byte hash.
+        public static string ConfigHash(byte[] bytes)
+        {
+            try
+            {
+                string text = new UTF8Encoding(false, true).GetString(bytes).TrimStart('\ufeff');
+                var values = new SortedDictionary<string, string>(StringComparer.Ordinal);
+                string section = "";
+                foreach (string raw in text.Replace("\r\n", "\n").Split('\n'))
+                {
+                    string line = raw.Trim();
+                    if (line.Length == 0 || line.StartsWith("#", StringComparison.Ordinal)) continue;
+                    if (line.StartsWith("[", StringComparison.Ordinal) && line.EndsWith("]", StringComparison.Ordinal))
+                    { section = line.Substring(1, line.Length - 2).Trim(); continue; }
+                    int split = line.IndexOf('=');
+                    if (split <= 0) return Hash(bytes);
+                    string key = line.Substring(0, split).Trim(), value = line.Substring(split + 1).Trim();
+                    string identity = section.Length + ":" + section + key.Length + ":" + key;
+                    if (key.Length == 0 || values.ContainsKey(identity)) return Hash(bytes);
+                    values.Add(identity, value);
+                }
+                return ConfigValuesHash(values);
+            }
+            catch (DecoderFallbackException) { return Hash(bytes); }
+        }
+
+        public static string ConfigValuesHash(IEnumerable<KeyValuePair<string, string>> values)
+        {
+            var text = new StringBuilder("canna.config.values/1\n");
+            foreach (var row in values.OrderBy(r => r.Key, StringComparer.Ordinal))
+                text.Append(row.Key.Length).Append(':').Append(row.Key)
+                    .Append(row.Value.Length).Append(':').Append(row.Value).Append('\n');
+            return Hash(Encoding.UTF8.GetBytes(text.ToString()));
+        }
+
         public static string Relative(string root, string file)
         {
             root = Path.GetFullPath(root).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);

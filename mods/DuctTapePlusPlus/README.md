@@ -170,3 +170,14 @@ flagging the original inherited UnboundLib code; this is not a blanket license:
 https://github.com/Bknibb/UnboundLib/issues/2#issuecomment-6052691146
 Credits and source notices do not assert broader permission. Test-only
 SmokeChecks sources in the Canna source archive are not active runtime payloads.
+
+Community 0.3.66 recognizes exact reviewed Rebound-supplied dependency releases
+when Beta members share ROUNDS packs. Shared original archives retain a preview
+requirement; recipients still need their own verified Beta access before support
+download/storage and installation. Unknown missing dependency pins remain blocked.
+Rebound peer parity uses bound active settings, retains unknown configs, and
+ignores config comments/order, two known inactive plugin configs and local mouse
+lock. Gameplay values and immutable content still must match. Warnings separate
+DLL/support, asset/patcher and gameplay-setting mismatches. Both players must
+close ROUNDS and reapply their pack after a support update. Offline/Harmony tests
+are not proof of a full live multiplayer match.
