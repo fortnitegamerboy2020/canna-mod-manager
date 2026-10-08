@@ -256,6 +256,26 @@ function renderOverview() {
  if (!engines.length) $('engines').append(node('p', 'Engine details unavailable in this legacy report.', 'sidehint'));
  const capabilities = records(overview.capabilities); $('capabilities').replaceChildren(...capabilities.map(capability => { const row = node('div', undefined, 'capabilityitem'); row.append(node('span', text(capability.label || capability.rule)), badge(`${Number(capability.count || 0)} locations${capability.unresolved_count ? ' · ' + capability.unresolved_count + ' open' : ''}`, capability.unresolved_count ? 'warning' : 'muted')); return row; }));
  if (!capabilities.length) $('capabilities').append(node('p', 'No capability summary in this report. Use the Findings view and source browser.', 'sidehint'));
+ const components = records(overview.components).slice(0, 32);
+ if (components.length) {
+  const detail = node('details');
+  detail.append(node('summary', `${components.length} reconstructed components`), node('p', 'Direct file findings grouped by their recorded binary origin. Grouped coverage limits remain in Findings. Names and archive placement do not verify trust or whether a caller runs.', 'sidehint'));
+  for (const component of components) {
+   const row = node('div', undefined, 'capabilityitem reviewcomponent');
+   row.append(sourceLink({file: component.input}), badge(`${Number(component.finding_count || 0)} findings · ${text(component.status)}`, component.unresolved_count ? 'warning' : 'muted'));
+   row.append(node('p', text(component.placement_hint) + ' · ' + records(component.rules).map(rule => `${text(rule.rule)}: ${Number(rule.count || 0)}`).join(' · '), 'sidehint'));
+   if (isRecord(component.metadata)) {
+    const names = list(component.metadata.payload_name_hints).filter(name => typeof name === 'string').slice(0, 64).map(name => name.slice(0, 256));
+    const meta = node('details');
+    meta.append(node('summary', 'CLR metadata hints · ' + text(component.metadata.status)), node('p', text(component.metadata.note) || 'String names do not prove resource use or clear packing findings.', 'sidehint'));
+    if (names.length) meta.append(node('pre', names.join('\n'))); else meta.append(node('p', 'No patch-like names retained.'));
+    if (component.metadata.heap_limit_reached || component.metadata.name_limit_reached) meta.append(node('p', 'Metadata hint coverage was limited.', 'sidehint'));
+    row.append(meta);
+   }
+   detail.append(row);
+  }
+  $('capabilities').append(detail);
+ }
  const dependencies = records(overview.dependencies); if (dependencies.length) { const detail = node('details'); detail.append(node('summary', `${dependencies.length} declared dependencies`), node('p', 'Declared metadata only; versions and compatibility are not verified here.', 'sidehint')); for (const dependency of dependencies.slice(0, 50)) { const row = node('p', text(dependency.name), 'sidehint'); if (dependency.file) row.append(sourceLink({file: dependency.file})); detail.append(row); } $('capabilities').append(detail); }
  $('reporthash').textContent = text(report.sha256) || 'Archive hash unavailable';
  const limits = Object.entries(overview.limits || {}).filter(([, value]) => value && (typeof value !== 'number' || value > 0)); $('reportlimits').textContent = limits.length ? 'Retained overview limits: ' + limits.map(([key, value]) => key.replaceAll('_', ' ') + ': ' + text(value)).join(' · ') : 'Source windows and outline lists are bounded for responsiveness. Inventory filters include files without a preview.';

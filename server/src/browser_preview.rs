@@ -144,6 +144,17 @@ async fn browser_preview_fixture() {
         )
         .unwrap();
         review_fixtures(&db);
+        // Browser-only flight demo: every upcoming round reaches 50x. No bets
+        // are created and no Kash is charged or awarded by this fixture setup.
+        db.execute("UPDATE gambling_config SET mode='controlled',paused=0", [])
+            .unwrap();
+        for _ in 0..20 {
+            db.execute(
+                "INSERT INTO gambling_crash_queue(multiplier) VALUES(5000)",
+                [],
+            )
+            .unwrap();
+        }
         for id in 1..=3 {
             db.execute("INSERT INTO bot_wallets(user_id,balance) VALUES(?1,10000) ON CONFLICT(user_id) DO UPDATE SET balance=10000",[id]).unwrap();
             db.execute(
@@ -153,6 +164,11 @@ async fn browser_preview_fixture() {
             .unwrap();
             db.execute(
                 "INSERT INTO gambling_cosmetics VALUES(?1,'banner-canna-night',1)",
+                [id],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO gambling_cosmetics VALUES(?1,'mw2-blunttrauma-a89c363e',1)",
                 [id],
             )
             .unwrap();

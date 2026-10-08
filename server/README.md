@@ -4,29 +4,52 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.58
+## Current release: Community 0.3.59
 
 The Admin panel adds a searchable overview, separate Owner invitation-generation
 and registration pause controls, and the additive Beta role. Member, VIP, Admin
 and Owner remain primary permission roles; Beta grants protected Rebound support
-without staff privileges. Desktop 0.2.42 contains no embedded Rebound DLLs and
+without staff privileges. Desktop 0.2.43 contains no embedded Rebound DLLs and
 checks current server authorization before support storage, preparation and
 installation. The Rebound runtime remains a preview with full human-match and
 two-client multiplayer checks outstanding; previously distributed 0.2.41 bundles
 cannot be removed retroactively.
 
+Desktop 0.2.43 adds **Restore vanilla files** for closed Unity games in game
+details, Library right-click menus and pack actions. Canna-managed plugin/patcher
+trees and unchanged receipt-owned loader files are parked reversibly outside
+BepInEx; manual, modified and legacy files remain, with Doorstop disabled.
+Fresh Canna Doorstop configuration starts disabled, and modded launch enables it.
+Automatic cleanup requires Canna to remain open and observe its own game's
+confirmed exit or Stop. Direct Steam sessions are not adopted and block
+restoration while running. Next Setup or modded launch restores tracked runtime
+files and prepares the current pack; parked Rebound launches recheck current
+Beta authorization. Game assemblies are preserved: arbitrary third-party
+patcher changes need their own restoration. Validation uses temporary fixture
+folders; no new live ROUNDS restoration, launch or multiplayer result is claimed.
+
 The Gambling page uses free fictional Kash for shared Crash rounds, Blackjack
 and 100-Kash cosmetic cases. Kash cannot be bought, cashed out or transferred.
 Owner-only outcome inspection and future-round controls are disclosed; paid
-games can still settle when new bets are paused. Collection equips owned frames
-and banners, including the credited pinned classic MW2 collection. Cosmetic
+games can still settle when new bets are paused. Crash shows a smooth rising
+curve and progress bar, pauses its estimate after two seconds without a fresh
+server update, and respects reduced-motion preferences. Cashouts and payouts
+remain server-authoritative. Collection opens to owned frames and banners, with
+drop equip buttons and profile links. Classic MW2 cards display at their native
+compact pixel-art dimensions; their original backgrounds remain part of the
+source images. No higher-resolution artwork is claimed. Cosmetic
 assets and member profiles remain authenticated. Official Minecraft version
 choices and the current-page result count are available on the website and
 matching desktop; Minecraft account/launch API approval remains pending.
 
 Staff review includes an advisory overview, full archive/source browser and
-bounded code navigation. New analyses use canna-static-7 and preserve explicit
-reconstruction provenance, tool status and coverage limits. Account recovery
+bounded code navigation. New analyses use canna-static-8 and preserve explicit
+reconstruction provenance, tool status and coverage limits. Canonical license
+prose has exact content fingerprints; added and disguised code remains scanned.
+Reflection, decoding and code-loading findings have specific labels, while
+component summaries, advisory compatibility-patcher checks and untrusted CLR
+string-heap payload-name hints help direct inspection without clearing findings.
+Account recovery
 offers separate email-only Forgot password and Forgot username forms. The public
 Help page documents these features without exposing private reports or assets.
 
@@ -127,7 +150,7 @@ all existing sessions. Recovery responses do not disclose whether an email is
 registered. API calls to Resend require HTTPS; email is not end-to-end encrypted,
 and the provider and recipient necessarily receive the address and code.
 
-Community 0.3.58 adds an email-only account-recovery panel and
+Community 0.3.58 introduced an email-only account-recovery panel and
 Forgot username. A username reminder is sent only to the registered, verified
 email of an unbanned account; public responses never include the username or
 confirm account existence. Reminder requests share authentication client limits
@@ -136,13 +159,13 @@ change a password or invalidate password-reset codes. If mail is unavailable or
 an address has no eligible account, the same public response is returned. The
 local browser fixture uses a test outbox and does not send real email.
 
-Community 0.3.58's review workspace adds Overview, Code & files and
+Community 0.3.59's review workspace includes Overview, Code & files and
 Findings tabs. Deterministic advisory suggestions, coverage and decompilation
 status, heuristic source outlines and retained file metadata are derived at
 staff-only report GET time, including for legacy reports. The full archive file
 browser distinguishes uploaded/reconstructed source from entries without a text
 preview. Path/code filters, file evidence, search matches, line jumps and bounded
-source windows help navigate retained previews. Static-7 analysis records binary
+source windows help navigate retained previews. Static-8 analysis records binary
 origins, tool results, source hashes, limits and partial reconstruction. Java
 project mappings identify archive scope rather than claiming exact class-to-file
 provenance. Renamed PE binaries are still inspected in archives containing Java
@@ -317,7 +340,7 @@ POST `/api/v1/mods/{id}/analysis-decisions` accepts a completed scan hash and up
 
 ### Contextual analysis (introduced in 0.3.57)
 
-Community 0.3.58 uses `canna-static-7` for new analyses, extending the contextual
+Community 0.3.59 uses `canna-static-8` for new analyses, extending the contextual
 checks introduced with `canna-static-6` in 0.3.57.
 Comments and literal URL references are distinguished from API use. References
 remain visible as informational observations; review findings still gate approval.
@@ -325,6 +348,25 @@ Repeated CLI-directed diagnostic writes can share one review finding with linked
 locations. An operator-selected path, `.txt`/`.png` extension or readable source
 does not prove safe execution. Generic packing hints remain subject to review;
 isolated packer names are contextual evidence rather than specific signatures.
+
+Complete canonical GPL-3.0, Apache-2.0 and MIT prose bodies are recognized by
+whitespace-normalized content fingerprints in document inputs. Only the matched
+body is excluded from code lexing; URLs remain observations, and surrounding,
+changed, truncated or code-like content is still inspected. License filenames,
+extensions and headers alone grant no exemption. This avoids treating ordinary
+license apostrophes as unterminated code without approving the mod or asserting
+redistribution permission. Reflection-based construction, assembly loading,
+Base64 decoding and script evaluation have distinct labels and retain their
+existing review requirements.
+
+Overview groups retained component locations and suggests checks for compatibility
+patchers, including assembly writes, cached originals, patch-data bounds and
+runtime guards. The worker optionally reads bounded CLR string-heap names such
+as `.bsdf` payload references; these are untrusted hints, not verified resource
+declarations, compression, provenance or runtime use. A compressed-looking name
+or retained compressed asset does not resolve packing or entropy findings.
+Malformed or limited optional metadata is reported without weakening existing
+binary, decompilation or coverage findings. No payload is executed or decompressed.
 
 Repeated coverage limits share a review finding with every retained occurrence
 and original finding ID listed. Changed omissions require a new decision; the
@@ -344,8 +386,10 @@ Existing reports keep their recorded decisions; rerunning analysis produces a
 new report and may require fresh decisions for changed evidence.
 Local regression commands are
 `python deploy/test-review-context.py`, `python deploy/test-review-packing.py`,
-`python deploy/test-review-adversarial.py`, `python deploy/test-review-coverage.py`
-and `python deploy/test-review-rules.py`.
+`python deploy/test-review-adversarial.py`, `python deploy/test-review-coverage.py`,
+`python deploy/test-review-documentation.py`, `python deploy/test-review-metadata.py`
+and `python deploy/test-review-rules.py`. Canonical public license fixtures and
+their provenance are retained under `deploy/test-fixtures/licenses`.
 On Linux with the existing tools, `python deploy/test-review-offline.py --fixture
 --output <isolated-directory> <archive.zip>` checks real decompilation, DiE and
 ClamAV without using the live queue or executing submitted binaries. These

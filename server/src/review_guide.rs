@@ -387,6 +387,39 @@ fn declared_dependencies(file: &Value, text: &str) -> Vec<Value> {
     result
 }
 
+fn component_summary(report: &Value, files: &BTreeMap<String, File>) -> Vec<Value> {
+    let mut counts = BTreeMap::<String, BTreeMap<String, (usize, usize)>>::new();
+    for finding in array(report, "findings").iter().take(MAX_FINDINGS) {
+        let Some(name) = path(&finding["file"]) else {
+            continue;
+        };
+        let origin = files
+            .get(&name)
+            .and_then(|file| file.origin.clone())
+            .unwrap_or(name);
+        let rule = label(&finding["rule"], 80);
+        let count = counts.entry(origin).or_default().entry(rule).or_default();
+        count.0 += 1;
+        count.1 += usize::from(finding["accepted"] != true);
+    }
+    array(report, "decompilations").iter().take(32).filter_map(|decomp| {
+        let input = path(&decomp["input"])?;
+        let rules = counts.get(&input).cloned().unwrap_or_default();
+        let placement = if input.contains("/patchers/") { "Patcher directory" }
+            else if input.contains("/plugins/") { "Plugin directory" } else { "Archive component" };
+        let metadata = array(report,"binary_metadata").iter().take(16).find(|item|item["input"]==input);
+        let metadata = metadata.map(|item|json!({"status":label(&item["status"],40),
+            "payload_name_hints":array(item,"payload_name_hints").iter().take(64).map(|name|label(name,256)).filter(|name|!name.is_empty()).collect::<Vec<_>>(),
+            "heap_limit_reached":item["heap_limit_reached"]==true,"name_limit_reached":item["name_limit_reached"]==true,
+            "note":"Untrusted CLR string-heap names only, not verified resource declarations or use. Patch-like names can explain what to inspect; they do not clear packing or entropy findings."}));
+        Some(json!({"input":input,"placement_hint":placement,"status":label(&decomp["status"],40),"metadata":metadata,
+            "finding_count":rules.values().map(|(count,_)|count).sum::<usize>(),
+            "unresolved_count":rules.values().map(|(_,count)|count).sum::<usize>(),
+            "rules":rules.into_iter().map(|(rule,(count,unresolved))|json!({"rule":rule,"count":count,"unresolved_count":unresolved})).collect::<Vec<_>>(),
+            "note":"Direct file locations only; grouped cross-file limitations remain in Findings. Placement and component names do not verify upstream identity, trust or caller reachability."}))
+    }).collect()
+}
+
 /// Regenerated at staff-only GET time, including for old stored reports.
 pub fn overview(report: &Value) -> Value {
     let raw_findings = array(report, "findings");
@@ -403,6 +436,7 @@ pub fn overview(report: &Value) -> Value {
     let (mut files_limited, mut text_limited, mut symbols_limited) = (false, false, false);
     let (mut text_bytes, mut symbol_count) = (0, 0);
     let mut dependencies = Vec::<Value>::new();
+    let mut rewriting_locations = Vec::<Value>::new();
     // Previews and finding locations take precedence over asset inventory.
     for file in raw_files.iter().take(MAX_FILES) {
         let Some(name) = path(&file["name"]) else {
@@ -437,6 +471,24 @@ pub fn overview(report: &Value) -> Value {
             let truncated = source.len() > end;
             text_limited |= truncated;
             let suffix = name.rsplit('.').next().unwrap_or("").to_ascii_lowercase();
+            // Textual context is explicitly advisory, not a call graph or a trust
+            // exception. Documents quoting these names cannot trigger this hint.
+            if suffix == "cs"
+                && rewriting_locations.len() < MAX_LOCATIONS
+                && (text.contains("Mono.Cecil") || text.contains("ModuleDefinition.ReadModule"))
+                && (text.contains("File.WriteAllBytes")
+                    || text.contains("File.Move")
+                    || text.contains(".Write("))
+            {
+                let number = text
+                    .lines()
+                    .position(|line| {
+                        line.contains("ModuleDefinition.ReadModule")
+                            || line.contains("File.WriteAllBytes")
+                    })
+                    .map(|i| i + 1);
+                rewriting_locations.push(json!({"file":name,"line":number}));
+            }
             // Outlines for executable source formats only; docs/assets can quote APIs.
             if matches!(
                 suffix.as_str(),
@@ -543,6 +595,23 @@ pub fn overview(report: &Value) -> Value {
     if coverage_state != "complete" {
         suggestions.push(suggestion("coverage","high","Check what analysis could not inspect",if coverage_state == "incomplete" {"Coverage limits or unavailable reconstruction are recorded. Missing preview content can still affect runtime behavior."} else {"This older or incomplete report has no explicit complete coverage result."},&["Open each coverage location and decompiler limitation, including grouped occurrences.","Compare inventory entries with retained previews; inspect unsupported or omitted code through an appropriate separate review.","A complete static pass still does not establish safe runtime behavior."],&coverage_findings));
     }
+    if !rewriting_locations.is_empty() && groups.contains_key("filesystem") {
+        let mut hint = suggestion(
+            "compatibility-rewriting",
+            "normal",
+            "Review assembly rewriting, backups and restoration",
+            "Retained C# text mentions assembly rewriting alongside flagged file operations. Compatibility repair can explain this behavior, and it can change DLLs the loader will execute. The text match does not establish a reachable call or safe path.",
+            &[
+                "Trace game, managed, plugin and cache directory values from their callers; verify the final paths and traversal handling.",
+                "Inspect before/after hashes and the bounds on embedded or downloaded patch data; a compressed resource alone does not settle packing evidence.",
+                "Check backup and restoration index filenames, failures and cleanup. Path.Combine alone does not keep an externally supplied filename inside a directory.",
+                "Follow rewritten bytes into writes and loader calls; compare the behavior with the stated compatibility purpose.",
+            ],
+            groups.get("filesystem").map(Vec::as_slice).unwrap_or(&[]),
+        );
+        hint["locations"] = json!(rewriting_locations);
+        suggestions.push(hint);
+    }
     for (rule, title, why, checks) in [
         (
             "signature",
@@ -596,6 +665,7 @@ pub fn overview(report: &Value) -> Value {
             "Network matches indicate APIs requiring context, not a verified destination or payload.",
             vec![
                 "Trace URLs, hosts, methods, headers and payloads through callers and configuration.",
+                "A bundled HTTP client wrapper is not proof that the mod calls it. Find reachable callers and their arguments.",
                 "Check downloads, certificate handling and whether received data reaches file writes or dynamic loading.",
             ],
         ),
@@ -619,9 +689,10 @@ pub fn overview(report: &Value) -> Value {
         ),
         (
             "dynamic",
-            "Trace dynamically loaded or decoded content",
-            "The final code or data may not be visible at the matched call site.",
+            "Separate reflection, code loading and decoded data",
+            "Reflection and default-value construction can support hooks or serializers. Assembly loading, evaluation and decoded executable data require a different trace; the matched API alone does not distinguish their purpose.",
             vec![
+                "Distinguish reflective invocation or value-type construction from assembly loading and evaluation; identify the exact operation.",
                 "Trace assembly, script and decoded-data origins before the load or evaluation call.",
                 "Check whether network or user-controlled values can supply executable content.",
             ],
@@ -741,7 +812,7 @@ pub fn overview(report: &Value) -> Value {
         ("sensitive-files", "Sensitive path references"),
         ("privileges", "Privileges/persistence"),
         ("native", "Native/memory APIs"),
-        ("dynamic", "Dynamic loading"),
+        ("dynamic", "Reflection / code loading / decoding"),
     ];
     let capabilities: Vec<_> = capability_names.iter().filter_map(|(rule,label)|groups.get(*rule).map(|values|json!({"rule":rule,"label":label,"count":values.len(),"unresolved_count":values.iter().filter(|f|f["accepted"] != true).count()}))).collect();
     let file_rows: Vec<_> = files.values().map(|file| {
@@ -752,13 +823,85 @@ pub fn overview(report: &Value) -> Value {
     json!({"version":"canna-review-guide-1","advisory":true,"note":NOTE,"analysis_status":status,
         "coverage":{"state":coverage_state,"reported_complete":reported_complete},
         "counts":{"preview_files":raw_files.len(),"decompiled_files":raw_files.iter().filter(|f|f["kind"] == "decompiled").count(),"inventory_files":raw_inventory.len(),"findings":raw_findings.len(),"unresolved_findings":raw_findings.iter().filter(|f|f["accepted"] != true).count(),"observations":raw_observations.len(),"decompilations":array(report,"decompilations").len()},
-        "engines":engines,"capabilities":capabilities,"files":file_rows,"decompilations":decomp,"dependencies":dependencies,"suggestions":suggestions,
+        "engines":engines,"capabilities":capabilities,"components":component_summary(report,&files),"files":file_rows,"decompilations":decomp,"dependencies":dependencies,"suggestions":suggestions,
         "limits":{"truncated_files":files_limited || raw_files.len()>MAX_FILES || raw_inventory.len()>6_000,"truncated_symbols":symbols_limited,"truncated_text":text_limited,"truncated_suggestions":suggestions_limited,"truncated_findings":raw_findings.len()>MAX_FINDINGS,"truncated_observations":raw_observations.len()>MAX_OBSERVATIONS,"truncated_decompilations":array(report,"decompilations").len()>32,"source_bytes_inspected":text_bytes,"max_files":MAX_FILES,"max_symbols_per_file":MAX_SYMBOLS,"max_source_bytes":MAX_TOTAL_SOURCE_BYTES}})
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn patcher_context_is_advisory_and_keeps_findings_and_coverage() {
+        let report = json!({"status":"complete","coverage_complete":false,
+            "files":[{"name":"decompiled/archive/patchers/fix.dll/AutoFix.cs","origin":"archive/patchers/fix.dll","kind":"decompiled",
+                "text":"using Mono.Cecil;\nvoid Run() { ModuleDefinition.ReadModule(path); File.WriteAllBytes(path, patch); }"}],
+            "decompilations":[{"input":"archive/patchers/fix.dll","status":"complete"}],
+            "findings":[{"id":"write","rule":"filesystem","file":"decompiled/archive/patchers/fix.dll/AutoFix.cs","line":2},
+                {"id":"limits","rule":"coverage","locations":[{"file":"archive/other.dll"}]}]});
+        let saved = report.clone();
+        let result = overview(&report);
+        let hint = result["suggestions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|item| item["id"] == "compatibility-rewriting")
+            .unwrap();
+        assert_eq!(hint["advisory"], true);
+        assert_eq!(hint["locations"][0]["line"], 2);
+        assert_eq!(hint["finding_ids"], json!(["write"]));
+        assert_eq!(result["coverage"]["state"], "incomplete");
+        assert_eq!(result["components"][0]["finding_count"], 1);
+        assert_eq!(result["components"][0]["rules"][0]["rule"], "filesystem");
+        assert_eq!(
+            result["components"][0]["placement_hint"],
+            "Patcher directory"
+        );
+        assert_eq!(report, saved);
+    }
+    #[test]
+    fn documentation_mentions_do_not_create_a_rewriting_hint() {
+        let result = overview(
+            &json!({"status":"complete","files":[{"name":"archive/README.md",
+            "text":"using Mono.Cecil; ModuleDefinition.ReadModule(path); File.WriteAllBytes(path, patch);"}],
+            "findings":[{"id":"write","rule":"filesystem","file":"archive/README.md"}]}),
+        );
+        assert!(
+            !result["suggestions"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["id"] == "compatibility-rewriting")
+        );
+    }
+    #[test]
+    fn component_summary_is_bounded_and_reflection_is_not_labelled_only_loading() {
+        let result = overview(&json!({"status":"complete","coverage_complete":true,
+            "decompilations":(0..100).map(|i|json!({"input":format!("archive/{i}.dll"),"status":"complete"})).collect::<Vec<_>>(),
+            "binary_metadata":[{"input":"archive/0.dll","status":"complete","payload_name_hints":(0..100).map(|i|json!(format!("curated/{}.bsdf","x".repeat(i*20)))).collect::<Vec<_>>()}],
+            "findings":[{"id":"reflection","rule":"dynamic","file":"archive/0.dll","accepted":true}]}));
+        assert_eq!(result["components"].as_array().unwrap().len(), 32);
+        assert_eq!(result["components"][0]["finding_count"], 1);
+        assert_eq!(result["components"][0]["unresolved_count"], 0);
+        assert_eq!(
+            result["components"][0]["metadata"]["payload_name_hints"]
+                .as_array()
+                .unwrap()
+                .len(),
+            64
+        );
+        assert!(
+            result["components"][0]["metadata"]["payload_name_hints"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|name| name.as_str().unwrap().len() <= 256)
+        );
+        assert_eq!(
+            result["capabilities"][0]["label"],
+            "Reflection / code loading / decoding"
+        );
+        assert_eq!(result["coverage"]["state"], "complete");
+    }
     #[test]
     fn legacy_report_gets_advisory_navigation_without_inventing_coverage_or_decisions() {
         let report = json!({"status":"complete","files":[{"name":"decompiled/Plugin.cs","kind":"decompiled","text":"public class Plugin { void Awake() { File.ReadAllText(\"config.txt\"); } }"}],"findings":[{"id":"file-op","rule":"filesystem","file":"decompiled/Plugin.cs","line":1,"accepted":true}],"observations":[]});

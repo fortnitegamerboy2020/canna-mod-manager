@@ -1,6 +1,6 @@
 param(
     [string]$SourceRoot = (Split-Path $PSScriptRoot -Parent),
-    [ValidateSet('0.3.58')][string]$Version = '0.3.58',
+    [ValidateSet('0.3.58', '0.3.59')][string]$Version = '0.3.59',
     [switch]$CheckOnly,
     [string]$ReceiptFile = '',
     [string]$TokenFile = 'C:\Users\t_tra\Downloads\chatgpttoken_canna_mod_manager.txt'
@@ -105,6 +105,11 @@ function Get-CannaCommunityFiles {
         'test-review-coverage.py', 'test-review-decompilation.py', 'test-review-live.py',
         'test-review-offline.py', 'test-review-packing.py', 'test-review-permissions.py',
         'test-review-rules.py')
+    if ($Version -eq '0.3.59') {
+        $cannaCommunityDeployFiles += @('test-review-documentation.py', 'test-review-metadata.py',
+            'test-fixtures/licenses/GPL-3.0.txt', 'test-fixtures/licenses/Apache-2.0.txt',
+            'test-fixtures/licenses/MIT.txt', 'test-fixtures/licenses/SOURCES.md')
+    }
     foreach ($cannaCommunityDeployFile in $cannaCommunityDeployFiles) { $cannaCommunityFiles += 'server/deploy/' + $cannaCommunityDeployFile }
     @($cannaCommunityFiles | Sort-Object -Unique)
 }

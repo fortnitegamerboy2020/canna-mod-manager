@@ -5,7 +5,7 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
-VERSION='canna-static-7'
+VERSION='canna-static-8'
 # Fixed sibling module; no dependency or submitted plugin code is imported.
 _context_spec=importlib.util.spec_from_file_location('canna_review_context',Path(__file__).with_name('review_context.py'))
 context=importlib.util.module_from_spec(_context_spec);_context_spec.loader.exec_module(context)
@@ -159,6 +159,73 @@ def packing_evidence(data):
   if executable and rva<=entry<rva+max(size,virtual) and virtual>max(size*4,65536):findings.append(('packing-review','Unusual entry-point section layout',f'{name}: entry point in expanded executable section, raw {size} bytes, virtual {virtual} bytes'))
  return findings
 
+def managed_payload_metadata(data):
+ """Bounded CLR #Strings hints, not ManifestResource or assembly validation.
+
+ Reading names never decompresses payloads or executes submitted code. A .bsdf
+ name can belong to embedded patch data, but can also be forged or unrelated.
+ """
+ layout=pe_packing_layout(data)
+ if not layout or 'error' in layout:return None
+ header=struct.unpack_from('<I',data,60)[0];opt=header+24
+ optional=struct.unpack_from('<H',data,header+20)[0]
+ minimum=96 if struct.unpack_from('<H',data,opt)[0]==0x10b else 112
+ if optional<minimum+15*8 or struct.unpack_from('<I',data,opt+minimum-4)[0]<15:return None
+ cli_rva,cli_size=struct.unpack_from('<II',data,opt+minimum+14*8)
+ if not cli_rva and not cli_size:return None
+ result={'cli_header_present':True,'status':'complete','heap_bytes_inspected':0,'payload_name_hints':[],
+  'heap_limit_reached':False,'name_limit_reached':False,
+  'note':'Untrusted CLR string-heap names only; resource declarations, bytes, compression and runtime use are not verified. These hints do not clear packing, coverage or other findings.'}
+ def mapped(rva,size):
+  if size<1 or rva+size>0x100000000:raise ValueError('Invalid CLR metadata address range')
+  for section in layout['sections']:
+   if section['rva']<=rva and rva+size<=section['rva']+section['size']:
+    return section['offset']+rva-section['rva']
+  raise ValueError('CLR metadata points outside retained raw sections')
+ try:
+  if cli_size<72:raise ValueError('Truncated CLR directory')
+  cli=mapped(cli_rva,72)
+  if struct.unpack_from('<I',data,cli)[0]<72:raise ValueError('Truncated CLR header')
+  metadata_rva,metadata_size=struct.unpack_from('<II',data,cli+8)
+  if not 20<=metadata_size<=8*1024*1024:raise ValueError('CLR metadata size outside hint inspection limits')
+  begin=mapped(metadata_rva,metadata_size);end=begin+metadata_size
+  if data[begin:begin+4]!=b'BSJB':raise ValueError('Invalid CLR metadata signature')
+  version_length=struct.unpack_from('<I',data,begin+12)[0]
+  if not 1<=version_length<=1024:raise ValueError('Invalid CLR metadata version length')
+  cursor=begin+((16+version_length+3)//4*4)
+  if cursor+4>end:raise ValueError('Truncated CLR stream count')
+  count=struct.unpack_from('<H',data,cursor+2)[0];cursor+=4
+  if not 1<=count<=32:raise ValueError('CLR stream count exceeds hint inspection limits')
+  strings=None;names=set()
+  for _ in range(count):
+   if cursor+8>end:raise ValueError('Truncated CLR stream header')
+   offset,size=struct.unpack_from('<II',data,cursor)
+   terminator=data.find(b'\0',cursor+8,min(cursor+41,end))
+   if terminator<0:raise ValueError('Unterminated CLR stream name')
+   stream=data[cursor+8:terminator].decode('ascii')
+   if stream in names:raise ValueError('Duplicate CLR stream name')
+   names.add(stream)
+   if offset+size>metadata_size:raise ValueError('CLR stream extends beyond metadata bounds')
+   if stream=='#Strings':strings=(begin+offset,size)
+   cursor=begin+((terminator+1-begin+3)//4*4)
+   if cursor>end:raise ValueError('Truncated CLR stream alignment')
+  if strings is None:return result
+  if strings[0]<cursor:raise ValueError('CLR string heap overlaps stream headers')
+  inspected=min(strings[1],1024*1024);heap=data[strings[0]:strings[0]+inspected]
+  result['heap_bytes_inspected']=inspected;result['heap_limit_reached']=strings[1]>inspected
+  seen=set()
+  for raw in heap.split(b'\0')[:-1]:
+   if not re.fullmatch(rb'[A-Za-z0-9_.~/-]{1,240}\.bsdf',raw,re.I):continue
+   value=raw.decode('ascii')
+   if value in seen:continue
+   seen.add(value)
+   if len(result['payload_name_hints'])>=64:result['name_limit_reached']=True;break
+   result['payload_name_hints'].append(value)
+  if result['heap_limit_reached'] or result['name_limit_reached']:result['status']='limited'
+ except (ValueError,UnicodeError,struct.error) as error:
+  result['status']='unavailable';result['diagnostic']=str(error)[:200]
+ return result
+
 def die_packing_finding(value,data=None):
  """Classify DiE's detection role, not incidental words in compiler/library text."""
  if not isinstance(value,dict):return None
@@ -213,7 +280,7 @@ def group_coverage_findings(findings):
  return result
 
 def analyze(job):
- report={'version':VERSION,'files':[],'inventory':[],'findings':[],'observations':[],'engines':{},'decompilations':[],
+ report={'version':VERSION,'files':[],'inventory':[],'findings':[],'observations':[],'engines':{},'decompilations':[],'binary_metadata':[],
    'limits':{'analysis_seconds':240,'archive_entries':2000,'expanded_bytes':256*1024*1024,'entry_bytes':32*1024*1024,'decompiler_binaries':16,'java_projects':1,'tool_output_bytes':256*1024,'source_file_bytes':1024*1024,'scanned_text_bytes':16*1024*1024,'preview_files':500,'preview_text_bytes':8*1024*1024},
   'note':'Static analysis cannot prove a mod safe. Decompiled code is reconstructed, not the original project. Mods are never launched.'}
  total_text=0;scanned_text=0;finding_ids=set();observation_ids=set();start=time.monotonic();archive=job/'input.zip';work=job/'work';shutil.rmtree(work,ignore_errors=True);work.mkdir()
@@ -279,8 +346,9 @@ def analyze(job):
    if origins:item['origins']=origins
    report['files'].append(item);result['preview']=True
   else:finding('coverage','Source preview limit reached',name,evidence='Code heuristics still ran; this file is omitted from the preview.',severity='high')
-  # Documentation and package metadata are displayed but do not execute behavior.
-  if (path.suffix.lower()=='.md' or path.name.lower() in ('manifest.json','addoninfo.txt','license')) and not text.startswith('#!'):return result
+  # A documentation/metadata name alone must not hide submitted code. Plain
+  # Markdown prose stays a preview; code/API-looking text is inspected normally.
+  if path.suffix.lower()=='.md' and not context.markdown_has_code(text):return result
   source_findings,observations=context.scan_source(text,name,path.suffix.lower())
   if path.suffix.lower()=='.cs':source_findings=context.contextualize_file_operations(text,source_findings)
   for f in source_findings:
@@ -429,6 +497,15 @@ def analyze(job):
    if pe:
     binary_data=path.read_bytes()
     for rule,title,evidence in packing_evidence(binary_data):finding(rule,title,name,evidence=evidence,severity='high')
+    metadata=managed_payload_metadata(binary_data)
+    if metadata and len(report['binary_metadata'])<16:
+     report['binary_metadata'].append({'input':name,**metadata})
+     if metadata['payload_name_hints']:
+      observation=context.entry('resource-metadata-reference','CLR metadata refers to patch payload names',name,None,
+       ', '.join(metadata['payload_name_hints']),'info',metadata['note'])
+      if len(report['observations'])<500 and observation['id'] not in observation_ids:
+       observation_ids.add(observation['id']);report['observations'].append(observation)
+      elif len(report['observations'])>=500:finding('coverage','Observation preview limit reached',name,severity='high')
     try:
      code,log=command(['/usr/bin/diec','-j','-u','-d',str(path)],25)
      if code!=0:raise Limit('Packer scanner failed')

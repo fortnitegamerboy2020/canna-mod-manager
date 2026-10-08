@@ -64,7 +64,7 @@ class DecompilationTests(unittest.TestCase):
         report = fixtures.analyze_fixture([('plugins/A.dll', fixtures.inert_pe())], tools)
         record = report['decompilations'][0]
         source = report['files'][0]
-        self.assertEqual(report['version'], 'canna-static-7')
+        self.assertEqual(report['version'], 'canna-static-8')
         self.assertEqual(record['input'], 'archive/plugins/A.dll')
         self.assertEqual(record['scope'], 'binary')
         self.assertEqual(record['tool'], 'ilspycmd')

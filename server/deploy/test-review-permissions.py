@@ -29,11 +29,11 @@ try:
     assert (job / 'result.json').stat().st_gid == gid
     assert stat.S_IMODE((job / 'result.json').stat().st_mode) == 0o660
     result = json.loads((job / 'result.json').read_text(encoding='utf-8'))
-    assert result['version'] == 'canna-static-7'
+    assert result['version'] == 'canna-static-8'
     assert result['status'] == 'complete'
     assert any('permission-handoff-ok' in f.get('text', '') for f in result['files']), result['findings']
     assert not any('Permission denied' in f.get('evidence', '') for f in result['findings'])
-    print('PASS: v7 API-user archive with explicit review group readable by isolated worker, source preview and result readable by API user.')
+    print('PASS: v8 API-user archive with explicit review group readable by isolated worker, source preview and result readable by API user.')
 finally:
     if created:
         shutil.rmtree(job)

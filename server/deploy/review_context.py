@@ -28,8 +28,91 @@ LUA_RAW = re.compile(r'\[(=*)\[')
 RUST_LIFETIME = re.compile(r"'[A-Za-z_]\w*")
 QUOTE_RUN = re.compile(r'"+')
 
+# Exact canonical prose, not a trust rule for LICENSE or .txt filenames. Only
+# whitespace varies; changed, prepended and appended content stays inspectable.
+LICENSE_PROSE = (
+    ('GPL-3.0', 'GNU GENERAL PUBLIC LICENSE', 28640,
+     'db4017480bcedfc101e5e54d3befbabe89352069d0dd192799e56feda43556f6'),
+    ('Apache-2.0', 'Apache License', 7717,
+     'c3716932c5840f8354d59b26fad06bc508567480da225392ab9b982ab4bde9b3'),
+    ('MIT', 'Permission is hereby granted, free of charge', 859,
+     'eaf9b7a559ea4e12a265565be41d1c5b45215e8686a22e1cacd5f7e110819728'),
+)
+DOCUMENT_SUFFIXES = {'', '.txt', '.md'}
+SCRIPT_TEXT = re.compile(r'(?im)^\s*(?:\$[\w{]|param\s*\(|#requires\b|#!|(?:Start-Process|Invoke-Expression|Invoke-WebRequest|Invoke-RestMethod|iwr|irm|iex)\b)')
+SOURCE_TEXT = re.compile(r'(?m)^\s*(?:using\s+[\w.]+\s*;|(?:public|private|internal|class|namespace|function|def)\s+[\w<])|\b(?:File|Directory|Process|Assembly|Activator)\s*\.|\b(?:HttpClient|DllImport|LibraryImport)\b')
 
-def source_views(text, suffix, issues=None):
+
+def license_prose_regions(text, suffix):
+    """Recognize exact full canonical bodies within a bounded leading region.
+
+    Matching a header, extension or an excerpt is insufficient. Only the
+    verified body is ignored by the code lexer; all other bytes stay visible.
+    """
+    if suffix not in DOCUMENT_SUFFIXES:
+        return []
+    regions = []
+    for title, marker, length, digest in LICENSE_PROSE:
+        candidate = re.search(r'\s+'.join(map(re.escape, marker.split())), text[:4096])
+        if candidate is None:
+            continue
+        begin = candidate.start()
+        normalized = []
+        end = begin
+        while end < len(text) and len(normalized) < length:
+            char = text[end]
+            if not char.isspace():
+                normalized.append(char)
+            end += 1
+        if len(normalized) == length and hashlib.sha256(''.join(normalized).encode()).hexdigest() == digest:
+            regions.append((begin, end, title))
+    return sorted(regions)
+
+
+def document_scan_suffix(text, suffix, regions):
+    """Detect script syntax outside verified prose without trusting the filename."""
+    if suffix not in DOCUMENT_SUFFIXES:
+        return suffix
+    remaining = list(text)
+    for begin, end, _ in regions:
+        for pos in range(begin, end):
+            if remaining[pos] not in '\r\n':
+                remaining[pos] = ' '
+    remaining = ''.join(remaining)
+    if SCRIPT_TEXT.search(remaining):
+        return '.ps1'
+    if SOURCE_TEXT.search(remaining):
+        return '.cs'
+    return suffix
+
+
+def markdown_has_code(text):
+    """A Markdown suffix is not permission to skip recognized code or commands."""
+    if SCRIPT_TEXT.search(text) or SOURCE_TEXT.search(text):
+        return True
+    return any(pattern.search(text) for _, _, pattern, _ in RULES) or bool(SENSITIVE.search(text) or PERSISTENCE.search(text))
+
+
+def dynamic_description(token):
+    compact = re.sub(r'\s+', '', token).lower()
+    if compact.startswith('activator.'):
+        return ('Reflection-based instance construction',
+                'A runtime-selected type is instantiated. This can implement ordinary framework or value-type defaults; trace the type origin, constructor and callers. This match does not establish decoded payload execution.')
+    if compact.startswith('assembly.'):
+        return ('Assembly loading',
+                'Trace the assembly path or bytes and their source before loading, including user/network input and cached or embedded resources. The call alone does not identify the loaded code.')
+    if compact == 'frombase64string':
+        return ('Base64 data decoding',
+                'Decoding can produce configuration, assets or executable bytes. Follow the result to its consumers; decoding alone is not code execution.')
+    if compact == 'downloadstring':
+        return ('Downloaded text retrieval',
+                'Inspect the destination, caller and subsequent use of the retrieved text. Retrieval alone does not establish evaluation or loading of code.')
+    if compact == 'defineclass':
+        return ('Runtime class definition', 'Trace the class bytes and source before definition; the final implementation may not be visible at this call site.')
+    return ('Dynamic expression or script evaluation', 'Inspect the evaluated expression or script and its input sources. This capability remains subject to review.')
+
+
+def source_views(text, suffix, issues=None, prose_regions=()):
     """Return comment-free text and a same-offset view with literals masked.
 
     Interpolated/template strings stay visible conservatively: expressions in
@@ -46,6 +129,11 @@ def source_views(text, suffix, issues=None):
                 target[pos] = ' '
 
     while i < size:
+        prose = next((region for region in prose_regions if region[0] == i), None)
+        if prose:
+            mask(code, i, prose[1])
+            i = prose[1]
+            continue
         # Raw strings have different delimiters/escaping from ordinary quotes.
         raw = RUST_RAW.match(text, i) if suffix == '.rs' and text[i] == 'r' else None
         cpp_raw = CPP_RAW.match(text, i) if suffix in {'.cpp', '.c', '.h', '.hpp'} and text[i] == 'R' else None
@@ -175,7 +263,9 @@ def entry(rule, title, name, line, evidence, severity='review', context=None):
 
 def scan_source(text, name, suffix):
     issues = []
-    content, code = source_views(text, suffix, issues)
+    prose_regions = license_prose_regions(text, suffix)
+    suffix = document_scan_suffix(text, suffix, prose_regions)
+    content, code = source_views(text, suffix, issues, prose_regions)
     findings, observations = [], []
     overflow = False
 
@@ -197,6 +287,10 @@ def scan_source(text, name, suffix):
     content_lines, code_lines = content.splitlines(), code.splitlines()
     starts = [0] + [m.end() for m in re.finditer('\n', text)]
     matched_lines = {}
+    for begin, end, license_name in prose_regions:
+        emit(entry('documentation-reference', 'Recognized canonical license prose', name,
+                   bisect_right(starts, begin), license_name + ': exact canonical prose matched after whitespace normalization.', 'info',
+                   'Only this unchanged license body is excluded from code lexing. Added or changed text remains inspectable; this is not a mod approval or a redistribution-rights determination.'), True)
     if issues:
         emit(entry('coverage', 'Source lexical coverage is incomplete', name, None,
                    '; '.join(sorted(set(issues))), 'high'))
@@ -217,7 +311,10 @@ def scan_source(text, name, suffix):
                 evidence = match[0].strip()
             if len(matched_lines) < 2500:
                 matched_lines[rule, index] = True
-            emit(entry(rule, title, name, index, evidence, severity))
+            contextual = None
+            if rule == 'dynamic':
+                title, contextual = dynamic_description(match[0])
+            emit(entry(rule, title, name, index, evidence, severity, contextual))
     for index, (visible, executable) in enumerate(zip(content_lines, code_lines), 1):
         evidence = original_lines[index - 1].strip()
         matches = {rule for rule, _, _, _ in active_rules if (rule, index) in matched_lines}

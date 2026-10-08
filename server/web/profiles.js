@@ -33,6 +33,7 @@ async function openProfile(id) {
   applyProfileCosmetics(profile);
   $('profilerep').textContent = profile.ratings_count ? `★ ${profile.stars.toFixed(1)} / 5 · ${profile.ratings_count} rating${profile.ratings_count === 1 ? '' : 's'} · ${profile.posts_count} forum posts` : `No ratings yet · ${profile.posts_count} forum posts`;
   const own = id === currentUser.id;
+  renderProfileCosmeticActions(own);
   $('editprofile').hidden = $('avatarform').hidden = !own;
   $('loggeddevices').hidden=!own;
   if(own)await loadDevices();
@@ -57,11 +58,14 @@ async function openProfile(id) {
 function applyProfileCosmetics(profile){
  const card=$('profilecard');let banner=$('profilebanner');if(!banner){banner=document.createElement('div');banner.id='profilebanner';banner.className='profilebanner';card.prepend(banner);}
  const item=profile.cosmetics?.banner;banner.className='profilebanner';banner.replaceChildren();banner.hidden=!item;
- if(item){banner.setAttribute('aria-label',item.name+' profile banner');const image=profileCosmeticImage(item);if(image)banner.append(image);else{banner.className='profilebanner';if(/^[a-z0-9_-]{1,80}$/.test(item.style||item.id||''))banner.classList.add('cosmetic-'+(item.style||item.id));}}
+ if(item){banner.setAttribute('aria-label',item.name+' profile banner');banner.setAttribute('role','img');if(String(item.id).startsWith('mw2-')){banner.classList.add('classic-card');banner.title='Original classic MW2 title artwork, shown without enlarging the source image.';}else banner.title=item.name;const image=profileCosmeticImage(item);if(image)banner.append(image);else{if(/^[a-z0-9_-]{1,80}$/.test(item.style||item.id||''))banner.classList.add('cosmetic-'+(item.style||item.id));}}
  const avatar=$('profileavatar');let portrait=$('profileportrait');if(!portrait){portrait=document.createElement('div');portrait.id='profileportrait';portrait.className='profileportrait';avatar.before(portrait);portrait.append(avatar);const initial=document.createElement('span');initial.id='profileinitial';portrait.append(initial);}
  $('profileinitial').textContent=profile.username.slice(0,1).toUpperCase();$('profileinitial').hidden=!!profile.avatar;
  let frame=$('profileframe');if(!frame){frame=document.createElement('div');frame.id='profileframe';portrait.append(frame);}frame.className='profileframe';frame.replaceChildren();frame.hidden=!profile.cosmetics?.frame;
  if(profile.cosmetics?.frame){const cosmetic=profile.cosmetics.frame;frame.setAttribute('aria-label',cosmetic.name+' avatar frame');const image=profileCosmeticImage(cosmetic);if(image)frame.append(image);else{frame.className='profileframe';if(/^[a-z0-9_-]{1,80}$/.test(cosmetic.style||cosmetic.id||''))frame.classList.add('cosmetic-'+(cosmetic.style||cosmetic.id));}}
+}
+function renderProfileCosmeticActions(own){
+ let tools=$('profilecosmetictools');if(!tools){tools=document.createElement('div');tools.id='profilecosmetictools';tools.className='row profilecosmetictools';const manage=button('Manage avatar frame & banner',async()=>{await navigatePage('/gambling');selectGamblingTab('collection');});manage.type='button';manage.dataset.page='/gambling';tools.append(manage);$('profilebio').before(tools);}tools.hidden=!own;
 }
 function profileCosmeticImage(item){if(typeof item.asset!=='string'||!/^\/api\/v1\/cosmetics\/assets\/[a-zA-Z0-9_-]+$/.test(item.asset))return null;const image=document.createElement('img');image.src=item.asset;image.alt='';return image;}
 $('editprofile').addEventListener('submit',event => { event.preventDefault(); action(async () => {
