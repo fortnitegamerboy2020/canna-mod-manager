@@ -49,6 +49,7 @@ mod play_manifest;
 mod profiles;
 mod provider_browse;
 mod provider_cache;
+mod rebound_diagnostics;
 #[cfg(test)]
 mod recovery_tests;
 mod review_guide;
@@ -179,6 +180,7 @@ impl App {
         provider_browse::initialize(&db)?;
         support::initialize(&db)?;
         play::initialize(&db)?;
+        rebound_diagnostics::initialize(&db)?;
         catalog::initialize(&db)?;
         mod_updates::initialize(&db)?;
         subscriptions::initialize(&db)?;
@@ -1182,6 +1184,8 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/admin/invitation-settings", get(admin_settings::get).post(admin_settings::set))
         .route("/api/v1/rebound/support-manifest", get(admin_settings::rebound_manifest))
         .route("/api/v1/rebound/support", get(admin_settings::rebound_support))
+        .route("/api/v1/rebound/diagnostics", post(rebound_diagnostics::submit).layer(DefaultBodyLimit::max(16*1024)))
+        .route("/api/v1/admin/rebound-diagnostics", get(rebound_diagnostics::list))
         .route("/api/v1/gambling", get(gambling::overview))
         .route("/api/v1/gambling/daily", post(gambling::daily))
         .route("/api/v1/gambling/crash/bet", post(gambling::crash_bet))
@@ -1386,6 +1390,7 @@ async fn main() -> anyhow::Result<()> {
     println!("Canna server listening on {address}");
     lounge::start_cleanup(app.clone());
     play::start_cleanup(app.clone());
+    rebound_diagnostics::start_cleanup(app.clone());
     scans::start(app.clone());
     notifications::start(app.clone());
     mod_updates::start(app.clone());
