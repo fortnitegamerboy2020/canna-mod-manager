@@ -189,9 +189,11 @@ enum Outcome {
     Online(Value),
     Text(String),
     Pack(Box<Modpack>),
+    Recovery(Result<Box<Modpack>, String>, Vec<String>),
 }
 pub struct Lab {
     pub console_requested: bool,
+    pub runtime_progress: Vec<String>,
     page: u32,
     editor: crate::play_config::Editor,
     key: String,
@@ -227,6 +229,7 @@ impl Default for Lab {
         let policy = play_backup::Policy::load();
         Self {
             console_requested: false,
+            runtime_progress: vec![],
             page: 1,
             editor: Default::default(),
             folder: policy.directory.display().to_string(),
@@ -306,6 +309,17 @@ impl Lab {
         catalog: &[GameInfo],
         busy: bool,
     ) {
+        self.show_with_options(ui, pack, games, catalog, busy, Default::default());
+    }
+    pub fn show_with_options(
+        &mut self,
+        ui: &mut egui::Ui,
+        pack: &Modpack,
+        games: &[InstalledGame],
+        catalog: &[GameInfo],
+        busy: bool,
+        options: crate::runtime::InstallOptions,
+    ) {
         let session = crate::website::session();
         if self.key != pack.id || self.account != session {
             let policy = self.policy.clone();
@@ -321,6 +335,16 @@ impl Lab {
                     Ok(Outcome::Pack(p)) => {
                         self.changed = Some(*p);
                         self.status="Candidate saved. Apply it explicitly to test; the original pack is preserved.".into();
+                    }
+                    Ok(Outcome::Recovery(result, messages)) => {
+                        self.runtime_progress.extend(messages);
+                        match result {
+                            Ok(pack) => {
+                                self.changed = Some(*pack);
+                                self.status = "Snapshot restored. Read Console preparation warnings before testing gameplay.".into();
+                            }
+                            Err(error) => self.status = error,
+                        }
                     }
                     Ok(Outcome::Log(text)) => {
                         self.log = text;
@@ -478,7 +502,7 @@ impl Lab {
         if let Some(snapshot) = self.confirm.clone() {
             let mut close = false;
             egui::Modal::new(egui::Id::new("restore-play-snapshot")).show(ui.ctx(),|ui|{ui.heading("Restore this setup?");ui.label("Close the game first. Canna will restore this pack's pinned archives and backed-up mod configuration. World saves are untouched.");ui.horizontal(|ui|{if ui.button("Cancel").clicked(){close=true;}
- if ui.add_enabled(!active,egui::Button::new("Restore snapshot")).clicked(){if let Some(game)=game{let policy=self.policy.clone();let game=game.clone();let token=crate::website::session();self.work(ui.ctx(),move||Ok(Outcome::Pack(Box::new(play_backup::restore(&policy,&game,&snapshot,&token)?))));}close=true;}});});
+ if ui.add_enabled(!active,egui::Button::new("Restore snapshot")).clicked(){if let Some(game)=game{let policy=self.policy.clone();let game=game.clone();let token=crate::website::session();self.work(ui.ctx(),move||{let messages=std::cell::RefCell::new(vec![]);let result=play_backup::restore(&policy,&game,&snapshot,&token,options,&|message|messages.borrow_mut().push(message.to_owned())).map(Box::new).map_err(|error|format!("{error:#}"));Ok(Outcome::Recovery(result,messages.into_inner()))});}close=true;}});});
             if close {
                 self.confirm = None;
             }

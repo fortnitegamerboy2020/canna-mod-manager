@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <DefineConstants>$(DefineConstants);GUARD_RUNTIME;GUARD_FIXTURE</DefineConstants>
+    <GameDir Condition="'$(GameDir)' == ''">D:/SteamLibrary/steamapps/common/ROUNDS</GameDir>
+    <RuntimeFixesSource Condition="'$(RuntimeFixesSource)' == ''">../../../target/ducttape-plus-plus/runtime-source/UnboundLibFixes.cs</RuntimeFixesSource>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
+    <Compile Include="../NetworkGuard.cs" Link="NetworkGuard.cs" />
+    <Compile Include="../ManifestJson.cs" Link="ManifestJson.cs" />
+    <Compile Include="../SharedManifest.cs" Link="SharedManifest.cs" />
+    <Compile Include="RuntimeGuardFixtures.cs" />
+    <Compile Include="$(RuntimeFixesSource)" Link="AdaptedUnboundLibFixes.cs" />
+    <Reference Include="$(GameDir)/BepInEx/core/0Harmony.dll" Private="true" />
+    <!-- Unity's game build skips strong-name validation; Windows CLR4 rejects it.
+         The SDK framework variant is fixture-only; pure tests use actual game bytes. -->
+    <Reference Include="$(MSBuildSDKsPath)/Microsoft.NET.Sdk/tools/net472/Newtonsoft.Json.dll" Private="true" />
+    <Reference Include="System.Web.Extensions" />
+  </ItemGroup>
+  <Target Name="RequireReviewedRuntimeSource" BeforeTargets="CoreCompile">
+    <Error Condition="!Exists('$(RuntimeFixesSource)')" Text="Build the reviewed helper runtime source before running its adapted-prefix fixtures." />
+  </Target>
+</Project>

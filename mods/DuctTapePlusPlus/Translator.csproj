@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>Canna.DuctTapePlusPlus.Translate</AssemblyName>
+    <Version>0.1.0</Version>
+    <LangVersion>12</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Deterministic>true</Deterministic>
+    <EnableSourceControlManagerQueries>false</EnableSourceControlManagerQueries>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <PathMap>$(MSBuildProjectDirectory)=/_/DuctTapePlusPlus</PathMap>
+    <NoWarn>$(NoWarn);CS8600;CS8601;CS8602;CS8603;CS8604;CS8618;CS8619;CS8620;CS8625;CS8629;CS8631;CS8634;CS8714</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="AssetsTools.NET" Version="3.0.5" />
+    <Reference Include="System.Web.Extensions" />
+    <Reference Include="System.IO.Compression" />
+    <Reference Include="BepInEx"><HintPath>$(Core)/BepInEx.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil"><HintPath>$(Core)/Mono.Cecil.dll</HintPath></Reference>
+    <Reference Include="Mono.Cecil.Rocks"><HintPath>$(Core)/Mono.Cecil.Rocks.dll</HintPath></Reference>
+  </ItemGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs;SharedManifest.cs;CompatExtensions.cs;AssetChecks.cs;CannaFixRules.cs;vendor/ducttape/*.cs;vendor/toolkit/*.cs" />
+    <EmbeddedResource Include="vendor/toolkit/compathelpers.dll" LogicalName="compathelpers.dll" />
+    <EmbeddedResource Include="vendor/toolkit/old-game-types.txt" LogicalName="old-game-types.txt" />
+    <EmbeddedResource Include="vendor/curated/*" LogicalName="curated/%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

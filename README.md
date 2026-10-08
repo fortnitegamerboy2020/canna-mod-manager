@@ -128,13 +128,56 @@ Desktop 0.2.39 leaves Steam pack dependency choices with you. Adding or updating
 
 CustomLocalColorsRedux includes Canna Shared Colors: press F8 to select your lobby color. ArrowTrajectories includes Canna Friends Trajectories: press F9 to configure own, teammate and opponent lines separately. Other players' lines default off. Prediction follows native charged arrow physics; future black holes, moving terrain, portals and additional ArrowWall fan projectiles are not predicted. Second-PC multiplayer verification remains pending.
 
-Canna checks the latest stable release at `https://cannamods.vip/updates/latest` at startup. Windows executables are served by Canna, bounded by size and checked against the published SHA-256 digest. No shared repository credential is embedded. A hidden helper waits for Canna to exit, retains the previous executable, replaces it and restarts. Open pack/group editors, settings and active installations defer the restart. Update failures leave the current app usable; the Console records check errors, and replacement logs are under `%LOCALAPPDATA%/CannaModManager/updates`.
+The stable Canna desktop checks the latest stable release at `https://cannamods.vip/updates/latest` at startup. Windows executables are served by Canna, bounded by size and checked against the published SHA-256 digest. No shared repository credential is embedded. A hidden helper waits for Canna to exit, retains the previous executable, replaces it and restarts. Open pack/group editors, settings and active installations defer the restart. Update failures leave the current app usable; the Console records check errors, and replacement logs are under `%LOCALAPPDATA%/CannaModManager/updates`.
 
 This first updater-enabled version must be installed manually once. Future releases use a stable `vMAJOR.MINOR.PATCH` tag and an executable asset named `Canna-Mod-Manager.exe`. `scripts/Publish-AppRelease.ps1` publishes explicitly selected source files and a draft release, verifies uploaded hashes, then makes the release available. The admin token is used only by this publishing script. The publisher also mirrors release metadata and the executable to Canna’s server. Older desktop versions contain a shared read token; replace them with version 0.2.15 or later. Mod access uses the Canna account session.
 
 Each modpack's Content table has an **Enabled** checkbox; right-click a mod for **Enable mod** / **Disable mod**. Switches save immediately without removing the selection or version pin, including libraries declared as dependencies by other enabled mods. Use **Apply modpack** or **Launch modded** with the game closed to apply them. Disabled mods are excluded from downloads and from the fresh managed plugin directory, and exports/imports retain the enabled states. Existing manifests default to enabled. Plugins installed outside Canna's managed directory are unaffected.
 
 The enabled official [DuctTape package by kieron_exe](https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape/) requires the public ROUNDS branch (Steam → Properties → Betas → None). Canna recognizes its Thunderstore project identity `kieron_exe-DuctTape` and suppresses only the inferred old-branch requirement from UnboundLib 3.2.14 / MMHook 1.0.0. Explicit legacy branch requirements, the original HollowPurple requirement and the guard against enabling original HollowPurple together with HollowPurple Fixed remain. The author's guide says to retain UnboundLib, MMHook and RoundsWithFriends as installed packages; DuctTape substitutes their assemblies during launch. This branch-check change has fixture coverage; live DuctTape gameplay and multiplayer integration have not been verified by these checks.
+
+**Canna Rebound preview in desktop 0.2.41:** enable **Settings → Canna Rebound for
+ROUNDS (preview)** before applying or launching a public ROUNDS pack. It is off
+by default. Rebound prepares translations on temporary copies and scans compiled game
+calls even when a mod declares no dependencies, supplies supported modern library
+ports, and refuses unresolved dependencies or translations that still require a
+manual port. Saved pack selections remain editable. Steam build IDs are not game
+release numbers; compatibility is checked against the installed game assemblies.
+The preview adds a multiplayer manifest check so participating clients must agree
+on the game and prepared files before starting. This is not verification of a full
+match or two-client multiplayer. Leaving the setting off preserves ordinary pack
+installation and the official DuctTape workflow. Build instructions and limits are in
+[the preview guide](mods/DuctTapePlusPlus/README.md). Do not install or apply it
+while ROUNDS is running.
+
+The regular desktop keeps automatic updates enabled. The separate development
+**Canna Rebound Preview.exe** disables automatic desktop updates.
+Build it with `scripts/Build-DuctTapePlusPlus.ps1` followed by
+`scripts/Build-DuctTapePreview.ps1`. Use the public ROUNDS branch and disable the
+original DuctTape/preloader package in the selected pack before applying it.
+Enable the Rebound Settings checkbox in either build. To build the regular desktop
+with the support bundle, use `scripts/Build-ReboundRelease.ps1`.
+The preview supplies only the reviewed dependency ports needed by enabled mods;
+unsupported calls, incompatible plugins or dependencies that cannot load block
+preparation before the installed game changes.
+The current reviewed target is public ROUNDS 1.1.2; other game builds need a new
+reviewed profile. Before applying the preview, back up and move manually installed
+files outside `BepInEx/plugins/Canna` and `BepInEx/patchers/Canna` to a folder
+outside those plugin/patcher trees. Canna preserves those files, but the preview's
+online guard rejects content outside its prepared profile. Participating clients
+need matching prepared assemblies, assets and effective mod configuration.
+Supported exact old library packages can remain selected: preparation substitutes
+their modern ports without editing the saved pack. Unknown library bytes block
+preparation. Read Console review warnings for remaining reflection and asset
+limitations; successful preparation does not verify every gameplay path.
+
+Normal ROUNDS/Bopl **Add Mods** saves only the selected package, and **Apply**
+installs enabled saved entries. Provider imports fetch and review dependency
+archives in the server library but do not add them to your pack. Removed or
+disabled dependencies stay removed or disabled. Enabled Rebound supplies its
+supported pinned dependencies in the prepared installation; Minecraft content
+installation separately resolves compatible catalog dependencies. There is no
+universal automatic dependency addition for ordinary packs.
 
 The catalog includes **Canna Procedural Maps 1.1.1**. Add it to a Bopl pack on every family member's PC. It uses Bopl's shared online round seed for native scene selection, varied layouts, fixed simulation movement and satellite spin, with Steam lobby version checks. Rounds have one to nine islands, including large continents and twins. About one third load actual native space scenes with moons and optional rotating satellite panels. Native scene data and generated layouts are saved under `BepInEx/config/CannaMaps`. The 124-scene native audit and 10,000 deterministic seed checks passed; family multiplayer gameplay still needs a two-PC test.
 
@@ -144,7 +187,7 @@ The catalog includes **Canna Procedural Maps 1.1.1**. Add it to a Bopl pack on e
 
 ### Minecraft work in progress
 
-The debug desktop includes Minecraft instances, Microsoft device sign-in, managed Java, loader installation paths for Vanilla/Fabric/Forge/NeoForge/Quilt, process stop controls, and local skin import/export/account application. Microsoft sign-in requires Canna's registered public client ID. Login and live Minecraft launches have not been verified yet; content dependency installation, Minecraft modpack sharing, and complete launcher parity are still pending. The Windows releases include these preview features. Microsoft sign-in and live Minecraft launches still require verification with the registered Canna client ID.
+The Windows desktop includes preview Minecraft instances, Microsoft device sign-in, managed Java, loader installation paths for Vanilla/Fabric/Forge/NeoForge/Quilt, process stop controls, and local skin import/export/account application. Content installation resolves compatible catalog dependencies and has fixture coverage. Microsoft sign-in requires Canna's registered public client ID; login and live Minecraft launches remain unverified. Minecraft modpack sharing and complete launcher parity are still pending.
 
 ### Downloads (0.2.6)
 

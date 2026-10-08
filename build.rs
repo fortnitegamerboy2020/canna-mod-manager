@@ -1,4 +1,38 @@
 fn main() {
+    // Bundled support and standalone preview behavior are separate. A regular
+    // release may offer the engine through an explicit runtime setting.
+    println!("cargo:rustc-check-cfg=cfg(canna_ducttape_preview)");
+    println!("cargo:rustc-check-cfg=cfg(canna_rebound_local_preview)");
+    println!("cargo:rerun-if-env-changed=CANNA_DUCTTAPE_SUPPORT");
+    println!("cargo:rerun-if-env-changed=CANNA_REBOUND_LOCAL_PREVIEW");
+    let local_preview = match std::env::var("CANNA_REBOUND_LOCAL_PREVIEW").as_deref() {
+        Ok("1") => true,
+        Err(std::env::VarError::NotPresent) | Ok("0") => false,
+        _ => panic!("CANNA_REBOUND_LOCAL_PREVIEW must be 0 or 1"),
+    };
+    let output =
+        std::path::PathBuf::from(std::env::var_os("OUT_DIR").unwrap()).join("ducttape-support.zip");
+    if let Some(bundle) = std::env::var_os("CANNA_DUCTTAPE_SUPPORT") {
+        let bundle = std::path::PathBuf::from(bundle);
+        println!("cargo:rerun-if-changed={}", bundle.display());
+        let bytes = std::fs::read(&bundle).expect("Canna Rebound support bundle");
+        assert!(
+            bytes.starts_with(b"PK\x03\x04"),
+            "Expected ZIP support bundle"
+        );
+        assert!(
+            bytes.len() <= 128 * 1024 * 1024,
+            "Support bundle is oversized"
+        );
+        std::fs::write(&output, bytes).expect("Embed Canna Rebound support bundle");
+        println!("cargo:rustc-cfg=canna_ducttape_preview");
+        if local_preview {
+            println!("cargo:rustc-cfg=canna_rebound_local_preview");
+        }
+    } else {
+        assert!(!local_preview, "A standalone preview needs Rebound support");
+        std::fs::write(&output, []).expect("Empty compatibility preview bundle");
+    }
     #[cfg(windows)]
     {
         println!("cargo:rerun-if-changed=src/assets/canna.ico");

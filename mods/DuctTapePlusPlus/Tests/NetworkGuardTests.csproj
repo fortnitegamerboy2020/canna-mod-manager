@@ -1,0 +1,18 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <GameDir Condition="'$(GameDir)' == ''">D:/SteamLibrary/steamapps/common/ROUNDS</GameDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../NetworkGuard.cs" Link="NetworkGuard.cs" />
+    <Compile Include="../ManifestJson.cs" Link="ManifestJson.cs" />
+    <Compile Include="../SharedManifest.cs" Link="SharedManifest.cs" />
+    <Compile Include="NetworkGuardTests.cs" />
+    <Reference Include="$(GameDir)/ROUNDS_Data/Managed/Newtonsoft.Json.dll" Private="true" />
+    <None Include="Fixtures/helper-runtime-manifest.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+</Project>

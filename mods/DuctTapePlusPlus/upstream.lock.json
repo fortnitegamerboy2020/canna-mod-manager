@@ -1,0 +1,427 @@
+{
+  "distribution_status": "local-preview-redistribution-unverified",
+  "files": [
+    {
+      "file": "vendor/curated/Bknibb-UnboundLib-4.2.5~UnboundLib.dll.bsdf",
+      "upstream_sha256": "e9a7d3c2310750bb82c0785281ccfe184437e3bc1c00990655e1b3e4f30a8cc5",
+      "vendored_sha256": "e9a7d3c2310750bb82c0785281ccfe184437e3bc1c00990655e1b3e4f30a8cc5"
+    },
+    {
+      "file": "vendor/curated/Bknibb-UnboundLib-4.2.7~UnboundLib.dll.bsdf",
+      "upstream_sha256": "174844c2993faa17457be358abb264062237b6eacdf550ecdd5bf3e3bdf212cc",
+      "vendored_sha256": "174844c2993faa17457be358abb264062237b6eacdf550ecdd5bf3e3bdf212cc"
+    },
+    {
+      "file": "vendor/curated/BossSloth-CardBarPatch-2.1.1~CardBarPatch.dll.bsdf",
+      "upstream_sha256": "29e1e6ed2fa8f1ab8489b5a3dbb3a7590fd4b90bf552e519d5c2e82a434a295d",
+      "vendored_sha256": "29e1e6ed2fa8f1ab8489b5a3dbb3a7590fd4b90bf552e519d5c2e82a434a295d"
+    },
+    {
+      "file": "vendor/curated/olavim-MapsExtended-1.4.2~plugins~MapsExtended.dll.bsdf",
+      "upstream_sha256": "5ccba5a4cdcd5bf794a7a53b63612ae545cdde9b53b56649924a5ca10b99526a",
+      "vendored_sha256": "5ccba5a4cdcd5bf794a7a53b63612ae545cdde9b53b56649924a5ca10b99526a"
+    },
+    {
+      "file": "vendor/curated/olavim-RoundsWithFriends-2.2.2~plugins~RoundsWithFriends.dll.bsdf",
+      "upstream_sha256": "7bae4619f5547d062a4fd2122a93e74617c65681c2f22c5eb1f51c4b7ff27c7a",
+      "vendored_sha256": "7bae4619f5547d062a4fd2122a93e74617c65681c2f22c5eb1f51c4b7ff27c7a"
+    },
+    {
+      "file": "vendor/curated/patches.tsv",
+      "upstream_sha256": "a86fecd4f39f2c9f685435b46cf28f7a0123f0d1f599318882906a5194aa520a",
+      "vendored_sha256": "a86fecd4f39f2c9f685435b46cf28f7a0123f0d1f599318882906a5194aa520a"
+    },
+    {
+      "file": "vendor/curated/Pykess-GunUnblockablePatch-0.0.0~GunUnblockablePatch.dll.bsdf",
+      "upstream_sha256": "71bd491b6e15e85b906a7118a26120523c3d3d269b4f1fdbb09f3286583bd29d",
+      "vendored_sha256": "71bd491b6e15e85b906a7118a26120523c3d3d269b4f1fdbb09f3286583bd29d"
+    },
+    {
+      "file": "vendor/curated/Pykess-ModdingUtils-0.4.8~ModdingUtils.dll.bsdf",
+      "upstream_sha256": "84cf7f2abdd73c748072f9a93cd1a7bd4451e5f8ef72b42c88dd5593e6918280",
+      "vendored_sha256": "84cf7f2abdd73c748072f9a93cd1a7bd4451e5f8ef72b42c88dd5593e6918280"
+    },
+    {
+      "file": "vendor/curated/Pykess-TemporaryStatsPatch-0.0.2~TemporaryStatsPatch.dll.bsdf",
+      "upstream_sha256": "1053e47226eadc540073d087cbc5d46fc3740a1a3e1a97651fc7c58586f0ee04",
+      "vendored_sha256": "1053e47226eadc540073d087cbc5d46fc3740a1a3e1a97651fc7c58586f0ee04"
+    },
+    {
+      "file": "vendor/curated/Root-Classes_Manager_Reborn-1.5.5~ClassesManagerReborn.dll.bsdf",
+      "upstream_sha256": "edecbf9203f5ba2aca2953df729b99c879576110c3bc8dd3f1c507cbd98fa5d0",
+      "vendored_sha256": "edecbf9203f5ba2aca2953df729b99c879576110c3bc8dd3f1c507cbd98fa5d0"
+    },
+    {
+      "file": "vendor/curated/Root-RarityLib-1.3.0~RarityLib.dll.bsdf",
+      "upstream_sha256": "595b7d8812c5cfb73b8ca830e029f3adc6cf305aa5c56973d86549154d236be3",
+      "vendored_sha256": "595b7d8812c5cfb73b8ca830e029f3adc6cf305aa5c56973d86549154d236be3"
+    },
+    {
+      "file": "vendor/curated/RoundsModding-Grow_Patch-0.0.0~GrowPatch.dll.bsdf",
+      "upstream_sha256": "10c7420bd4a87edb53899cad29d7d14c9dc87cdb778c9fa8ee9c09246dd0967d",
+      "vendored_sha256": "10c7420bd4a87edb53899cad29d7d14c9dc87cdb778c9fa8ee9c09246dd0967d"
+    },
+    {
+      "file": "vendor/curated/RoundsModding-Performance_Improvements-0.2.0~plugins~PerformanceImprovements.dll.bsdf",
+      "upstream_sha256": "bf67c26693e0cc6211734447e158bf8124aec9122d87d94d69bf03366c85ffb0",
+      "vendored_sha256": "bf67c26693e0cc6211734447e158bf8124aec9122d87d94d69bf03366c85ffb0"
+    },
+    {
+      "file": "vendor/curated/willis81808-MMHook-1.0.0~plugins~MMHOOK_Assembly-CSharp.dll.bsdf",
+      "upstream_sha256": "1f4c858756c1370ce1618d82d535b7c8363591394ebe739c3e832dc463b79192",
+      "vendored_sha256": "1f4c858756c1370ce1618d82d535b7c8363591394ebe739c3e832dc463b79192"
+    },
+    {
+      "file": "vendor/curated/willis81808-ModsPlus-1.6.2~plugins~ModsPlus.dll.bsdf",
+      "upstream_sha256": "b41ef9296eeba896e44c5b065c48d9aa138a549a3d9b31893f1c708234c02e2b",
+      "vendored_sha256": "b41ef9296eeba896e44c5b065c48d9aa138a549a3d9b31893f1c708234c02e2b"
+    },
+    {
+      "file": "vendor/curated/willis81808-UnboundLib-3.2.14~plugins~UnboundLib.dll.bsdf",
+      "upstream_sha256": "50e2c3a8d29c9c07be4551e67a728c172eb1acd4503eeb8f18aba5951463b730",
+      "vendored_sha256": "50e2c3a8d29c9c07be4551e67a728c172eb1acd4503eeb8f18aba5951463b730"
+    },
+    {
+      "file": "vendor/curated/willuwontu-GunChargePatch-0.0.4~GunChargePatch.dll.bsdf",
+      "upstream_sha256": "ef807f97d86dd9744a1b3166799b1b246d8ee1975f7b81dff8eb2fc971895d3f",
+      "vendored_sha256": "ef807f97d86dd9744a1b3166799b1b246d8ee1975f7b81dff8eb2fc971895d3f"
+    },
+    {
+      "file": "vendor/curated/willuwontu-WillsWackyMapObjects-1.2.4~WillsWackyMapObjects.dll.bsdf",
+      "upstream_sha256": "2b0e5da17564aec75b479a4c1adb9778737c7d881bd3d4412909a62c95ab05f4",
+      "vendored_sha256": "2b0e5da17564aec75b479a4c1adb9778737c7d881bd3d4412909a62c95ab05f4"
+    },
+    {
+      "file": "vendor/curated/XAngelMoonX-CR-2.7.0~CosmicRounds.dll.bsdf",
+      "upstream_sha256": "d9b210781d901430aa5efd5f3501c32bac80828e492501246fa98fa099fd4fd8",
+      "vendored_sha256": "d9b210781d901430aa5efd5f3501c32bac80828e492501246fa98fa099fd4fd8"
+    },
+    {
+      "file": "vendor/ducttape/Curated.cs",
+      "upstream_sha256": "2cddbbb3522ab7838602b6b63f6b084c724fbc091c542b95a701555cf0bfe2a2",
+      "vendored_sha256": "2cddbbb3522ab7838602b6b63f6b084c724fbc091c542b95a701555cf0bfe2a2"
+    },
+    {
+      "file": "vendor/ducttape/Polyfills.cs",
+      "upstream_sha256": "1d205a6e2b7c0fa134afdf21030d3c605850914cf35b8ecab8e659897d1e8807",
+      "vendored_sha256": "1d205a6e2b7c0fa134afdf21030d3c605850914cf35b8ecab8e659897d1e8807"
+    },
+    {
+      "file": "vendor/ducttape/Usings.cs",
+      "upstream_sha256": "22129fbc14583ac0e39a121c87bc7651051c0a05cb92a53409e83c9b7256772f",
+      "vendored_sha256": "22129fbc14583ac0e39a121c87bc7651051c0a05cb92a53409e83c9b7256772f"
+    },
+    {
+      "file": "vendor/toolkit/compathelpers.dll",
+      "upstream_sha256": "5f111a7e56f2d8cf751b49e6721d789d5e49fbe4f2756ccf2758fb947709dbcb",
+      "vendored_sha256": "5f111a7e56f2d8cf751b49e6721d789d5e49fbe4f2756ccf2758fb947709dbcb"
+    },
+    {
+      "file": "vendor/toolkit/Fixer.cs",
+      "upstream_sha256": "23d8fdd0b9330f7b7e63a0e8d50c61c034136abb7ff9322f71ed39f18de06a72",
+      "vendored_sha256": "23d8fdd0b9330f7b7e63a0e8d50c61c034136abb7ff9322f71ed39f18de06a72"
+    },
+    {
+      "file": "vendor/toolkit/Game.cs",
+      "upstream_sha256": "36847919a10ba11e3e46012759de88955d24022fffaafdfdffc789d63e85ba7b",
+      "vendored_sha256": "36847919a10ba11e3e46012759de88955d24022fffaafdfdffc789d63e85ba7b"
+    },
+    {
+      "file": "vendor/toolkit/Known.cs",
+      "upstream_sha256": "c99a78cc862e20e1a1656457cc17165141defbb973f671bdb8e016a6fb8f1680",
+      "vendored_sha256": "c99a78cc862e20e1a1656457cc17165141defbb973f671bdb8e016a6fb8f1680"
+    },
+    {
+      "file": "vendor/toolkit/old-game-types.txt",
+      "upstream_sha256": "7fe9598723d4c686e0a01dc7dd4fcf3be08730a15b1a9d87baecd8a42588f173",
+      "vendored_sha256": "7fe9598723d4c686e0a01dc7dd4fcf3be08730a15b1a9d87baecd8a42588f173"
+    },
+    {
+      "file": "vendor/toolkit/old-libraries.tsv",
+      "upstream_sha256": "7db96c04b0abc0462f4f54425166309c01ab96dbe85b646d8b1ce5827e0d3d06",
+      "vendored_sha256": "7db96c04b0abc0462f4f54425166309c01ab96dbe85b646d8b1ce5827e0d3d06"
+    },
+    {
+      "file": "vendor/toolkit/Scanner.cs",
+      "upstream_sha256": "f52a3e38b2acfe478774179141dd8473a245862359e8f48db73e076309cf1d82",
+      "vendored_sha256": "ab75c13afb9846184859766ae6ff6003ff77a54489ee32c031f7c0e54dc0cae4"
+    }
+  ],
+  "local_changes": [
+    "Computed reflection member fragments are REVIEW, never literal renames",
+    "Framework-compatible KVP deconstruction bridge",
+    "Asset bundle parse/type coverage failures block",
+    "Hard plugin dependency GUID/version validation and duplicate identities block",
+    "Only marked scratch plugin tree is committed after successful postscan; game/source caches unchanged",
+    "Network fingerprint includes exact translated identities, assets and effective config; peer equality does not certify gameplay",
+    "Build-only pinned payload normalization with full final scans",
+    "Verify actual BepInEx attribute scopes and minimum hard dependency versions",
+    "Exact bundled Runtime/Guard restore deduplication",
+    "Fresh final resolver after all rewrites; game ancestor path protection"
+  ],
+  "payloads": [
+    {
+      "assembly": "UnboundLib",
+      "declared_aliases": [
+        "willis81808-UnboundLib-3.2.14"
+      ],
+      "dependencies": [
+        "MMHOOK_Assembly-CSharp",
+        "Octokit"
+      ],
+      "file": "2eecd826d889cc1dda5efc0433bc77ab9bafa85cacc00323f3a8c7de79558154.dll",
+      "license": "No declared license; local preview only; upstream permission recorded",
+      "sha256": "2eecd826d889cc1dda5efc0433bc77ab9bafa85cacc00323f3a8c7de79558154",
+      "source": "willis81808-UnboundLib-3.2.14 -> pinned upstream curated patch"
+    },
+    {
+      "assembly": "MMHOOK_Assembly-CSharp",
+      "declared_aliases": [
+        "willis81808-MMHook-1.0.0"
+      ],
+      "dependencies": [],
+      "file": "926b53b329d94f6a8842e6d51ca17ff96f081df59695d7862845d5ccce9e5a62.dll",
+      "license": "No declared license; local preview only; upstream permission recorded",
+      "sha256": "926b53b329d94f6a8842e6d51ca17ff96f081df59695d7862845d5ccce9e5a62",
+      "source": "willis81808-MMHook-1.0.0 -> pinned upstream curated patch"
+    },
+    {
+      "assembly": "RoundsWithFriends",
+      "declared_aliases": [
+        "olavim-RoundsWithFriends-2.2.2"
+      ],
+      "dependencies": [
+        "UnboundLib"
+      ],
+      "file": "1bd4d5aa47de0e04661710a77bb0b5f1214dac4b3baabc9364b3418ecbc8ab61.dll",
+      "license": "GPL-3.0",
+      "sha256": "1bd4d5aa47de0e04661710a77bb0b5f1214dac4b3baabc9364b3418ecbc8ab61",
+      "source": "olavim-RoundsWithFriends-2.2.2 -> pinned upstream curated patch"
+    },
+    {
+      "assembly": "CardBarPatch",
+      "declared_aliases": [
+        "BossSloth-CardBarPatch-2.1.1"
+      ],
+      "dependencies": [],
+      "file": "e885cabc08314e78ef72f2e9d40f93fceaba201958c680c61345e979a957c525.dll",
+      "license": "GPL-3.0",
+      "sha256": "e885cabc08314e78ef72f2e9d40f93fceaba201958c680c61345e979a957c525",
+      "source": "BossSloth-CardBarPatch-2.1.1 -> exact curated patch"
+    },
+    {
+      "assembly": "GunUnblockablePatch",
+      "declared_aliases": [
+        "Pykess-GunUnblockablePatch-0.0.0"
+      ],
+      "dependencies": [],
+      "file": "45cb4c84caa1e66427ddc1c2693f771d63efae4710f749cf4a82ea0b9a702b50.dll",
+      "license": "See upstream patch notices; local preview redistribution unverified",
+      "sha256": "45cb4c84caa1e66427ddc1c2693f771d63efae4710f749cf4a82ea0b9a702b50",
+      "source": "Pykess-GunUnblockablePatch-0.0.0 -> exact curated patch"
+    },
+    {
+      "assembly": "ModdingUtils",
+      "declared_aliases": [
+        "Pykess-ModdingUtils-0.4.8"
+      ],
+      "dependencies": [],
+      "file": "dca2c89c03499b831581e8cd2bc8b92b7b1d4e41d0cba40c886360ed42a2e496.dll",
+      "license": "GPL-3.0",
+      "sha256": "dca2c89c03499b831581e8cd2bc8b92b7b1d4e41d0cba40c886360ed42a2e496",
+      "source": "Pykess-ModdingUtils-0.4.8 -> exact curated patch"
+    },
+    {
+      "assembly": "TemporaryStatsPatch",
+      "declared_aliases": [
+        "Pykess-TemporaryStatsPatch-0.0.2"
+      ],
+      "dependencies": [],
+      "file": "8a6e4ab427193f57f58c84402ace8fb505fd443db1a2c67df3bc8dbb066223e0.dll",
+      "license": "See upstream patch notices; local preview redistribution unverified",
+      "sha256": "8a6e4ab427193f57f58c84402ace8fb505fd443db1a2c67df3bc8dbb066223e0",
+      "source": "Pykess-TemporaryStatsPatch-0.0.2 -> exact curated patch"
+    },
+    {
+      "assembly": "ClassesManagerReborn",
+      "declared_aliases": [
+        "Root-Classes_Manager_Reborn-1.5.5"
+      ],
+      "dependencies": [],
+      "file": "d13f4efa72f88fdd6de66be75b4a79874b4a5cd665d224bd7e95c93e4aab4128.dll",
+      "license": "See upstream patch notices; local preview redistribution unverified",
+      "sha256": "d13f4efa72f88fdd6de66be75b4a79874b4a5cd665d224bd7e95c93e4aab4128",
+      "source": "Root-Classes_Manager_Reborn-1.5.5 -> exact curated patch"
+    },
+    {
+      "assembly": "RarityLib",
+      "declared_aliases": [
+        "Root-RarityLib-1.3.0"
+      ],
+      "dependencies": [],
+      "file": "ecff0be8c7945a4f40c6908936116a57f4f92b09417958d2a6b8b2860691bf40.dll",
+      "license": "See upstream patch notices; local preview redistribution unverified",
+      "sha256": "ecff0be8c7945a4f40c6908936116a57f4f92b09417958d2a6b8b2860691bf40",
+      "source": "Root-RarityLib-1.3.0 -> exact curated patch"
+    },
+    {
+      "assembly": "GrowPatch",
+      "declared_aliases": [
+        "RoundsModding-Grow_Patch-0.0.0"
+      ],
+      "dependencies": [],
+      "file": "f49ad42e68d48a3df644d877b4f61222b8ec67a3098c8403a547be2077c92309.dll",
+      "license": "See upstream patch notices; local preview redistribution unverified",
+      "sha256": "f49ad42e68d48a3df644d877b4f61222b8ec67a3098c8403a547be2077c92309",
+      "source": "RoundsModding-Grow_Patch-0.0.0 -> exact curated patch"
+    },
+    {
+      "assembly": "PerformanceImprovements",
+      "declared_aliases": [
+        "RoundsModding-Performance_Improvements-0.2.0"
+      ],
+      "dependencies": [],
+      "file": "e8b64812ee90185e18dcbab1fa0cda8afc8ca0fa88939df7b19571b6ffa48b17.dll",
+      "license": "GPL-3.0",
+      "sha256": "e8b64812ee90185e18dcbab1fa0cda8afc8ca0fa88939df7b19571b6ffa48b17",
+      "source": "RoundsModding-Performance_Improvements-0.2.0 -> exact curated patch"
+    },
+    {
+      "assembly": "CosmicRounds",
+      "declared_aliases": [
+        "XAngelMoonX-CR-2.7.0"
+      ],
+      "dependencies": [],
+      "file": "f3264690f4035ce64f62d7aec06140e1c326920c4538232fca31fc2f20890b9a.dll",
+      "license": "See upstream patch notices; local preview redistribution unverified",
+      "sha256": "f3264690f4035ce64f62d7aec06140e1c326920c4538232fca31fc2f20890b9a",
+      "source": "XAngelMoonX-CR-2.7.0 -> exact curated patch"
+    },
+    {
+      "assembly": "ModsPlus",
+      "declared_aliases": [
+        "willis81808-ModsPlus-1.6.2"
+      ],
+      "dependencies": [],
+      "file": "5058a39ad42b23a2a348dedd0b4ebb3221646ca1353759682dafddeae13f1067.dll",
+      "license": "See upstream patch notices; local preview redistribution unverified",
+      "sha256": "5058a39ad42b23a2a348dedd0b4ebb3221646ca1353759682dafddeae13f1067",
+      "source": "willis81808-ModsPlus-1.6.2 -> exact curated patch"
+    },
+    {
+      "assembly": "WillsWackyMapObjects",
+      "declared_aliases": [
+        "willuwontu-WillsWackyMapObjects-1.2.4"
+      ],
+      "dependencies": [],
+      "file": "5a5bc234266495a54f44b8f5df5866f396a232d82f3a6e65ebc1391575c3bae4.dll",
+      "license": "See upstream patch notices; local preview redistribution unverified",
+      "sha256": "5a5bc234266495a54f44b8f5df5866f396a232d82f3a6e65ebc1391575c3bae4",
+      "source": "willuwontu-WillsWackyMapObjects-1.2.4 -> exact curated patch"
+    },
+    {
+      "assembly": "MapsExtended",
+      "declared_aliases": [
+        "olavim-MapsExtended-1.4.2"
+      ],
+      "dependencies": [],
+      "file": "f518737a20570c2758422644d1e95dbb6fc63a884021182dab0f516500ef2710.dll",
+      "license": "See upstream patch notices; local preview redistribution unverified",
+      "sha256": "f518737a20570c2758422644d1e95dbb6fc63a884021182dab0f516500ef2710",
+      "source": "olavim-MapsExtended-1.4.2 -> exact curated patch"
+    },
+    {
+      "assembly": "GunChargePatch",
+      "declared_aliases": [
+        "willuwontu-GunChargePatch-0.0.4",
+        "Sfinford-ProjectileChargePatch-0.0.1"
+      ],
+      "dependencies": [],
+      "file": "7fd5f587c1de2a8783c103881ecde77f30ba0af84a6d9478bb96d6af8d210be3.dll",
+      "license": "See upstream patch notices; local preview redistribution unverified",
+      "sha256": "7fd5f587c1de2a8783c103881ecde77f30ba0af84a6d9478bb96d6af8d210be3",
+      "source": "willuwontu-GunChargePatch-0.0.4 -> exact curated patch"
+    },
+    {
+      "assembly": "Octokit",
+      "declared_aliases": [],
+      "dependencies": [],
+      "file": "6a48642d6ae464b43a6cb50292618af6c73ada8d726644e50d4fa44a1783f638.dll",
+      "license": "MIT",
+      "sha256": "6a48642d6ae464b43a6cb50292618af6c73ada8d726644e50d4fa44a1783f638",
+      "source": "octokit\\Octokit.dll"
+    },
+    {
+      "assembly": "Sirenix.Serialization",
+      "declared_aliases": [],
+      "dependencies": [
+        "Sirenix.Serialization.Config",
+        "Sirenix.Utilities"
+      ],
+      "file": "1d79c1f21e681443aeff8ef6b305dcc82728973abb2364caaf099c29b86ef038.dll",
+      "license": "Apache-2.0",
+      "sha256": "1d79c1f21e681443aeff8ef6b305dcc82728973abb2364caaf099c29b86ef038",
+      "source": "odin\\Sirenix.Serialization.dll"
+    },
+    {
+      "assembly": "Sirenix.Serialization.Config",
+      "declared_aliases": [],
+      "dependencies": [
+        "Sirenix.Utilities"
+      ],
+      "file": "0a8b62aec74d27b9420b067728adf5cd09ce48483ce544224ef3b13868e47ef0.dll",
+      "license": "Apache-2.0",
+      "sha256": "0a8b62aec74d27b9420b067728adf5cd09ce48483ce544224ef3b13868e47ef0",
+      "source": "odin\\Sirenix.Serialization.Config.dll"
+    },
+    {
+      "assembly": "Sirenix.Utilities",
+      "declared_aliases": [],
+      "dependencies": [],
+      "file": "7770dc685e13dfd0c203cfdb86d7485bea044932e25e24b1326371119b070dfd.dll",
+      "license": "Apache-2.0",
+      "sha256": "7770dc685e13dfd0c203cfdb86d7485bea044932e25e24b1326371119b070dfd",
+      "source": "odin\\Sirenix.Utilities.dll"
+    },
+    {
+      "assembly": "CardChoiceSpawnUniqueCardPatch",
+      "declared_aliases": [
+        "Pykess-CardChoiceSpawnUniqueCardPatch-0.1.10"
+      ],
+      "dependencies": [
+        "UnboundLib",
+        "ModdingUtils"
+      ],
+      "file": "1b9e8ef4c1d691d3217671096192b1b5d582edf895ac2043f49443552f8a4590.dll",
+      "license": "Upstream source https://github.com/Rounds-Modding/CardChoiceSpawnUniqueCardPatch; local preview redistribution unverified",
+      "sha256": "1b9e8ef4c1d691d3217671096192b1b5d582edf895ac2043f49443552f8a4590",
+      "source": "Pykess-CardChoiceSpawnUniqueCardPatch-0.1.10; archive SHA256 311392c9665de8748d1ff8e61d6dd5663ece94292e33184f6e44ce8b3f838820"
+    }
+  ],
+  "profile": "rounds-public-1.1.2",
+  "protocol": "canna.ducttape++/1",
+  "schema": 1,
+  "target_game_sha256": "20451cc7090908cd1d125f75f06584645d25e898ec234de0a0c2f154e2900668",
+  "upstream": {
+    "DuctTape": {
+      "commit": "02e1b3d561f1a3dee321a893f111934ab3a2e1df",
+      "license": "MIT, with separately licensed patched outputs",
+      "url": "https://github.com/KieranK07/DuctTape"
+    },
+    "RoundsWithFriends": {
+      "commit": "8aac89b7e99911752efb86af6593b83f0fd3469d",
+      "license": "GPL-3.0",
+      "url": "https://github.com/Bknibb/RoundsWithFriends/releases/tag/v3.0.10"
+    },
+    "UnboundLibFork": {
+      "commit": "000191da4cbd1051f329aa8b553c955400477ce8",
+      "license": "No declared license; upstream personal permission is not a blanket downstream license",
+      "url": "https://github.com/KieranK07/UnboundLib/tree/ducttape"
+    },
+    "toolkit": {
+      "commit": "a20bbb2eb5ab8fd2bf0813da4a7d7af0f3bcde28",
+      "license": "MIT, GPL-3.0 modifications and Apache-2.0 Odin",
+      "url": "https://github.com/KieranK07/rounds-porting-toolkit"
+    }
+  }
+}

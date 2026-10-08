@@ -4,6 +4,7 @@ mod cache;
 mod chrome;
 mod console;
 mod credentials;
+mod ducttape;
 mod game_compat;
 #[path = "../server/src/game_profiles.rs"]
 mod game_profiles;
@@ -40,6 +41,24 @@ use std::{
 
 const GREEN: Color32 = Color32::from_rgb(163, 220, 144);
 const MUTED: Color32 = Color32::from_rgb(143, 157, 149);
+fn rebound_settings(ui: &mut egui::Ui, enabled: &mut bool, busy: bool) -> egui::Response {
+    ui.strong("ROUNDS COMPATIBILITY");
+    let response = ui.add_enabled(
+        cfg!(canna_ducttape_preview) && !busy,
+        egui::Checkbox::new(enabled, "Canna Rebound for ROUNDS (preview)"),
+    );
+    if cfg!(canna_ducttape_preview) {
+        ui.label("Opt in for public ROUNDS 1.1.2. Apply, Setup and Launch modded check every enabled plugin and prepare supported dependency ports without changing saved selections. Disable the original DuctTape/preloader package first.");
+        ui.label("Unsupported calls or dependencies block preparation. Read Console review warnings; preparation does not verify every gameplay path or full multiplayer matches.");
+        ui.hyperlink_to(
+            "Preview setup, source credits and distribution notices",
+            "https://cannamods.vip/help",
+        );
+    } else {
+        ui.label("This build does not include the Rebound preview. Ordinary mod installation is available.");
+    }
+    response
+}
 #[cfg(test)]
 const EMBEDDED_GITHUB_TOKEN: &str = "";
 
@@ -208,7 +227,11 @@ impl Canna {
             discover_page: std::env::args().any(|arg| arg == "--discover"),
             discover: Default::default(),
             provider_browser: Default::default(),
-            update_status: String::new(),
+            update_status: if cfg!(canna_rebound_local_preview) {
+                "Canna Rebound local preview; automatic updates disabled".into()
+            } else {
+                String::new()
+            },
             pending_update: None,
             console_page: std::env::args().any(|arg| arg == "--console"),
             console: console::Console::new(),
@@ -218,7 +241,11 @@ impl Canna {
             game_details: std::env::args().any(|arg| arg == "--game-details"),
             runtime_busy: false,
             runtime_enabled: start_jobs,
-            runtime_status: String::new(),
+            runtime_status: if cfg!(canna_rebound_local_preview) {
+                "Canna Rebound local preview · enable the ROUNDS preview in Settings".into()
+            } else {
+                String::new()
+            },
             #[cfg(test)]
             card_create_rects: BTreeMap::new(),
             #[cfg(test)]
@@ -307,14 +334,17 @@ impl Canna {
             app.provider_browser.preview_fixture();
         }
         if start_jobs {
-            app.update_status = "Checking for Canna updates…".into();
-            let tx = app.tx.clone();
-            let repaint = ctx.clone();
-            std::thread::spawn(move || {
-                let result = updater::check(env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string());
-                let _ = tx.send(Event::Update(result));
-                repaint.request_repaint();
-            });
+            if !cfg!(canna_rebound_local_preview) {
+                app.update_status = "Checking for Canna updates…".into();
+                let tx = app.tx.clone();
+                let repaint = ctx.clone();
+                std::thread::spawn(move || {
+                    let result =
+                        updater::check(env!("CARGO_PKG_VERSION")).map_err(|e| e.to_string());
+                    let _ = tx.send(Event::Update(result));
+                    repaint.request_repaint();
+                });
+            }
             app.scan(ctx);
             if configured {
                 app.sync(ctx);
@@ -405,6 +435,12 @@ impl Canna {
         while let Ok(event) = self.rx.try_recv() {
             match event {
                 Event::Update(result) => {
+                    if cfg!(canna_rebound_local_preview) {
+                        self.pending_update = None;
+                        self.update_status =
+                            "Canna Rebound local preview; automatic updates disabled".into();
+                        continue;
+                    }
                     match result {
                         Ok(Some(ready)) => {
                             self.update_status = format!(
@@ -622,6 +658,12 @@ impl Canna {
                     self.catalog = model::supported_catalog();
                     self.repository_textures.clear();
                     self.repo_status = "Account disconnected".into();
+                }
+                ui.separator();
+                if rebound_settings(ui, &mut self.settings.rebound_enabled, self.runtime_busy).changed()
+                    && let Err(error) = self.settings.save() {
+                    self.settings.rebound_enabled = !self.settings.rebound_enabled;
+                    self.runtime_status = format!("Could not save Rebound preference: {error}");
                 }
                 ui.separator();
                 ui.label("Steam location override (optional)");
@@ -937,6 +979,9 @@ impl Canna {
         let tx = self.tx.clone();
         let ctx = ctx.clone();
         let token = self.token.clone();
+        let options = runtime::InstallOptions {
+            rebound_enabled: self.settings.rebound_enabled,
+        };
         std::thread::spawn(move || {
             let progress = |message: &str| {
                 let _ = tx.send(Event::RuntimeProgress(message.into()));
@@ -946,14 +991,16 @@ impl Canna {
                 match request {
                     pack_ui::RuntimeAction::Stop(_) => unreachable!(),
                     pack_ui::RuntimeAction::Setup(pack) => {
-                        runtime::setup(&game, &pack, &token)?;
+                        runtime::setup_with_options(&game, &pack, &token, options, &progress)?;
                         Ok("Mod framework is ready. Choose mods for your pack.".into())
                     }
                     pack_ui::RuntimeAction::Install(pack) => {
-                        game_compat::check_pack(&game, &pack)?;
-                        play_backup::before_change(&game, &pack)?;
-                        runtime::install_pack(&game, &pack, &token, &progress)?;
-                        play_backup::remember_applied(&game, &pack)?;
+                        let prepared =
+                            runtime::prepare_install(&game, &pack, &token, options, &progress)?;
+                        let applied = prepared.effective_pack().clone();
+                        play_backup::before_change(&game, &applied)?;
+                        runtime::install_prepared(&game, prepared, &token, &progress)?;
+                        play_backup::remember_applied(&game, &applied)?;
                         Ok(format!(
                             "Installed {} mods from {}",
                             pack.mods.len(),
@@ -962,10 +1009,12 @@ impl Canna {
                     }
                     pack_ui::RuntimeAction::Launch(pack, modded) => {
                         if modded {
-                            game_compat::check_pack(&game, &pack)?;
-                            play_backup::before_change(&game, &pack)?;
-                            runtime::install_pack(&game, &pack, &token, &progress)?;
-                            play_backup::remember_applied(&game, &pack)?;
+                            let prepared =
+                                runtime::prepare_install(&game, &pack, &token, options, &progress)?;
+                            let applied = prepared.effective_pack().clone();
+                            play_backup::before_change(&game, &applied)?;
+                            runtime::install_prepared(&game, prepared, &token, &progress)?;
+                            play_backup::remember_applied(&game, &applied)?;
                         }
                         let requested = std::time::SystemTime::now();
                         let owned = runtime::launch(&game, modded)?;
@@ -991,6 +1040,12 @@ impl Canna {
         });
     }
     fn render(&mut self, ctx: &egui::Context) {
+        for message in std::mem::take(&mut self.pack_ui.runtime_progress) {
+            self.console.record(&message, &self.token);
+        }
+        self.pack_ui.runtime_options = runtime::InstallOptions {
+            rebound_enabled: self.settings.rebound_enabled,
+        };
         self.pack_ui.lab_memory = self
             .owned_games
             .iter()
@@ -1015,7 +1070,8 @@ impl Canna {
             self.discover_page = true;
             self.console_page = false;
         }
-        if self.pending_update.is_some()
+        if !cfg!(canna_rebound_local_preview)
+            && self.pending_update.is_some()
             && !self.runtime_busy
             && !self.provider_browser.busy()
             && !self.website.busy()
@@ -1808,7 +1864,7 @@ fn main() -> eframe::Result {
             }
         }
     }
-    #[cfg(debug_assertions)]
+    #[cfg(all(debug_assertions, not(canna_rebound_local_preview)))]
     if std::env::args().any(|a| a == "--updater-smoke-test") {
         let ready = updater::check("0.1.0")
             .expect("Live updater download failed")
@@ -1884,7 +1940,11 @@ fn main() -> eframe::Result {
         ..Default::default()
     };
     eframe::run_native(
-        "Canna Mod Manager",
+        if cfg!(canna_rebound_local_preview) {
+            "Canna Mod Manager · Canna Rebound local preview"
+        } else {
+            "Canna Mod Manager"
+        },
         options,
         Box::new(move |cc| {
             let mut app = Canna::new(cc);
@@ -1896,6 +1956,120 @@ fn main() -> eframe::Result {
 #[cfg(test)]
 mod ui_tests {
     use super::*;
+    #[test]
+    fn rebound_checkbox_requires_bundled_support_and_idle_state() {
+        for busy in [false, true] {
+            for size in [egui::vec2(1240.0, 820.0), egui::vec2(840.0, 650.0)] {
+                let ctx = egui::Context::default();
+                let mut enabled = false;
+                let rect = std::cell::Cell::new(egui::Rect::NOTHING);
+                let input = |events| egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                    events,
+                    ..Default::default()
+                };
+                let mut draw = |ctx: &egui::Context| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        let response = rebound_settings(ui, &mut enabled, busy);
+                        assert_eq!(response.enabled(), cfg!(canna_ducttape_preview) && !busy);
+                        rect.set(response.rect);
+                    });
+                };
+                let _ = ctx.run(input(vec![]), &mut draw);
+                let pos = rect.get().center();
+                let _ = ctx.run(
+                    input(vec![
+                        egui::Event::PointerMoved(pos),
+                        egui::Event::PointerButton {
+                            pos,
+                            button: egui::PointerButton::Primary,
+                            pressed: true,
+                            modifiers: egui::Modifiers::NONE,
+                        },
+                    ]),
+                    &mut draw,
+                );
+                let _ = ctx.run(
+                    input(vec![egui::Event::PointerButton {
+                        pos,
+                        button: egui::PointerButton::Primary,
+                        pressed: false,
+                        modifiers: egui::Modifiers::NONE,
+                    }]),
+                    &mut draw,
+                );
+                assert_eq!(enabled, cfg!(canna_ducttape_preview) && !busy);
+            }
+        }
+    }
+    fn unavailable_update_fixture() -> updater::Ready {
+        updater::Ready {
+            version: "99.0.0".into(),
+            file: std::path::PathBuf::from("missing-update-fixture.exe"),
+            hash: "0".repeat(64),
+        }
+    }
+    #[test]
+    fn update_events_respect_preview_isolation_without_changing_stable_behavior() {
+        let ctx = egui::Context::default();
+        let mut app = Canna::new_with_context(&ctx, false);
+        app.tx
+            .send(Event::Update(Ok(Some(unavailable_update_fixture()))))
+            .unwrap();
+        app.events(&ctx);
+        if cfg!(canna_rebound_local_preview) {
+            assert!(app.pending_update.is_none());
+            assert_eq!(
+                app.update_status,
+                "Canna Rebound local preview; automatic updates disabled"
+            );
+            app.tx
+                .send(Event::Update(Err("late failed stable update".into())))
+                .unwrap();
+            app.events(&ctx);
+            assert_eq!(
+                app.update_status,
+                "Canna Rebound local preview; automatic updates disabled"
+            );
+        } else {
+            assert_eq!(app.pending_update.as_ref().unwrap().version, "99.0.0");
+            assert!(app.update_status.contains("99.0.0 downloaded"));
+        }
+    }
+    #[cfg(canna_rebound_local_preview)]
+    #[test]
+    fn preview_does_not_apply_even_an_injected_pending_stable_update() {
+        let ctx = egui::Context::default();
+        let mut app = Canna::new_with_context(&ctx, false);
+        assert_eq!(
+            app.update_status,
+            "Canna Rebound local preview; automatic updates disabled"
+        );
+        app.pending_update = Some(unavailable_update_fixture());
+        for size in [egui::vec2(1240.0, 820.0), egui::vec2(840.0, 650.0)] {
+            let result = ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                    ..Default::default()
+                },
+                |ctx| app.render(ctx),
+            );
+            assert!(
+                app.pending_update.is_some(),
+                "Pending stable update must never be taken for application"
+            );
+            assert_eq!(
+                app.update_status,
+                "Canna Rebound local preview; automatic updates disabled"
+            );
+            assert!(result.viewport_output.values().all(|viewport| {
+                !viewport
+                    .commands
+                    .iter()
+                    .any(|command| matches!(command, egui::ViewportCommand::Close))
+            }));
+        }
+    }
     #[test]
     fn unsupported_catalog_and_installed_games_do_not_create_library_rows() {
         let mut catalog = model::supported_catalog();

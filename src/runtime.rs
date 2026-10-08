@@ -28,6 +28,7 @@ pub(crate) fn settings(pack: &Modpack) -> Settings {
         catalog_folder: pack.repository.catalog_folder.clone(),
         steam_path: String::new(),
         low_end: false,
+        rebound_enabled: false,
     }
 }
 pub(crate) fn repo_path(pack: &Modpack, file: &str) -> String {
@@ -271,6 +272,28 @@ fn framework_entries(bytes: &[u8], il2cpp: bool, app_id: u32) -> Result<Vec<(Pat
     Ok(entries)
 }
 pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
+    setup_with_framework(game, pack, token, None)
+}
+pub fn setup_with_options(
+    game: &InstalledGame,
+    pack: &Modpack,
+    token: &str,
+    options: InstallOptions,
+    progress: &dyn Fn(&str),
+) -> Result<()> {
+    if !options.translate(game, pack)? {
+        return setup(game, pack, token);
+    }
+    let prepared = prepare_install(game, pack, token, options, progress)?;
+    prepared.verify_inputs(game)?;
+    setup_with_framework(game, &prepared.pack, token, prepared.framework.as_deref())
+}
+fn setup_with_framework(
+    game: &InstalledGame,
+    pack: &Modpack,
+    token: &str,
+    prepared: Option<&[u8]>,
+) -> Result<()> {
     crate::game_compat::check_pack(game, pack)?;
     if crate::model::source_addons(game.app_id).is_some() {
         return crate::source_addons::setup(game);
@@ -302,16 +325,20 @@ pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
         );
     }
     let api = client()?;
-    let bytes = repository::fetch_optional(
-        &api,
-        &settings(pack),
-        token,
-        &repo_path(pack, "Framework/BepInEx.zip"),
-        128 * 1024 * 1024,
-    )?;
-    let bytes = bytes.ok_or_else(|| {
-        anyhow::anyhow!("The Canna server does not have a compatible framework for this game")
-    })?;
+    let bytes = if let Some(bytes) = prepared {
+        bytes.to_vec()
+    } else {
+        repository::fetch_optional(
+            &api,
+            &settings(pack),
+            token,
+            &repo_path(pack, "Framework/BepInEx.zip"),
+            128 * 1024 * 1024,
+        )?
+        .ok_or_else(|| {
+            anyhow::anyhow!("The Canna server does not have a compatible framework for this game")
+        })?
+    };
     let entries = framework_entries(&bytes, il2cpp, game.app_id)?;
     if let Some(profile) = crate::game_profiles::by_id(game.app_id) {
         let exe = profile
@@ -351,10 +378,10 @@ pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
     Ok(())
 }
 #[derive(Default)]
-struct PluginEntries {
-    plugins: Vec<(PathBuf, Vec<u8>)>,
-    patchers: Vec<(PathBuf, Vec<u8>)>,
-    configs: Vec<(PathBuf, Vec<u8>)>,
+pub(crate) struct PluginEntries {
+    pub plugins: Vec<(PathBuf, Vec<u8>)>,
+    pub patchers: Vec<(PathBuf, Vec<u8>)>,
+    pub configs: Vec<(PathBuf, Vec<u8>)>,
 }
 fn plugin_entries(bytes: &[u8]) -> Result<PluginEntries> {
     let mut entries = PluginEntries::default();
@@ -405,36 +432,114 @@ fn plugin_entries(bytes: &[u8]) -> Result<PluginEntries> {
     }
     Ok(entries)
 }
-pub fn install_pack(
+#[derive(Clone, Copy, Debug, Default)]
+pub struct InstallOptions {
+    pub rebound_enabled: bool,
+}
+impl InstallOptions {
+    pub(crate) fn translate(self, game: &InstalledGame, pack: &Modpack) -> Result<bool> {
+        let translate = self.rebound_enabled
+            && cfg!(canna_ducttape_preview)
+            && game.app_id == 1557740
+            && crate::steam::installed_version(game).is_some_and(|v| {
+                v.branch
+                    .eq_ignore_ascii_case(crate::game_compat::PUBLIC_BRANCH)
+            });
+        // This marker can require preflight; it never authorizes an override.
+        if game.app_id == 1557740
+            && pack.mods.iter().any(|m| {
+                m.enabled
+                    && m.provenance["compatibility_profile"].as_str() == Some("rounds-public-1.1.2")
+            })
+            && !translate
+        {
+            bail!(
+                "This setup was prepared with Canna Rebound. Enable Canna Rebound for ROUNDS (preview) in Settings and select the supported public ROUNDS version before applying or restoring it."
+            )
+        }
+        Ok(translate)
+    }
+}
+pub struct PreparedInstall {
+    pack: Modpack,
+    files: Option<PluginEntries>,
+    history: Vec<(crate::model::ModInfo, Vec<u8>)>,
+    framework: Option<Vec<u8>>,
+    game_sha256: Option<String>,
+    config_sha256: Option<Vec<(PathBuf, String)>>,
+}
+impl PreparedInstall {
+    pub fn effective_pack(&self) -> &Modpack {
+        &self.pack
+    }
+    pub(crate) fn verify_game(&self, game: &InstalledGame) -> Result<()> {
+        if let Some(expected) = &self.game_sha256 {
+            anyhow::ensure!(
+                crate::ducttape::game_hash(game)? == *expected,
+                "ROUNDS changed after compatibility preflight; retry after Steam finishes updating"
+            );
+        }
+        Ok(())
+    }
+    fn verify_inputs(&self, game: &InstalledGame) -> Result<()> {
+        self.verify_game(game)?;
+        if let Some(expected) = &self.config_sha256 {
+            anyhow::ensure!(
+                crate::ducttape::configuration_hashes(game)? == *expected,
+                "ROUNDS config changed after compatibility preflight; retry"
+            );
+        }
+        Ok(())
+    }
+}
+pub fn prepare_install(
     game: &InstalledGame,
     pack: &Modpack,
     token: &str,
+    options: InstallOptions,
     progress: &dyn Fn(&str),
-) -> Result<()> {
-    if game.app_id == u32::MAX {
-        return crate::minecraft::restore_play_pack(game, pack);
-    }
+) -> Result<PreparedInstall> {
+    prepare_install_with_configs(game, pack, token, options, None, progress)
+}
+pub(crate) fn prepare_install_with_configs(
+    game: &InstalledGame,
+    pack: &Modpack,
+    token: &str,
+    options: InstallOptions,
+    configs: Option<&[(PathBuf, Vec<u8>)]>,
+    progress: &dyn Fn(&str),
+) -> Result<PreparedInstall> {
     pack.validate()?;
     if pack.game.app_id != game.app_id {
         bail!("Modpack belongs to a different game");
     }
-    if crate::model::source_addons(game.app_id).is_some() {
-        return crate::source_addons::install(game, pack, token, progress);
+    if game.app_id == u32::MAX || crate::model::source_addons(game.app_id).is_some() {
+        return Ok(PreparedInstall {
+            pack: pack.clone(),
+            files: None,
+            history: vec![],
+            framework: None,
+            game_sha256: None,
+            config_sha256: None,
+        });
     }
-    progress("Checking BepInEx…");
-    setup(game, pack, token)?;
+    let translate = options.translate(game, pack)?;
+    if !translate {
+        crate::game_compat::check_pack(game, pack)?;
+    }
+    ensure_closed(game)?;
     let api = client()?;
-    let stage = game.path.join(format!(
-        ".canna-stage-{}",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)?
-            .as_nanos()
-    ));
-    fs::create_dir(&stage)?;
-    fs::create_dir(stage.join("plugins"))?;
-    fs::create_dir(stage.join("patchers"))?;
-    let result = (|| -> Result<()> {
-        let mut configs = Vec::new();
+    let mut prepared = PreparedInstall {
+        pack: pack.clone(),
+        files: Some(PluginEntries::default()),
+        history: vec![],
+        framework: None,
+        game_sha256: None,
+        config_sha256: None,
+    };
+    {
+        let files = prepared.files.as_mut().unwrap();
+        let mut archive_bytes = 0usize;
         for (index, item) in pack.mods.iter().enumerate() {
             if !item.enabled {
                 continue;
@@ -458,21 +563,26 @@ pub fn install_pack(
                 )?
                 .context("Mod file not found in repository")?
             };
+            if translate {
+                archive_bytes = archive_bytes
+                    .checked_add(bytes.len())
+                    .context("Compatibility archive size overflow")?;
+                anyhow::ensure!(
+                    archive_bytes <= 256 * 1024 * 1024,
+                    "Compatibility source archives exceed preview limits"
+                );
+            }
             if !item.sha256.is_empty()
                 && format!("{:x}", Sha256::digest(&bytes)) != item.sha256.to_lowercase()
             {
                 bail!("Checksum mismatch for {}", item.name)
             }
-            if let Err(error) = crate::website::remember_mod(pack, item, &bytes, false) {
-                progress(&format!("Couldn't save download history: {error}"));
-            }
-            let target = stage.join("plugins").join(index.to_string());
+            let target = PathBuf::from(index.to_string());
             if item.file.to_lowercase().ends_with(".dll") {
-                fs::create_dir_all(&target)?;
-                fs::write(
+                files.plugins.push((
                     target.join(Path::new(&item.file).file_name().unwrap()),
-                    bytes,
-                )?;
+                    bytes.clone(),
+                ));
             } else if item.file.to_lowercase().ends_with(".zip") {
                 let entries = plugin_entries(&bytes)?;
                 let has_binary = entries
@@ -487,24 +597,140 @@ pub fn install_pack(
                     "{} contains no supported plugins, patchers or configuration",
                     item.name
                 );
-                write_new(&target, &entries.plugins)?;
-                write_new(
-                    &stage.join("patchers").join(index.to_string()),
-                    &entries.patchers,
-                )?;
-                configs.extend(entries.configs);
+                files.plugins.extend(
+                    entries
+                        .plugins
+                        .into_iter()
+                        .map(|(path, bytes)| (target.join(path), bytes)),
+                );
+                files.patchers.extend(
+                    entries
+                        .patchers
+                        .into_iter()
+                        .map(|(path, bytes)| (target.join(path), bytes)),
+                );
+                files.configs.extend(entries.configs);
             } else {
                 bail!("{} must be a plugin DLL or ZIP", item.name)
             }
+            prepared.history.push((item.clone(), bytes));
         }
+    }
+    if translate {
+        if !game.path.join("BepInEx/core/BepInEx.dll").is_file() {
+            progress("Preparing reviewed BepInEx references outside the game…");
+            let bytes = repository::fetch_optional(
+                &api,
+                &settings(pack),
+                token,
+                &repo_path(pack, "Framework/BepInEx.zip"),
+                128 * 1024 * 1024,
+            )?
+            .context("A reviewed ROUNDS loader is required for compatibility preflight")?;
+            framework_entries(&bytes, false, game.app_id)?;
+            prepared.framework = Some(bytes);
+        }
+        let mut pinned_sources = pack.clone();
+        for (item, bytes) in &prepared.history {
+            if let Some(source) = pinned_sources
+                .mods
+                .iter_mut()
+                .find(|source| source.file == item.file)
+            {
+                source.sha256 = format!("{:x}", Sha256::digest(bytes));
+            }
+        }
+        let resolved = crate::ducttape::resolve(
+            game,
+            &pinned_sources,
+            prepared.files.take().unwrap(),
+            prepared.framework.as_deref(),
+            configs,
+            progress,
+        )?;
+        prepared.pack = resolved.pack;
+        prepared.files = Some(resolved.files);
+        prepared.game_sha256 = Some(resolved.game_sha256);
+        prepared.config_sha256 = Some(resolved.config_sha256);
+    }
+    Ok(prepared)
+}
+pub fn install_prepared(
+    game: &InstalledGame,
+    prepared: PreparedInstall,
+    token: &str,
+    progress: &dyn Fn(&str),
+) -> Result<()> {
+    let pack = &prepared.pack;
+    if game.app_id == u32::MAX {
+        return crate::minecraft::restore_play_pack(game, pack);
+    }
+    if crate::model::source_addons(game.app_id).is_some() {
+        return crate::source_addons::install(game, pack, token, progress);
+    }
+    pack.validate()?;
+    ensure_closed(game)?;
+    prepared.verify_inputs(game)?;
+    progress("Checking BepInEx…");
+    setup_with_framework(game, pack, token, prepared.framework.as_deref())?;
+    let stage = game.path.join(format!(
+        ".canna-stage-{}",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)?
+            .as_nanos()
+    ));
+    no_links(&stage)?;
+    fs::create_dir(&stage)?;
+    fs::create_dir(stage.join("plugins"))?;
+    fs::create_dir(stage.join("patchers"))?;
+    let result = (|| -> Result<()> {
+        let files = prepared
+            .files
+            .as_ref()
+            .context("Missing prepared plugin files")?;
+        write_new(&stage.join("plugins"), &files.plugins)?;
+        write_new(&stage.join("patchers"), &files.patchers)?;
         ensure_closed(game)?;
+        if let Some(expected) = &prepared.game_sha256 {
+            anyhow::ensure!(
+                crate::ducttape::game_hash(game)? == *expected,
+                "ROUNDS changed before compatibility activation; retry"
+            );
+        }
+        if let Some(expected) = &prepared.config_sha256 {
+            anyhow::ensure!(
+                crate::ducttape::configuration_hashes(game)? == *expected,
+                "ROUNDS config changed before compatibility activation; retry"
+            );
+        }
         progress("Activating selected pack…");
-        activate_stage(&game.path, &stage, configs)
+        activate_stage(&game.path, &stage, files.configs.clone())
     })();
     if stage.exists() {
         let _ = remove_managed(&game.path, &stage);
     }
+    if result.is_ok() {
+        for (item, bytes) in &prepared.history {
+            if let Err(error) = crate::website::remember_mod(pack, item, bytes, false) {
+                progress(&format!("Couldn't save download history: {error}"));
+            }
+        }
+    }
     result
+}
+#[cfg(test)]
+pub fn install_pack(
+    game: &InstalledGame,
+    pack: &Modpack,
+    token: &str,
+    progress: &dyn Fn(&str),
+) -> Result<()> {
+    install_prepared(
+        game,
+        prepare_install(game, pack, token, InstallOptions::default(), progress)?,
+        token,
+        progress,
+    )
 }
 fn activate_stage(root: &Path, stage: &Path, configs: Vec<(PathBuf, Vec<u8>)>) -> Result<()> {
     let routes = [
@@ -660,6 +886,266 @@ pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::O
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn preparation_fixture(root: &Path) -> (InstalledGame, Modpack) {
+        let game = InstalledGame {
+            app_id: 1686940,
+            name: "Temporary Bopl fixture".into(),
+            path: root.to_owned(),
+            loader: String::new(),
+            plugins: 0,
+            icon: None,
+        };
+        let info = crate::model::bopl();
+        let source = crate::cache::Source {
+            owner: "fixture".into(),
+            repository: "fixture".into(),
+            branch: "main".into(),
+            catalog_folder: String::new(),
+        };
+        (
+            game,
+            Modpack::create(
+                "Fixture selections".into(),
+                String::new(),
+                &info,
+                source,
+                vec![],
+            ),
+        )
+    }
+    fn temporary_preparation_root(name: &str) -> PathBuf {
+        let root = std::env::temp_dir().join(format!(
+            "canna-preparation-{name}-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        fs::create_dir(&root).unwrap();
+        root
+    }
+    #[test]
+    fn rebound_opt_in_does_not_change_ordinary_or_other_game_preparation() {
+        let root = temporary_preparation_root("opt-in");
+        crate::modpacks::with_test_root(root.clone(), || {
+            let game_root = root.join("steamapps/common/ROUNDS");
+            fs::create_dir_all(game_root.join("BepInEx/core")).unwrap();
+            fs::write(
+                game_root.join("BepInEx/core/BepInEx.dll"),
+                b"scratch references",
+            )
+            .unwrap();
+            fs::write(
+                root.join("steamapps/appmanifest_1557740.acf"),
+                r#""AppState" { "buildid" "999999999" }"#,
+            )
+            .unwrap();
+            let (mut game, mut pack) = preparation_fixture(&game_root);
+            game.app_id = 1557740;
+            pack.game.app_id = 1557740;
+            pack.game.name = "ROUNDS".into();
+            pack.game.folder = "rounds".into();
+            let input = root.join("future.dll");
+            fs::write(&input, b"ordinary future public mod bytes").unwrap();
+            pack.mods = vec![crate::modpacks::add_local(&input).unwrap()];
+            let before = serde_json::to_vec(&pack).unwrap();
+            let ordinary =
+                prepare_install(&game, &pack, "", InstallOptions::default(), &|_| {}).unwrap();
+            assert!(ordinary.game_sha256.is_none());
+            assert_eq!(
+                serde_json::to_vec(ordinary.effective_pack()).unwrap(),
+                before
+            );
+            assert_eq!(
+                ordinary.files.unwrap().plugins[0].1,
+                b"ordinary future public mod bytes"
+            );
+            let enabled = InstallOptions {
+                rebound_enabled: true,
+            };
+            assert_eq!(
+                enabled.translate(&game, &pack).unwrap(),
+                cfg!(canna_ducttape_preview)
+            );
+            if cfg!(canna_ducttape_preview) {
+                let error = prepare_install(&game, &pack, "", enabled, &|_| {})
+                    .err()
+                    .unwrap();
+                assert!(!error.to_string().is_empty());
+                assert!(setup_with_options(&game, &pack, "", enabled, &|_| {}).is_err());
+                assert!(!game_root.join("BepInEx/plugins").exists());
+                assert!(!game_root.join("winhttp.dll").exists());
+                assert_eq!(
+                    fs::read(game_root.join("BepInEx/core/BepInEx.dll")).unwrap(),
+                    b"scratch references"
+                );
+            } else {
+                assert!(
+                    prepare_install(&game, &pack, "", enabled, &|_| {})
+                        .unwrap()
+                        .game_sha256
+                        .is_none()
+                );
+            }
+            game.app_id = 1686940;
+            pack.game.app_id = 1686940;
+            let other_game = prepare_install(&game, &pack, "", enabled, &|_| {}).unwrap();
+            assert!(other_game.game_sha256.is_none());
+            assert_eq!(
+                other_game.files.unwrap().plugins[0].1,
+                b"ordinary future public mod bytes"
+            );
+            assert_eq!(
+                fs::read(&input).unwrap(),
+                b"ordinary future public mod bytes"
+            );
+        });
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn rebound_off_preserves_official_ducttape_branch_exception() {
+        let root = temporary_preparation_root("official-ducttape");
+        let game_root = root.join("steamapps/common/ROUNDS");
+        fs::create_dir_all(&game_root).unwrap();
+        fs::write(
+            root.join("steamapps/appmanifest_1557740.acf"),
+            r#""AppState" { "buildid" "999999999" }"#,
+        )
+        .unwrap();
+        let (mut game, mut pack) = preparation_fixture(&game_root);
+        game.app_id = 1557740;
+        pack.game.app_id = 1557740;
+        pack.game.folder = "rounds".into();
+        pack.mods = serde_json::from_value(serde_json::json!([
+            {"name":"DuctTape","version":"1","file":"Mods/ducttape.zip","provenance":{"provider":"thunderstore","id":"kieron_exe-DuctTape","source_url":"https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape/"}},
+            {"name":"UnboundLib","version":"3.2.14","file":"Mods/unbound.zip"}
+        ])).unwrap();
+        assert!(!InstallOptions::default().translate(&game, &pack).unwrap());
+        crate::game_compat::check_pack(&game, &pack).unwrap();
+        assert_eq!(crate::game_compat::required_branch(&pack), Some("public"));
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn invalid_later_archive_fails_preparation_before_loader_or_game_changes() {
+        let root = temporary_preparation_root("invalid");
+        crate::modpacks::with_test_root(root.clone(), || {
+            let game_root = root.join("game");
+            fs::create_dir(&game_root).unwrap();
+            let (game, mut pack) = preparation_fixture(&game_root);
+            let plugin = root.join("valid.dll");
+            fs::write(&plugin, b"original DLL fixture").unwrap();
+            let invalid = root.join("invalid.zip");
+            fs::write(&invalid, b"invalid archive fixture").unwrap();
+            pack.mods = vec![
+                crate::modpacks::add_local(&plugin).unwrap(),
+                crate::modpacks::add_local(&invalid).unwrap(),
+            ];
+            pack.save().unwrap();
+            let saved = crate::modpacks::directory().join(format!("{}.canna.json", pack.id));
+            let before = fs::read(&saved).unwrap();
+            let error = prepare_install(&game, &pack, "", InstallOptions::default(), &|_| {})
+                .err()
+                .unwrap();
+            assert!(error.to_string().contains("archive"));
+            assert_eq!(fs::read_dir(&game_root).unwrap().count(), 0);
+            assert_eq!(fs::read(&saved).unwrap(), before);
+            assert_eq!(fs::read(&plugin).unwrap(), b"original DLL fixture");
+            assert_eq!(fs::read(&invalid).unwrap(), b"invalid archive fixture");
+        });
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn preparation_honors_disabled_mods_and_preserves_source_selection() {
+        let root = temporary_preparation_root("disabled");
+        crate::modpacks::with_test_root(root.clone(), || {
+            let game_root = root.join("game");
+            fs::create_dir(&game_root).unwrap();
+            let (game, mut pack) = preparation_fixture(&game_root);
+            let plugin = root.join("legacy.dll");
+            fs::write(&plugin, b"selected original bytes").unwrap();
+            let invalid = root.join("disabled.zip");
+            fs::write(&invalid, b"invalid but disabled").unwrap();
+            pack.mods = vec![
+                crate::modpacks::add_local(&plugin).unwrap(),
+                crate::modpacks::add_local(&invalid).unwrap(),
+            ];
+            pack.mods[0].dependencies = vec!["Replacement supplies this".into()];
+            pack.mods[1].enabled = false;
+            fs::remove_file(crate::modpacks::local_directory().join(&pack.mods[1].local_file))
+                .unwrap();
+            let before = serde_json::to_vec(&pack).unwrap();
+            let prepared =
+                prepare_install(&game, &pack, "", InstallOptions::default(), &|_| {}).unwrap();
+            assert_eq!(prepared.history.len(), 1);
+            assert_eq!(prepared.files.as_ref().unwrap().plugins.len(), 1);
+            assert_eq!(
+                prepared.files.as_ref().unwrap().plugins[0].1,
+                b"selected original bytes"
+            );
+            assert_eq!(
+                serde_json::to_vec(prepared.effective_pack()).unwrap(),
+                before
+            );
+            assert_eq!(serde_json::to_vec(&pack).unwrap(), before);
+            assert_eq!(fs::read_dir(&game_root).unwrap().count(), 0);
+        });
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn changed_game_or_config_rejects_prepared_translation_before_setup() {
+        for changed_game in [true, false] {
+            let root = temporary_preparation_root(if changed_game {
+                "game-changed"
+            } else {
+                "config-changed"
+            });
+            let (mut game, mut pack) = preparation_fixture(&root);
+            game.app_id = 1557740;
+            pack.game.app_id = 1557740;
+            pack.game.name = "ROUNDS".into();
+            pack.game.folder = "rounds".into();
+            fs::create_dir_all(root.join("ROUNDS_Data/Managed")).unwrap();
+            fs::write(
+                root.join("ROUNDS_Data/Managed/Assembly-CSharp.dll"),
+                b"current game fixture",
+            )
+            .unwrap();
+            if !changed_game {
+                fs::create_dir_all(root.join("BepInEx/config")).unwrap();
+                fs::write(root.join("BepInEx/config/gameplay.cfg"), b"new settings").unwrap();
+            }
+            let prepared = PreparedInstall {
+                pack,
+                files: Some(PluginEntries::default()),
+                history: vec![],
+                framework: None,
+                game_sha256: Some(if changed_game {
+                    "0".repeat(64)
+                } else {
+                    crate::ducttape::game_hash(&game).unwrap()
+                }),
+                config_sha256: Some(vec![]),
+            };
+            let error = install_prepared(&game, prepared, "", &|_| {}).unwrap_err();
+            assert!(error.to_string().contains(if changed_game {
+                "changed after compatibility preflight"
+            } else {
+                "config changed"
+            }));
+            assert!(!root.join("BepInEx/core").exists());
+            assert!(!root.join("BepInEx/plugins").exists());
+            assert!(!root.join("winhttp.dll").exists());
+            assert!(!fs::read_dir(&root).unwrap().any(|entry| {
+                entry
+                    .unwrap()
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".canna-stage-")
+            }));
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
     #[test]
     fn thunderstore_plugins_patchers_and_config_keep_their_routes() {
         use std::io::Write;

@@ -1,0 +1,35 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net472</TargetFramework>
+    <AssemblyName>Canna.DuctTapePlusPlus.NetworkGuard</AssemblyName>
+    <RootNamespace>Canna.DuctTapePlusPlus</RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <DefineConstants>$(DefineConstants);GUARD_RUNTIME</DefineConstants>
+    <Managed Condition="'$(Managed)' == ''">$(GameDir)/ROUNDS_Data/Managed</Managed>
+    <Optimize>true</Optimize>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies.net472" Version="1.0.3" PrivateAssets="all" />
+    <Compile Include="NetworkGuard.cs" />
+    <Compile Include="ManifestJson.cs" />
+    <Compile Include="SharedManifest.cs" />
+    <Reference Include="$(GameDir)/BepInEx/core/BepInEx.dll" Private="false" />
+    <Reference Include="$(GameDir)/BepInEx/core/0Harmony.dll" Private="false" />
+    <Reference Include="$(Managed)/Assembly-CSharp.dll" Private="false" />
+    <Reference Include="$(Managed)/UnityEngine.dll" Private="false" />
+    <Reference Include="$(Managed)/UnityEngine.CoreModule.dll" Private="false" />
+    <Reference Include="$(Managed)/UnityEngine.IMGUIModule.dll" Private="false" />
+    <Reference Include="$(Managed)/UnityEngine.JSONSerializeModule.dll" Private="false" />
+    <Reference Include="$(Managed)/PhotonRealtime.dll" Private="false" />
+    <Reference Include="$(Managed)/PhotonUnityNetworking.dll" Private="false" />
+    <Reference Include="$(Managed)/Photon3Unity3D.dll" Private="false" />
+    <Reference Include="$(Managed)/Newtonsoft.Json.dll" Private="false" />
+    <Reference Include="$(Managed)/netstandard.dll" Private="false" />
+  </ItemGroup>
+  <Target Name="RequireReadOnlyGameReferences" BeforeTargets="ResolveReferences">
+    <Error Condition="'$(GameDir)' == ''" Text="GameDir is required for read-only public game references." />
+    <Error Condition="!Exists('$(Managed)/Assembly-CSharp.dll')" Text="Current public Assembly-CSharp.dll reference is missing." />
+  </Target>
+</Project>

@@ -11,6 +11,8 @@ pub struct Settings {
     pub steam_path: String,
     #[serde(default)]
     pub low_end: bool,
+    #[serde(default)]
+    pub rebound_enabled: bool,
 }
 impl Settings {
     pub fn path() -> PathBuf {
@@ -65,6 +67,23 @@ fn default_enabled() -> bool {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn rebound_is_opt_in_for_old_and_new_settings() {
+        let old: super::Settings = serde_json::from_str(
+            r#"{"owner":"canna","repository":"server","branch":"main","steam_path":""}"#,
+        )
+        .unwrap();
+        assert!(!old.rebound_enabled);
+        assert!(!super::Settings::default().rebound_enabled);
+        let mut enabled = old;
+        enabled.rebound_enabled = true;
+        let saved = serde_json::to_vec(&enabled).unwrap();
+        assert!(
+            serde_json::from_slice::<super::Settings>(&saved)
+                .unwrap()
+                .rebound_enabled
+        );
+    }
     #[test]
     fn registry_separates_source_from_unity() {
         assert_eq!(super::framework(1557740), "bepinex");

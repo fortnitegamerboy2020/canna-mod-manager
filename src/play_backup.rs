@@ -440,6 +440,8 @@ pub fn restore(
     game: &InstalledGame,
     snapshot: &Snapshot,
     token: &str,
+    options: crate::runtime::InstallOptions,
+    progress: &dyn Fn(&str),
 ) -> Result<Modpack> {
     let _guard = LOCK.lock().map_err(|_| anyhow::anyhow!("Recovery busy"))?;
     crate::runtime::ensure_closed(game)?;
@@ -451,6 +453,7 @@ pub fn restore(
         "Snapshot belongs to another game"
     );
     snapshot.pack.validate()?;
+    let translate = options.translate(game, &snapshot.pack)?;
     if let (Some(expected), Some(current)) = (
         &snapshot.steam_version,
         crate::steam::installed_version(game),
@@ -501,6 +504,46 @@ pub fn restore(
         crate::runtime::no_links(&target)?;
         configs.push((target, bytes));
     }
+    // Preflight against the config that recovery will install, without changing
+    // the active config or executing any selected mod.
+    let previous_config_hashes = if translate {
+        Some(crate::ducttape::configuration_hashes(game)?)
+    } else {
+        None
+    };
+    let effective_configs = if translate {
+        let mut effective = crate::ducttape::current_configs(game)?
+            .into_iter()
+            .filter(|(path, _)| {
+                !path.extension().is_some_and(|e| {
+                    e.eq_ignore_ascii_case("cfg")
+                        || e.eq_ignore_ascii_case("toml")
+                        || e.eq_ignore_ascii_case("json")
+                })
+            })
+            .collect::<std::collections::BTreeMap<_, _>>();
+        let mut names = std::collections::BTreeSet::new();
+        for (target, bytes) in &configs {
+            let relative = target.strip_prefix(config_root(game))?.to_owned();
+            anyhow::ensure!(
+                names.insert(relative.to_string_lossy().to_lowercase()),
+                "Duplicate snapshot config path"
+            );
+            effective.insert(relative, bytes.clone());
+        }
+        Some(effective.into_iter().collect::<Vec<_>>())
+    } else {
+        None
+    };
+    let prepared = crate::runtime::prepare_install_with_configs(
+        game,
+        &restored,
+        token,
+        options,
+        effective_configs.as_deref(),
+        progress,
+    )?;
+    let applied_pack = prepared.effective_pack().clone();
     // Preserve the current applied setup before rollback; the closed-game transaction handles activation.
     let applied = state().join(format!("applied-{}.json", target_key(game)));
     if applied.exists() {
@@ -536,6 +579,20 @@ pub fn restore(
         remove_recovery_tree(&game.path, &staged)?;
         return Err(error);
     }
+    let closed_and_unchanged =
+        crate::runtime::ensure_closed(game).and_then(|()| prepared.verify_game(game));
+    if let Err(error) = closed_and_unchanged {
+        remove_recovery_tree(&game.path, &staged)?;
+        return Err(error);
+    }
+    if let Some(expected) = previous_config_hashes {
+        let unchanged =
+            crate::ducttape::configuration_hashes(game).map(|current| current == expected);
+        if !matches!(unchanged, Ok(true)) {
+            remove_recovery_tree(&game.path, &staged)?;
+            bail!("ROUNDS config changed during recovery preflight; retry");
+        }
+    }
     let had_config = config_root.exists();
     if had_config && let Err(error) = fs::rename(&config_root, &previous) {
         remove_recovery_tree(&game.path, &staged)?;
@@ -549,7 +606,7 @@ pub fn restore(
         remove_recovery_tree(&game.path, &staged)?;
         return Err(error.into());
     }
-    if let Err(error) = crate::runtime::install_pack(game, &restored, token, &|_| {}) {
+    if let Err(error) = crate::runtime::install_prepared(game, prepared, token, progress) {
         fs::rename(&config_root, &staged)?;
         if had_config {
             fs::rename(&previous, &config_root)?;
@@ -558,7 +615,7 @@ pub fn restore(
         return Err(error);
     }
     restored.save()?;
-    remember_applied(game, &restored)?;
+    remember_applied(game, &applied_pack)?;
     if previous.exists() {
         remove_recovery_tree(&game.path, &previous)?;
     }
@@ -708,7 +765,8 @@ mod tests {
                 b"Enabled = false\n",
             )
             .unwrap();
-            let restored = restore(&policy, &game, &snapshot, "").unwrap();
+            let restored =
+                restore(&policy, &game, &snapshot, "", Default::default(), &|_| {}).unwrap();
             assert_eq!(restored.mods[0].sha256, pack.mods[0].sha256);
             assert_eq!(
                 fs::read(game.path.join("BepInEx/config/example.cfg")).unwrap(),
@@ -739,7 +797,7 @@ mod tests {
                 b"active",
             )
             .unwrap();
-            assert!(restore(&policy, &game, &snapshot, "").is_err());
+            assert!(restore(&policy, &game, &snapshot, "", Default::default(), &|_| {}).is_err());
             assert_eq!(
                 fs::read(game.path.join("BepInEx/plugins/Canna/active.dll")).unwrap(),
                 b"active"
@@ -748,6 +806,71 @@ mod tests {
                 fs::read(game.path.join("BepInEx/config/example.cfg")).unwrap(),
                 b"Enabled = true\n"
             );
+        });
+    }
+    #[test]
+    fn rebound_snapshot_requires_opt_in_before_recovery_changes() {
+        fixture(|_, mut game, mut pack, policy| {
+            game.app_id = 1557740;
+            pack.game.app_id = 1557740;
+            pack.game.name = "ROUNDS".into();
+            pack.game.folder = "rounds".into();
+            pack.mods[0].provenance = serde_json::json!({"compatibility_profile":"rounds-public-1.1.2","required_game_branch":"public"});
+            let snapshot = capture(&policy, &game, &pack, false).unwrap();
+            let config = game.path.join("BepInEx/config/example.cfg");
+            fs::write(&config, b"current config remains").unwrap();
+            let active = game.path.join("BepInEx/plugins/Canna/active.dll");
+            fs::write(&active, b"current plugin remains").unwrap();
+            let error = restore(&policy, &game, &snapshot, "", Default::default(), &|_| {})
+                .err()
+                .unwrap();
+            assert!(error.to_string().contains("Enable Canna Rebound"));
+            assert_eq!(fs::read(&config).unwrap(), b"current config remains");
+            assert_eq!(fs::read(&active).unwrap(), b"current plugin remains");
+            assert!(!game.path.join(".canna-config-recovery-stage").exists());
+            assert!(!game.path.join(".canna-config-recovery-previous").exists());
+        });
+    }
+    #[cfg(canna_ducttape_preview)]
+    #[test]
+    fn rebound_restore_preflight_failure_preserves_active_configs_and_plugins() {
+        fixture(|root, mut game, mut pack, policy| {
+            let destination = root.join("steamapps/common/ROUNDS");
+            fs::create_dir_all(destination.parent().unwrap()).unwrap();
+            fs::rename(&game.path, &destination).unwrap();
+            game.path = destination;
+            game.app_id = 1557740;
+            pack.game.app_id = 1557740;
+            pack.game.name = "ROUNDS".into();
+            pack.game.folder = "rounds".into();
+            fs::write(
+                root.join("steamapps/appmanifest_1557740.acf"),
+                r#""AppState" { "buildid" "999999999" }"#,
+            )
+            .unwrap();
+            let snapshot = capture(&policy, &game, &pack, false).unwrap();
+            let config = game.path.join("BepInEx/config/example.cfg");
+            fs::write(&config, b"current config remains").unwrap();
+            let active = game.path.join("BepInEx/plugins/Canna/active.dll");
+            fs::write(&active, b"current plugin remains").unwrap();
+            let result = restore(
+                &policy,
+                &game,
+                &snapshot,
+                "",
+                crate::runtime::InstallOptions {
+                    rebound_enabled: true,
+                },
+                &|_| {},
+            );
+            assert!(
+                result.is_err(),
+                "Missing public game assemblies must block preflight"
+            );
+            assert_eq!(fs::read(&config).unwrap(), b"current config remains");
+            assert_eq!(fs::read(&active).unwrap(), b"current plugin remains");
+            assert!(!game.path.join(".canna-config-recovery-stage").exists());
+            assert!(!game.path.join(".canna-config-recovery-previous").exists());
         });
     }
     #[test]
@@ -775,7 +898,7 @@ mod tests {
         fixture(|_, game, pack, policy| {
             let mut snapshot = capture(&policy, &game, &pack, false).unwrap();
             snapshot.configs[0].0 = "../../outside.cfg".into();
-            assert!(restore(&policy, &game, &snapshot, "").is_err());
+            assert!(restore(&policy, &game, &snapshot, "", Default::default(), &|_| {}).is_err());
             assert_eq!(
                 fs::read(game.path.join("saves/world.bin")).unwrap(),
                 b"world remains untouched"

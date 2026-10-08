@@ -25,6 +25,8 @@ pub struct DiscoverState {
 
 pub struct PackUi {
     pub lab_games: Vec<crate::model::InstalledGame>,
+    pub runtime_options: crate::runtime::InstallOptions,
+    pub runtime_progress: Vec<String>,
 
     pub lab_memory: BTreeMap<u32, crate::play_metrics::Memory>,
 
@@ -742,6 +744,8 @@ impl PackUi {
 
         Self {
             lab_games: Vec::new(),
+            runtime_options: Default::default(),
+            runtime_progress: vec![],
 
             lab_memory: BTreeMap::new(),
 
@@ -1161,8 +1165,15 @@ impl PackUi {
                         });
                 });
             } else if self.detail_tab == 2 {
-                self.lab
-                    .show(ui, &pack, &self.lab_games, catalog, connection_busy);
+                self.lab.show_with_options(
+                    ui,
+                    &pack,
+                    &self.lab_games,
+                    catalog,
+                    connection_busy,
+                    self.runtime_options,
+                );
+                self.runtime_progress.append(&mut self.lab.runtime_progress);
 
                 if let Some(m) = self.lab_memory.get(&pack.game.app_id) {
                     ui.label(format!(
