@@ -5,7 +5,7 @@ ROUNDS build. It combines pinned MIT DuctTape/toolkit code, exact upstream curat
 ports, checked mechanical IL mappings, asset checks and a multiplayer manifest
 guard. It never patches the installed game at startup.
 
-Desktop 0.2.41 includes it as **Settings → Canna Rebound for ROUNDS (preview)**,
+Desktop 0.2.44 offers it as **Settings → Canna Rebound for ROUNDS (preview)**,
 off by default. Enable it before Setup, Apply modpack or Launch modded. Ordinary
 desktop updates remain enabled; only the separate development Preview.exe disables
 updates. With Rebound off, ordinary installs and the official DuctTape workflow
@@ -17,13 +17,52 @@ Internal paths and protocol names retain DuctTape++ for the existing preparation
 format; the user-facing feature is Canna Rebound. Upstream DuctTape/toolkit
 attribution remains part of the source and license notices.
 
-The current unpublished desktop source changes distribution: normal debug and
-release builds contain no support DLL bundle. The account must have the additional
-Beta role, verified by the server before support download/cache access and again
-before preparation or installation. Beta does not grant administration. The
-protected server endpoints and support artifact must be deployed before this
-workflow is usable. Previously distributed 0.2.41 executables retain their original
+Desktop 0.2.42 and newer use the shipped server-verified Beta workflow, supported
+by Community 0.3.58 and newer. Normal debug and release builds, including
+`cargo run --release`, contain no support DLL bundle. The account must have the
+additional Beta role, verified by the server before support download/cache access
+and again before preparation or installation. Beta does not grant administration.
+Support is downloaded only through the protected server endpoint after that
+authorization. Previously distributed 0.2.41 executables retain their original
 bundle. Private test fixtures are excluded from ordinary runtime authorization.
+
+Desktop 0.2.44 can receive a protected support refresh without a new desktop
+executable. Preparation reads the authorized server manifest and uses a cached ZIP
+only when its size and SHA256 match that manifest. A changed support hash selects
+the new download; a change after preflight requires preparing the pack again.
+After a support release, close ROUNDS and **Apply modpack** again with Rebound
+enabled and current Beta access. Already loaded game DLLs do not refresh in a
+running session. Setup restores the tracked runtime; Apply modpack or Launch
+modded prepares the current pack.
+
+## Card-picker compatibility refresh
+
+The protected support refresh for Community 0.3.62 makes bounded repairs
+to the reviewed dependency bytes and native game contracts:
+
+- The unique-card dependency resolves the actual picker PlayerID instead of using
+  it as a roster index. Its team branch and card eligibility rules are retained.
+- The native player-pick application resolves that same identity. Unbound's bar
+  rebuild uses roster slots for display ownership, and the runtime binds each
+  player to the bar created for that player. Native AddCard selects the bound bar
+  while Unbound CardData keeps the actual PlayerID as its key. Rebuilt gameplay
+  bindings refuse absent players or changed ownership until bars are rebuilt;
+  unbound menu previews retain the native bounded slot API. Players are not
+  globally renumbered. The exact ModdingUtils AddCard guard admits only verified
+  bound players whose original rejection was its obsolete array-index bound;
+  missing owners, unbound previews and other Harmony vetoes remain rejected.
+- The exact ModdingUtils dynamic ProjectileInit patches retain their six method
+  targets while removing a conflicting class-level Harmony target annotation.
+
+The final isolated game copy passed 204 assertions over six controlled native
+local turns using disposable offline AI players with IDs 0/1, 0/2 and 1/2.
+Checks cover drawn cards, intended-player application, the bound bar/button,
+unchanged other bars, original-ID CardData and completed handoffs; all six
+ModdingUtils targets registered. Single-application assertions select offered
+cards outside CardManipulation: CR Egg legitimately adds cards in its callback.
+Temporary prefab-effect/audio exceptions occurred, and a prior copy had a
+startup readiness failure. These synthetic IDs and programmatic picks do not
+certify physical input, a full match, firing, online play or two-client multiplayer.
 
 The current profile is `rounds-public-1.1.2`, protocol `canna.ducttape++/1`, with
 Assembly-CSharp SHA256
@@ -83,7 +122,9 @@ limitations, including uncertain dynamic reflection and asset behavior; a clean
 static result does not prove full gameplay or multiplayer behavior.
 
 The prepared manifest binds managed assembly identity/hash and immutable assets;
-runtime configuration is recomputed, excluding only `BepInEx.cfg`. Multiplayer
+runtime configuration is recomputed, excluding only the root loader file
+`BepInEx/config/BepInEx.cfg` (case-insensitively). Nested files with that name,
+gameplay configuration and changed game assemblies remain checked. Multiplayer
 guard checks compare prepared bytes and effective config across peers and gate
 supported readiness/start paths. This detects prepared-content mismatches; it
 does not prove that every mod's synchronization or arbitrary custom game mode

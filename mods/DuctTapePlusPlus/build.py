@@ -127,11 +127,15 @@ def runtime_source(duct, output, bundle):
     original = duct / "src/Runtime"
     destination = output / "runtime-source"
     destination.mkdir(parents=True, exist_ok=True)
-    expected = {file.name for file in original.iterdir() if file.suffix in (".cs", ".csproj")}
+    upstream_names = {file.name for file in original.iterdir() if file.suffix in (".cs", ".csproj")}
+    local_names = {"LocalCardPickerFixes.cs"}
+    if upstream_names & local_names:
+        raise ValueError("Canna runtime source collides with pinned upstream source")
+    expected = upstream_names | local_names
     if any(file.name not in expected for file in destination.iterdir() if file.suffix in (".cs", ".csproj")):
         raise ValueError("Unexpected source in task-local runtime adaptation directory")
     records = []
-    for name in sorted(expected):
+    for name in sorted(upstream_names):
         data = (original / name).read_bytes()
         before = sha(data)
         if name == "UnboundLibFixes.cs":
@@ -155,8 +159,21 @@ def runtime_source(duct, output, bundle):
         if name.endswith(".cs") and b"__args" in data:
             raise ValueError("Unreviewed generic Harmony __args injection remains in runtime: " + name)
         (destination / name).write_bytes(data)
+    # Canna-owned runtime repair for the exact supported modern game. The old
+    # dependency fix alone repairs card spawning; the native application path
+    # also needs to resolve a PlayerID rather than assume a dense roster index.
+    for name in sorted(local_names):
+        data = (ROOT / name).read_bytes()
+        if b"__args" in data:
+            raise ValueError("Unreviewed generic Harmony injection in Canna runtime source")
+        (destination / name).write_bytes(data)
+        records.append(dict(file=name, origin="Canna MIT", upstream_sha256=None,
+                            adapted_sha256=sha(data),
+                            changes=["ApplyCardStats.Pick PLAYER branch resolves actual PlayerID; team behavior retained",
+                                     "CardBarHandler.AddCard resolves a verified bar binding while preserving original PlayerID",
+                                     "Unbound Rebuild records player-object ownership of rebuilt bar slots"]))
     (bundle / "source/runtime-source-adaptations.json").write_text(
-        json.dumps(dict(upstream_commit=DUCT_COMMIT, reason="HarmonyX positional injection compatibility", files=records),
+        json.dumps(dict(upstream_commit=DUCT_COMMIT, reason="HarmonyX positional injection and native card picker identity compatibility", files=records),
                    sort_keys=True, indent=2) + "\n", encoding="utf-8")
     with zipfile.ZipFile(bundle / "source/runtime-adapted-source.zip", "w", zipfile.ZIP_DEFLATED) as archive:
         for name in sorted(expected):

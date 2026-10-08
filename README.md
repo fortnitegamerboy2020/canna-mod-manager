@@ -13,16 +13,22 @@ uses its game cover. Website Play Lab uses numbered expandable cards. Mod review
 show scan progress, dependency blockers, retries and queue totals; shared libraries
 scan first. Public Help / FAQ describes the current workflow and verification limits.
 
-Desktop 0.2.44 and Community 0.3.61 offer server-verified Beta access for the
+Desktop 0.2.44 and Community 0.3.62 offer server-verified Beta access for the
 Rebound runtime preview, searchable official Minecraft version choices and result
 counts. The website adds an Admin overview, invitation and registration pause
-controls, Crash, Blackjack and cosmetic cases, plus email-only Forgot password
+controls, Crash, Blackjack and separate BO2/MW2/avatar-frame crates, plus email-only Forgot password
 and Forgot username forms. Staff review now has an advisory overview, a full
 archive/source browser, source outlines, search and line navigation. Crash now
 has a smooth flight curve and progress bar that pause when server updates are
 stale, with reduced-motion support and server-authoritative cashouts. Cosmetics
 open to your owned collection, with immediate drop equip buttons and profile
-links; classic MW2 cards retain their original compact pixel-art dimensions.
+links. Profiles display complete calling cards in a responsive banner header.
+The catalog preserves existing IDs, expands classic MW2 to 398 entries from the
+requested wiki originals and adds 237 cards from the supplied BO2 replacement
+pack. Its 13 animated WebP cards retain native frame pixels; reduced motion
+uses static posters. Timing uses a documented 100ms per source frame because
+the supplied sheets contain no timing metadata. Crash lists round participants,
+stakes and green cashouts with server times, retaining rows until the next round.
 New static-8
 analyses record reconstruction origins, tool results, safe partial output and
 coverage limits. Exact canonical license prose is separated from code while
@@ -31,6 +37,14 @@ loading have distinct labels; advisory patcher checks and bounded, untrusted CLR
 payload-name hints help trace components without clearing findings. These tools
 do not establish mod safety or full game/multiplayer
 compatibility; Minecraft account/launch API approval remains pending.
+
+The gated Rebound support refresh corrects the reviewed local picker/player-ID
+and rebuilt card-bar contracts. An isolated game copy passed 204 assertions
+over six native turns using IDs 0/1, 0/2 and 1/2, retaining actual-ID CardData
+and checking intended bars and completed handoffs. Temporary prefab effect/audio
+exceptions and an earlier startup failure remain documented. Physical-input
+play, full matches, firing and multiplayer are unverified. Close ROUNDS and
+Apply modpack again with Beta access to fetch the refreshed protected support.
 
 ## Run
 

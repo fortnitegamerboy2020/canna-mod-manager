@@ -29,6 +29,9 @@ public sealed class DuctTapePlusPlusSmokeChecks : BaseUnityPlugin
     CardInfoStat[] prototypeStats;
     bool prototypeActive;
     int prototypeRegistryCount;
+    bool localPickComplete, localPickFailed;
+    CardChoice controlledChoice;
+    bool savedChoiceEnabled;
 
     IEnumerator Start()
     {
@@ -36,7 +39,7 @@ public sealed class DuctTapePlusPlusSmokeChecks : BaseUnityPlugin
         int at = Array.IndexOf(args, "--dtpp-smoke");
         if (at < 0 || at + 1 >= args.Length) yield break;
         output = Path.GetFullPath(args[at + 1]);
-        deadline = Time.realtimeSinceStartup + 85f;
+        deadline = Time.realtimeSinceStartup + 120f;
         report.Add("LIMIT: Controlled local/offline runtime only. No two-client multiplayer synchronization is verified.");
         yield return new WaitForSecondsRealtime(20f);
         SceneDiagnostics("initial");
@@ -80,6 +83,16 @@ public sealed class DuctTapePlusPlusSmokeChecks : BaseUnityPlugin
             report.Add("LIMIT: CosmicRounds test covers one Speed Up card's offline draw and stat application; missing-reference frame is a simulated fixture, not a verified original old asset. No firing, other-card, or multiplayer behavior is certified.");
         }
         else report.Add("LIMIT: CosmicRounds is absent; optional custom-card checks were not run.");
+        var transitions = CheckLocalCardChoiceTransitions();
+        while (!finished)
+        {
+            bool more = false; object step = null;
+            if (!Run("Controlled native local card-choice transition", () =>
+                { more = transitions.MoveNext(); if (more) step = transitions.Current; }))
+            { Finish(); yield break; }
+            if (!more) break;
+            yield return step;
+        }
         Finish();
     }
 
@@ -420,6 +433,207 @@ public sealed class DuctTapePlusPlusSmokeChecks : BaseUnityPlugin
             "Canonical CR prototype, registry, active state and localized references remain untouched after cleanup");
     }
 
+    IEnumerator CheckLocalCardChoiceTransitions()
+    {
+        Require(PhotonNetwork.OfflineMode && PhotonNetwork.InRoom && smokePlayer,
+            "Local transition regression runs only in the owned offline test copy");
+        var registeredCards = CardChoice.instance.cards;
+        var categories = AccessTools.TypeByName("CardChoiceSpawnUniqueCardPatch.CustomCategories.CustomCardCategories");
+        var categoryLookup = categories == null ? null : AccessTools.Method(categories, "GetCategoryWithName", new[] { typeof(string) });
+        var categoryInstance = categories == null ? null : AccessTools.Field(categories, "instance")?.GetValue(null);
+        Require(categories != null && categories.Assembly.GetName().Name == "CardChoiceSpawnUniqueCardPatch"
+            && categoryLookup != null && !categoryLookup.IsStatic && categoryLookup.ReturnType == typeof(CardCategory)
+            && categoryInstance != null,
+            "Reviewed custom-category lookup is available without creating or changing categories");
+        var manipulation = categoryLookup.Invoke(categoryInstance, new object[] { "CardManipulation" }) as CardCategory;
+        Require(manipulation && String.Equals(manipulation.name, "cardmanipulation", StringComparison.Ordinal),
+            "Registered CardManipulation category is available for single-application test selection");
+        report.Add("LIMIT: Local ownership assertions select an offered card outside CardManipulation. Egg legitimately grants extra callback cards; multi-card callback behavior is not covered by the exact-one assertions.");
+        CheckModdingUtilsProjectileTargets();
+        var pickMethod = AccessTools.Method(typeof(ApplyCardStats), "Pick", new[] { typeof(int), typeof(bool), typeof(PickerType) });
+        var patches = Harmony.GetPatchInfo(pickMethod);
+        var identities = patches == null ? new string[0] : patches.Transpilers.Select(p =>
+            (p.PatchMethod.DeclaringType == null ? "unknown" : p.PatchMethod.DeclaringType.FullName) + "." + p.PatchMethod.Name).Take(16).ToArray();
+        report.Add("DIAG Native ApplyCardStats.Pick transpilers: " + (identities.Length == 0 ? "none" : String.Join("; ", identities)));
+        var addCard = AccessTools.Method(typeof(CardBarHandler), "AddCard", new[] { typeof(int), typeof(CardInfo) });
+        var addPatches = addCard == null ? null : Harmony.GetPatchInfo(addCard);
+        foreach (var kind in new[] { "prefix", "transpiler", "postfix" })
+        {
+            var list = addPatches == null ? new Patch[0] : (kind == "prefix" ? addPatches.Prefixes.ToArray()
+                : kind == "transpiler" ? addPatches.Transpilers.ToArray() : addPatches.Postfixes.ToArray());
+            report.Add("DIAG Native CardBarHandler.AddCard " + kind + ": " + (list.Length == 0 ? "none" : String.Join("; ", list.Take(16).Select(p =>
+                (p.PatchMethod.DeclaringType == null ? "unknown" : p.PatchMethod.DeclaringType.FullName) + "." + p.PatchMethod.Name).ToArray())));
+        }
+        Require(addPatches != null && addPatches.Transpilers.Any(p => p.PatchMethod.DeclaringType != null
+            && p.PatchMethod.DeclaringType.FullName == "RoundsPort.Runtime.Canna_CardBarAddCard_Fix"),
+            "Reviewed native card-bar identity transpiler is registered for the full local turn regression");
+        Require(PlayerManager.instance.players.Count == 1 && PlayerManager.instance.players[0] == smokePlayer,
+            "Controlled transition begins with exactly the existing disposable test player");
+        PlayerAssigner.instance.CreatePlayer(null, true);
+        float until = Time.realtimeSinceStartup + 15f;
+        while (Time.realtimeSinceStartup < until && PlayerManager.instance.players.Count < 2) yield return null;
+        Require(PlayerManager.instance.players.Count == 2 && PlayerManager.instance.players.All(p => p && p.data && p.data.view && p.data.view.IsMine),
+            "Native assignment creates two locally owned offline test players");
+        yield return new WaitForSecondsRealtime(.5f);
+        PlayerManager.instance.SetPlayersSimulated(false);
+        // Native coroutines continue while a MonoBehaviour is disabled. Isolate
+        // programmatic picks from Update's physical/AI input selection in this copy.
+        controlledChoice = CardChoice.instance;
+        savedChoiceEnabled = controlledChoice.enabled;
+        controlledChoice.enabled = false;
+        var roster = PlayerManager.instance.players.ToArray();
+        var idLookup = AccessTools.Method(typeof(PlayerManager), "GetPlayerWithID", new[] { typeof(int) });
+        Require(idLookup != null && idLookup.ReturnType == typeof(Player),
+            "Inspected native player-ID lookup is available through reflected access");
+        // SetPlayerID changes only IDs on disposable test players, preserving the
+        // native roster order and colour assignment. Do not globally renumber at runtime.
+        for (int i = 0; i < roster.Length; i++) roster[i].SetPlayerID(i);
+        for (int scenario = 0; scenario < 3; scenario++)
+        {
+            string label = scenario == 0 ? "Dense IDs 0/1" : scenario == 1 ? "Sparse IDs 0/2" : "Sparse IDs 1/2";
+            roster[0].SetPlayerID(scenario == 2 ? 1 : 0);
+            roster[1].SetPlayerID(scenario == 0 ? 1 : 2);
+            report.Add("DIAG " + label + " roster IDs: " + String.Join(",", roster.Select(p => p.PlayerID.ToString()).ToArray()));
+            Require(idLookup.Invoke(PlayerManager.instance, new object[] { roster[0].PlayerID }) as Player == roster[0]
+                && idLookup.Invoke(PlayerManager.instance, new object[] { roster[1].PlayerID }) as Player == roster[1],
+                label + " native ID lookup resolves both players without changing list order");
+            if (scenario != 0)
+                Require(roster[1].PlayerID >= PlayerManager.instance.players.Count,
+                    "Sparse second-player ID cannot accidentally pass as a native roster index");
+            var handler = CardBarHandler.instance;
+            var rebuildType = AccessTools.TypeByName("UnboundLib.Extensions.CardBarHandlerExtensions");
+            var rebuild = rebuildType == null ? null : AccessTools.Method(rebuildType, "Rebuild", new[] { typeof(CardBarHandler) });
+            Require(handler && rebuild != null && rebuild.IsStatic,
+                label + " actual Unbound card-bar rebuild contract is available");
+            // An ID change invalidates the previous binding. Exercise the real
+            // reviewed rebuild and its runtime Postfix rather than binding bars here.
+            rebuild.Invoke(null, new object[] { handler });
+            yield return null; yield return null;
+            var bars = (CardBar[])AccessTools.Field(typeof(CardBarHandler), "cardBars").GetValue(handler);
+            Require(bars != null && bars.Length == roster.Length && bars.All(bar => bar && bar.gameObject.activeSelf)
+                && bars.Distinct().Count() == roster.Length,
+                label + " actual rebuild creates a distinct active card bar for each native roster slot");
+            var bindingType = AccessTools.TypeByName("RoundsPort.Runtime.Canna_CardBarSlotBindings");
+            var resolveBar = bindingType == null ? null : AccessTools.Method(bindingType, "Resolve", new[] { typeof(CardBar[]), typeof(int) });
+            Require(resolveBar != null && resolveBar.IsStatic
+                && ReferenceEquals(resolveBar.Invoke(null, new object[] { bars, roster[0].PlayerID }), bars[0])
+                && ReferenceEquals(resolveBar.Invoke(null, new object[] { bars, roster[1].PlayerID }), bars[1]),
+                label + " rebuilt runtime binding resolves actual player IDs to their roster-owned bars");
+            for (int index = 0; index < roster.Length; index++)
+            {
+                var choice = CardChoice.instance;
+                string turn = label + " player " + (index + 1);
+                Require(choice && CardChoiceVisuals.instance && !choice.IsPicking && SpawnedCards().Count == 0,
+                    turn + " begins after the prior native turn has fully cleared");
+                Require(PlayerManager.instance.players[index] == roster[index], turn + " preserves native roster index separately from player ID");
+                var beforeCounts = roster.Select(p => p.data.currentCards.Count).ToArray();
+                var beforeBars = bars.Select(bar => BarCards(bar).Length).ToArray();
+                var beforeData = roster.Select(player => CardDataCount(player.PlayerID)).ToArray();
+                // Show is positional in the inspected native API; DoPick is an ID
+                // contract. Use each parameter as intended, including the sparse turn.
+                CardChoiceVisuals.instance.Show(index, true);
+                localPickComplete = false; localPickFailed = false;
+                StartCoroutine(ObserveLocalPick(choice.DoPick(1, roster[index].PlayerID, PickerType.Player)));
+                until = Time.realtimeSinceStartup + 12f;
+                while (!localPickFailed && Time.realtimeSinceStartup < until
+                    && (SpawnedCards().Count == 0 || (bool)AccessTools.Field(typeof(CardChoice), "isPlaying").GetValue(choice)))
+                    yield return null;
+                Require(!localPickFailed && choice.IsPicking && !localPickComplete && choice.pickrID == roster[index].PlayerID,
+                    turn + " native DoPick keeps the actual player ID while choices are offered");
+                var cards = SpawnedCards().ToArray();
+                Require(cards.Length > 0 && cards.All(card => card && card.activeInHierarchy && card.GetComponent<CardInfo>()
+                    && card.GetComponentsInChildren<CardInfoDisplayer>(true).Any(d => d && d.gameObject.activeInHierarchy)),
+                    turn + " actual ReplaceCards offers nonempty active native card displays");
+                Require(cards.Length <= 64, turn + " native offered-card inspection stays bounded");
+                var selected = cards.FirstOrDefault(card => card.GetComponent<CardInfo>().sourceCard
+                    && choice.cards.Contains(card.GetComponent<CardInfo>().sourceCard)
+                    && (card.GetComponent<CardInfo>().sourceCard.categories == null
+                        || !card.GetComponent<CardInfo>().sourceCard.categories.Contains(manipulation)));
+                Require(selected != null, turn + " has an offered canonical card outside CardManipulation for exact-one ownership assertions");
+                var selectedSource = selected.GetComponent<CardInfo>().sourceCard;
+                string selectedName = selectedSource.name ?? "unknown";
+                report.Add("DIAG " + turn + " native offered count=" + cards.Length + "; selected="
+                    + new string(selectedName.Take(160).Select(c => c >= ' ' && c <= '~' ? c : '?').ToArray())
+                    + "; CardManipulation=false");
+                // This is the actual native selection/application/RPC animation
+                // path, not an OFFLINE_Pick substitute. DoPlayerSelect's final
+                // sentinel assignment is mirrored explicitly; no input is simulated.
+                choice.Pick(selected, false);
+                choice.pickrID = -1;
+                Require(roster[index].data.currentCards.Count == beforeCounts[index] + 1,
+                    turn + " native Pick applies exactly one card to the intended ID");
+                Require(roster[1 - index].data.currentCards.Count == beforeCounts[1 - index],
+                    turn + " native Pick leaves the other local player's cards unchanged");
+                Require(BarCards(bars[index]).Length == beforeBars[index] + 1
+                    && BarCards(bars[index]).Any(button => AccessTools.Field(typeof(CardBarButton), "m_cardInfo").GetValue(button) as CardInfo == selectedSource),
+                    turn + " actual native AddCard puts the canonical selection on its intended bound bar");
+                Require(BarCards(bars[1 - index]).Length == beforeBars[1 - index],
+                    turn + " actual native AddCard leaves the other player's card bar unchanged");
+                Require(CardDataCount(roster[index].PlayerID) == beforeData[index] + 1
+                    && CardDataCount(roster[1 - index].PlayerID) == beforeData[1 - index],
+                    turn + " Unbound CardData retains actual player-ID keys without a roster-index remap");
+                until = Time.realtimeSinceStartup + 12f;
+                while (!localPickFailed && Time.realtimeSinceStartup < until
+                    && (!localPickComplete || choice.IsPicking || SpawnedCards().Count != 0)) yield return null;
+                report.Add("DIAG " + turn + " final sentinel=" + choice.pickrID + "; picking=" + choice.IsPicking
+                    + "; spawned=" + SpawnedCards().Count + "; coroutine-complete=" + localPickComplete);
+                Require(!localPickFailed && localPickComplete && !choice.IsPicking && SpawnedCards().Count == 0 && choice.pickrID == -1,
+                    turn + " native end-pick clears choices and completes before the next local player");
+                yield return new WaitForSecondsRealtime(.1f);
+            }
+        }
+        Require(ReferenceEquals(CardChoice.instance.cards, registeredCards)
+            && (!cosmicPrototype || CardChoice.instance.cards.Length == prototypeRegistryCount && CardChoice.instance.cards.Contains(cosmicPrototype)),
+            "Local transition regression retains the full registered card pool and CR prototype");
+        report.Add("LIMIT: Six controlled native local turns use two disposable AI players, IDs 0/1, 0/2 and 1/2, actual Unbound bar rebuilds, and programmatic native Pick calls. No physical-input, full-match, firing, online, or multiplayer behavior is certified.");
+    }
+
+    static CardBarButton[] BarCards(CardBar bar)
+    { return ((IEnumerable)AccessTools.Field(typeof(CardBar), "m_cards").GetValue(bar)).Cast<CardBarButton>().ToArray(); }
+
+    int CardDataCount(int playerId)
+    {
+        var type = AccessTools.TypeByName("UnboundLib.Cards.CardData");
+        var method = type == null ? null : AccessTools.Method(type, "GetCards", new[] { typeof(int) });
+        Require(method != null && method.IsStatic && method.ReturnType == typeof(string[]), "Actual Unbound CardData identity contract is available");
+        return ((string[])method.Invoke(null, new object[] { playerId }))?.Length ?? 0;
+    }
+
+    IEnumerator ObserveLocalPick(IEnumerator native)
+    {
+        Require(native != null, "Native DoPick returns a real local pick coroutine");
+        while (!finished)
+        {
+            bool more = false; object step = null;
+            if (!Run("Actual local DoPick coroutine", () => { more = native.MoveNext(); if (more) step = native.Current; }))
+            { localPickFailed = true; yield break; }
+            if (!more) { localPickComplete = true; yield break; }
+            yield return step;
+        }
+    }
+
+    static List<GameObject> SpawnedCards()
+    { return (List<GameObject>)AccessTools.Field(typeof(CardChoice), "spawnedCards").GetValue(CardChoice.instance); }
+
+    void CheckModdingUtilsProjectileTargets()
+    {
+        foreach (string method in new[] { "OFFLINE_Init", "OFFLINE_Init_SeparateGun", "OFFLINE_Init_noAmmoUse",
+            "RPCA_Init", "RPCA_Init_SeparateGun", "RPCA_Init_noAmmoUse" })
+        {
+            bool separate = method.EndsWith("_SeparateGun", StringComparison.Ordinal);
+            Type[] args = separate ? new[] { typeof(int), typeof(int), typeof(int), typeof(float), typeof(float) }
+                : new[] { typeof(int), typeof(int), typeof(float), typeof(float) };
+            var target = AccessTools.Method(typeof(ProjectileInit), method, args);
+            var info = target == null ? null : Harmony.GetPatchInfo(target);
+            string expected = method.StartsWith("OFFLINE_", StringComparison.Ordinal)
+                ? "ModdingUtils.AIMinion.Patches.ProjectileInit_PatchGetCorrectPlayerOffline"
+                : "ModdingUtils.AIMinion.Patches.ProjectileInit_PatchGetCorrectPlayerRPCs";
+            Require(info != null && info.Transpilers.Any(p => p.PatchMethod.DeclaringType != null
+                && p.PatchMethod.DeclaringType.FullName == expected && p.PatchMethod.DeclaringType.Assembly.GetName().Name == "ModdingUtils"),
+                "Actual ModdingUtils dynamic Harmony transpiler registers on native " + method);
+        }
+    }
+
     bool Run(string name, Action action)
     {
         try { action(); return true; }
@@ -448,6 +662,7 @@ public sealed class DuctTapePlusPlusSmokeChecks : BaseUnityPlugin
     {
         if (finished) return;
         finished = true;
+        if (controlledChoice) controlledChoice.enabled = savedChoiceEnabled;
         CleanupTemporaryCard();
         Directory.CreateDirectory(output);
         File.WriteAllLines(Path.Combine(output, "report.txt"), report);

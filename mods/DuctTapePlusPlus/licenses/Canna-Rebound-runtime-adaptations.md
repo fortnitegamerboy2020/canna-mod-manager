@@ -17,3 +17,17 @@ injection:
 and changes. `source/runtime-adapted-source.zip` includes the exact build sources.
 Unexpected original source shapes or any remaining generic `__args` injection
 fail the build. Canna's adaptation code is MIT; upstream notices remain required.
+
+The build also includes Canna's MIT `LocalCardPickerFixes.cs`. For the exact
+supported modern ROUNDS build, it changes only the PLAYER lookup inside native
+`ApplyCardStats.Pick` from a positional roster index to `GetPlayerWithID`.
+Sparse or reordered player IDs retain their identity; team selection and card
+application stay intact. An unrecognized instruction pattern refuses the patch.
+The upstream checkout and installed game assemblies are never modified.
+
+The same Canna source records the Player objects and bar slots produced by the
+reviewed Unbound rebuild. Native card-bar additions resolve that binding while
+Unbound's CardData prefix continues to receive the original PlayerID. Missing,
+duplicated, replaced or changed ownership refuses the lookup. The exact pinned
+Unbound rebuild is normalized to choose bar colour owners by roster slot.
+These changes do not renumber players or rewrite unrelated list/array indexing.
