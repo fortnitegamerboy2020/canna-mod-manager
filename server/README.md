@@ -4,7 +4,7 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.68
+## Current release: Community 0.3.69
 
 MW2 banner correction cleans the baked screenshot matte in 260 tiny source images, including Stuck on You, with audited alpha masks, transparent-only crops and lossless PNG output. Retained RGB pixels, all 654 cosmetic IDs, crate odds and equipment routes remain unchanged. Fifty-two ambiguous/full-art JPEGs and 86 existing transparent MW2 PNGs are kept intact. MW2 profile and crate previews cap artwork at twice its source width and shrink on small screens. This is a source-matte and excessive-stretch correction, not an HD replacement; isolated one-pixel JPEG fringes may remain. Reloading obtains changed checksum URLs without re-equipping.
 
@@ -19,7 +19,9 @@ installation. The Rebound runtime remains a preview with full human-match and
 two-client multiplayer checks outstanding; previously distributed 0.2.41 bundles
 cannot be removed retroactively.
 
-Desktop 0.2.45 additionally revalidates fresh server Beta access before Launch current dispatches an already-active managed Rebound setup, binding applied metadata to authorized support and installed manifest/game hashes. Old or changed bindings require reapplying the pack. The new check does not download/purge support or mutate game files; ordinary/vanilla/unrelated setups retain their existing launch path. Temporary fixtures and real loopback manifest tests passed; no new actual game or multiplayer launch is claimed.
+Desktop 0.2.46 prepares managed Steam packs at Launch modded, refreshes exact approved project identities when automatic updates are enabled, and rechecks current Beta support authorization. Local imports and disabled entries retain their selections. Optional Prepare downloads and snapshot recovery cache archives without activating plugins. Confirmed owned-game exits park unchanged managed Unity runtime and Source addons outside game folders while Canna remains open. Closed-game Restore vanilla files also migrates old parked recovery files. Manual plugins and changed loader files are preserved. Disposable filesystem tests and release checks do not verify full game sessions or multiplayer.
+
+Beta invitation links add Beta alongside Member at signup. Owners can privately deliver shareable Beta friend links to current Beta members or preview existing-account access waves using random, newest, oldest or most-posts patterns. Eligibility, pause behavior and limits are documented in public /help. MW2 calling cards remain paused.
 
 Desktop 0.2.44 compares the same gameplay-config scope at Rebound preflight and
 final verification, fixing an unchanged-folder mismatch involving BepInEx's own
@@ -34,8 +36,8 @@ BepInEx; manual, modified and legacy files remain, with Doorstop disabled.
 Fresh Canna Doorstop configuration starts disabled, and modded launch enables it.
 Automatic cleanup requires Canna to remain open and observe its own game's
 confirmed exit or Stop. Direct Steam sessions are not adopted and block
-restoration while running. Setup restores the tracked runtime; Apply modpack or
-Launch modded prepares the current pack. Parked Rebound launches recheck current
+restoration while running. Saving a pack keeps selections only; Prepare downloads caches archives and
+Launch modded prepares and activates the current pack. Parked Rebound launches recheck current
 Beta authorization. Game assemblies are preserved: arbitrary third-party
 patcher changes need their own restoration. Validation uses temporary fixture
 folders; no new live ROUNDS restoration, launch or multiplayer result is claimed.
@@ -472,3 +474,5 @@ The exact archived CR 2.7.0 ZIP (db059e5c...ee5ea7) also records four
 legacy patch requirements retired by its reviewed curated adaptation. Only that
 archive pin can omit CardThemeLib 1.1.7, GravityPatch 0.0.0, ZeroGBulletPatch
 1.1.0 and StopShootingYoureDead 0.0.0. Unknown CR archives remain blocked.
+
+Beta invitations (Community 0.3.69): owner and Beta member friend links can grant additive Beta at signup. Owners can privately distribute these links to current Beta members or preview random/newest/oldest/most-posts existing-account access waves before granting. See public /help for expiry, eligibility and limits.

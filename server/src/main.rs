@@ -23,6 +23,7 @@ use tokio::sync::Semaphore;
 use zeroize::Zeroizing;
 mod admin_settings;
 mod admin_tools;
+mod beta_waves;
 #[cfg(test)]
 mod browser_preview;
 mod cannabot;
@@ -171,6 +172,7 @@ impl App {
             CREATE TABLE IF NOT EXISTS posts(id TEXT PRIMARY KEY, topic_id TEXT NOT NULL REFERENCES topics(id) ON DELETE CASCADE, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, created INTEGER NOT NULL);")?;
         sections::initialize(&db)?;
         invitations::initialize(&db)?;
+        beta_waves::initialize(&db)?;
         admin_settings::initialize(&db)?;
         lounge::initialize(&db)?;
         cannabot::initialize(&db)?;
@@ -419,7 +421,17 @@ async fn me(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Js
         json!({"id":id,"username":name,"kash":kash,"admin":admin,"role":role,"roles":admin_settings::roles(&db,id)?,"can_rebound":admin_settings::has_rebound(&db,id)?,"invites_remaining":remaining,"can_invite":role!="admin" && (role=="owner" || remaining>0) && admin_settings::check_invites(&db).is_ok(),"can_publish_guides":role!="member"}),
     ))
 }
-async fn invite(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
+#[derive(Deserialize, Default)]
+struct InviteOptions {
+    #[serde(default)]
+    beta: bool,
+}
+async fn invite(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+    input: Option<axum::Json<Option<InviteOptions>>>,
+) -> ApiResult<axum::Json<Value>> {
+    let input = input.and_then(|value| value.0).unwrap_or_default();
     let (issuer, _) = app.auth(&headers)?;
     let role = community::role(&app, issuer)?;
     if role == "admin" {
@@ -433,6 +445,12 @@ async fn invite(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction()?;
     admin_settings::check_invites(&tx)?;
+    if input.beta && !admin && !admin_settings::has_rebound(&tx, issuer)? {
+        return Err(ApiError(
+            StatusCode::FORBIDDEN,
+            "Beta invites require Beta access",
+        ));
+    }
     tx.execute("DELETE FROM invites WHERE expires<=?1", [now()])?;
     let count: i64 = tx.query_row("SELECT COUNT(*) FROM invites", [], |r| r.get(0))?;
     if count >= 200 {
@@ -446,12 +464,17 @@ async fn invite(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum
         params![digest(&raw), now() + 7 * 86400, issuer],
     )?;
     invitations::remember(&tx, &raw, issuer, now() + 7 * 86400, None, "")?;
+    invitations::attributes(&tx, &raw, input.beta, None)?;
     tx.commit()?;
-    Ok(axum::Json(json!({"invite":raw,"expires_in":7*86400})))
+    Ok(axum::Json(
+        json!({"invite":raw,"beta":input.beta,"expires_in":7*86400}),
+    ))
 }
 #[derive(Deserialize)]
 struct Wave {
     count: u32,
+    #[serde(default)]
+    beta: bool,
     #[serde(default)]
     mode: String,
     #[serde(default)]
@@ -472,7 +495,9 @@ async fn invite_wave(
     if !(1..=50).contains(&input.count) {
         return Err(bad("Choose between 1 and 50 invitations"));
     }
-    if !matches!(input.mode.as_str(), "" | "wave" | "codes") || input.label.chars().count() > 80 {
+    if !matches!(input.mode.as_str(), "" | "wave" | "codes" | "beta_members")
+        || input.label.chars().count() > 80
+    {
         return Err(bad("Invalid invitation generation options"));
     }
     let wave = if input.mode == "codes" {
@@ -486,11 +511,29 @@ async fn invite_wave(
     admin_settings::check_invites(&tx)?;
     tx.execute("DELETE FROM invites WHERE expires<=?1", [now()])?;
     let pending: u32 = tx.query_row("SELECT COUNT(*) FROM invites", [], |r| r.get(0))?;
-    if pending + input.count > 200 {
+    let recipients: Vec<i64> = if input.mode == "beta_members" {
+        tx.prepare("SELECT u.id FROM users u JOIN user_roles r ON r.user_id=u.id AND r.role='beta' WHERE u.banned=0 AND u.verified=1 ORDER BY u.id LIMIT 201")?.query_map([],|r|r.get(0))?.collect::<Result<Vec<_>,_>>()?
+    } else {
+        vec![]
+    };
+    if input.mode == "beta_members" && (recipients.is_empty() || recipients.len() > 200) {
+        return Err(bad(
+            "Choose a smaller wave; there must be 1–200 active verified Beta members",
+        ));
+    }
+    let total = if input.mode == "beta_members" {
+        input
+            .count
+            .checked_mul(recipients.len() as u32)
+            .ok_or_else(|| bad("Wave is too large"))?
+    } else {
+        input.count
+    };
+    if pending + total > 200 {
         return Err(bad("Maximum 200 pending invitations"));
     }
     let mut codes = Vec::new();
-    for _ in 0..input.count {
+    for index in 0..total {
         let raw = token();
         tx.execute(
             "INSERT INTO invites(hash,admin,expires,issued_by,wave) VALUES(?1,0,?2,?3,?4)",
@@ -509,11 +552,29 @@ async fn invite_wave(
             if wave.is_empty() { None } else { Some(&wave) },
             &input.label,
         )?;
+        let recipient = if recipients.is_empty() {
+            None
+        } else {
+            Some(recipients[index as usize / input.count as usize])
+        };
+        let beta = input.beta || input.mode == "beta_members";
+        invitations::attributes(&tx, &raw, beta, recipient)?;
+        if let Some(member) = recipient {
+            notifications::notify(
+                &tx,
+                member,
+                "beta-invite",
+                "You received a Beta invite link to share with a friend. Single use; expires in seven days.",
+                &format!("#invite-share/{raw}"),
+                &format!("beta-invite:{}", digest(&raw)),
+            )?;
+        }
         codes.push(raw);
     }
     tx.commit()?;
+    app.live.hint("notifications");
     Ok(axum::Json(
-        json!({"wave":wave,"invites":codes,"expires_in":7*86400}),
+        json!({"wave":wave,"invites":codes,"beta":input.beta||input.mode=="beta_members","delivered_to":recipients.len(),"expires_in":7*86400}),
     ))
 }
 async fn revoke_wave(
@@ -1219,6 +1280,8 @@ fn router(app: Shared) -> Router {
             "/api/v1/posts/{id}",
             axum::routing::delete(community::delete_post),
         )
+        .route("/api/v1/my-invites",get(invitations::mine))
+        .route("/api/v1/admin/beta-waves",post(beta_waves::wave))
         .route("/api/v1/invites", post(invite).get(invitations::list))
         .route("/api/v1/invites/{id}", axum::routing::delete(invitations::revoke))
         .route("/api/v1/invite-waves", post(invite_wave))

@@ -117,6 +117,8 @@ async function refresh() {
   adoptCurrentUser(await (await api('me')).json());
   $('admin').hidden=currentUser.role!=='owner';$('adminnav').hidden=!currentUser.admin;
   $('newinvite').disabled=!currentUser.can_invite;
+  $('betainvitelabel').hidden=!(currentUser.role==='owner'||currentUser.can_rebound);
+  if($('betainvitelabel').hidden)$('betainvite').checked=false;
   $('newwave').disabled=!currentUser.can_invite;
   $('allowance').textContent=currentUser.role==='owner'?(currentUser.can_invite?'Create individual invites or an invite wave. New members get one friend invite.':'Invitation creation is paused. Resume it in Admin panel → Invitations.'):currentUser.role==='admin'?'Admins cannot issue invites. The Owner manages invitation waves.':`${currentUser.invites_remaining} friend invitation remaining. Each code works once and expires after seven days.`;
   renderAccountBadges();
@@ -156,11 +158,11 @@ function renderInvitationOutputs(codes){
 $('copyinvitelinks').addEventListener('click',()=>action(async()=>{await navigator.clipboard.writeText($('invitelinks').value);message('Invitation links copied. Give one link to each person.');}));
 $('copyinvitecodes').addEventListener('click',()=>action(async()=>{await navigator.clipboard.writeText($('inviteout').value);message('Invitation codes copied. Give one code to each person.');}));
 $('newinvite').addEventListener('click',()=>inviteAction('newinvite',async()=>{
-  const result=await json('invites',{});renderInvitationOutputs([result.invite]);$('waveid').value='';$('revokewave').disabled=true;await refresh();if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent='Invitation created. Share its link or code with one person. Both expire together in seven days.';
+  const result=await json('invites',{beta:$('betainvite').checked});renderInvitationOutputs([result.invite]);$('waveid').value='';$('revokewave').disabled=true;await refresh();if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent='Invitation created. Share its link or code with one person. Both expire together in seven days.';
 }));
 $('newwave').addEventListener('click',()=>inviteAction('newwave',async()=>{
   const count=Number($('wavecount').value);if(!Number.isInteger(count)||count<1||count>50)throw new Error('Choose 1–50 invitations.');
-  const wave=await json('invite-waves',{count,mode:$('invitemode')?.value||'wave',label:$('invitelabel')?.value||''});renderInvitationOutputs(wave.invites);$('waveid').value=wave.wave;$('revokewave').disabled=!wave.wave;if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent='Invitations created and saved in history. Share one link or code with each person. They expire in seven days.';
+  const wave=await json('invite-waves',{count,mode:$('invitemode')?.value||'wave',label:$('invitelabel')?.value||'',beta:$('wavebeta')?.checked||false});renderInvitationOutputs(wave.invites);$('waveid').value=wave.wave;$('revokewave').disabled=!wave.wave;if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent=wave.delivered_to?`Delivered ${wave.invites.length} Beta invite links privately to ${wave.delivered_to} Beta members. They expire in seven days.`:`${wave.beta?'Beta-enabled':'Standard'} invitations created and saved in history. Share one link per person; expires in seven days.`;
 }));
 $('revokewave').addEventListener('click',()=>action(async()=>{const result=await(await api(`invite-waves/${$('waveid').value}`,{method:'DELETE'})).json();renderInvitationOutputs([]);$('revokewave').disabled=true;message(`${result.revoked} unused invitations revoked. Existing accounts remain active.`);}));
 $('upload').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
@@ -273,3 +275,12 @@ function setupPagePrefetch(){
  document.addEventListener('pointerout',event=>{const node=event.target.closest('a[href],button[data-page]');if(node)clearTimeout(node._prefetchTimer);});
  window.addEventListener('popstate',()=>action(()=>navigatePage(location.pathname+location.search,true)));
 }
+
+$('refreshmyinvites').addEventListener('click',()=>action(async()=>{
+ const data=await(await api('my-invites')).json();
+ $('myinvites').replaceChildren(...data.items.map(item=>{
+  const card=document.createElement('article');card.className='entry';
+  const label=document.createElement('span');label.textContent=`${item.beta?'Beta-enabled':'Standard'} invite · expires ${new Date(item.expires*1000).toLocaleString()}`;
+  card.append(label,button('Copy invite link',async()=>{await navigator.clipboard.writeText(invitationLink(item.code));message('Invitation link copied.');}));return card;
+ }));if(!data.items.length)$('myinvites').textContent='No active invitations. Expired or revoked links disappear here.';
+}));

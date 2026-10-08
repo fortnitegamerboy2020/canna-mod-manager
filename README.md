@@ -1,8 +1,10 @@
 # Canna Mod Manager
 
+Current desktop 0.2.46 prepares and activates managed Steam modpacks on Launch modded. Automatic approved project updates are on by default; disable them in Edit modpack for exact pins. Saving a pack and optional Prepare downloads keep plugins outside the game folder. Confirmed exit cleanup uses an external runtime cache while Canna remains open; use Restore vanilla files with the game closed if cleanup was interrupted. Local imports, disabled choices and manual game files are preserved. Community 0.3.69 adds Beta friend links, private Beta-member link delivery and previewed random/newest/oldest/most-posts access waves for existing accounts. Beta remains additive and Rebound downloads require current server authorization. MW2 calling cards remain paused. See public /help for current steps and verification limits.
+
 A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and the private Canna server as the mod catalog. Uploads and external imports are managed on the website.
 
-Canna 0.2.45 uses a compact icon sidebar and a borderless window. The yellow
+Canna 0.2.46 uses a compact icon sidebar and a borderless window. The yellow
 button in the top right minimizes; green maximizes/restores; red closes Canna. Drag
 the header to move the window, or double-click it to maximize/restore. Hover
 sidebar icons for their names. Drag any window edge or corner to resize.
@@ -13,7 +15,7 @@ uses its game cover. Website Play Lab uses numbered expandable cards. Mod review
 show scan progress, dependency blockers, retries and queue totals; shared libraries
 scan first. Public Help / FAQ describes the current workflow and verification limits.
 
-Desktop 0.2.45 and Community 0.3.68 offer server-verified Beta access for the
+Desktop 0.2.46 and Community 0.3.69 offer server-verified Beta access for the
 Rebound runtime preview, searchable official Minecraft version choices and result
 counts. The website adds an Admin overview, invitation and registration pause
 controls, signup invitation links alongside manual codes, Crash, Blackjack and separate BO2/MW2/avatar-frame crates, plus email-only Forgot password
@@ -39,7 +41,7 @@ and ignores stale responses. A changed signed-in account reloads the page before
 adopting another account, and prefetched reads remain bound to their member.
 Animated profile artwork has a persistent browser
 pause control and reacts immediately to system reduced-motion changes.
-Desktop 0.2.45 rechecks current server Beta authorization before launching an
+Earlier desktop 0.2.45 rechecked current server Beta authorization before launching an
 already-active managed Rebound setup. The applied pack binds the authorized
 support archive, installed compatibility manifest and game assembly hashes;
 older or changed setups ask you to reapply the pack. This prelaunch check reads
@@ -61,7 +63,7 @@ and checking intended bars and completed handoffs. Temporary prefab effect/audio
 exceptions and an earlier startup failure remain documented. Physical-input
 play, full matches and multiplayer are unverified; newer limited firing probes
 are described below. Close ROUNDS and
-Apply modpack again with Beta access to fetch the refreshed protected support.
+Launch modded again with Beta access to fetch the refreshed protected support.
 
 The Community 0.3.63 protected support refresh makes narrow CR 2.7.0 Glue
 visual-cleanup and Satellite prototype-lifecycle repairs, with exact pinned
@@ -92,7 +94,7 @@ Build a portable executable with `./build.ps1`. Rust and Windows C++ build tools
 - Counts local plugin DLLs, opens the game folder, and launches installed games through Steam.
 - Reads game metadata, icons, framework packages and mod listings from the authenticated Canna server on a background thread. Reports expired sessions, malformed metadata and network errors.
 
-Creating a modpack automatically sets up BepInEx. Fresh setup creates Canna Doorstop configuration disabled and preserves existing manual configuration. Modded launch enables the loader. **Add Mods** opens **Discover**, where you can search the family catalog, choose a compatible modpack, and add or update only the selected pinned package without adding or re-enabling its libraries; **Import local mod** adds a DLL or plugin ZIP. **Apply modpack** installs the enabled selections in `BepInEx/plugins/Canna` with the game closed. It intentionally leaves that prepared setup until restoration; saving selection changes does not install files. **Launch modded** installs the selected pack and launches through Steam. **Launch vanilla** restores Canna-managed Unity files and disables Doorstop before launching. **Stop instance** terminates the game process Canna launched, using a retained Windows handle. It appears in the pack, its right-click menu, game details, and navigation while that process runs. Independently launched games are never adopted. Existing plugins outside Canna are preserved and also load in modded mode.
+Creating a modpack automatically sets up BepInEx. Fresh setup creates Canna Doorstop configuration disabled and preserves existing manual configuration. Modded launch enables the loader. **Add Mods** opens **Discover**, where you can search the family catalog, choose a compatible modpack, and add or update only the selected pinned package without adding or re-enabling its libraries; **Import local mod** adds a DLL or plugin ZIP. **Launch modded** installs the enabled selections in `BepInEx/plugins/Canna` with the game closed. It intentionally leaves that prepared setup until restoration; saving selection changes does not install files. **Launch modded** installs the selected pack and launches through Steam. **Launch vanilla** restores Canna-managed Unity files and disables Doorstop before launching. **Stop instance** terminates the game process Canna launched, using a retained Windows handle. It appears in the pack, its right-click menu, game details, and navigation while that process runs. Independently launched games are never adopted. Existing plugins outside Canna are preserved and also load in modded mode.
 
 Desktop 0.2.43 introduced **Restore vanilla files**, without launching the game, in
 Unity game details, the Library right-click menu and modpack actions. Close the
@@ -107,7 +109,7 @@ this action does not undo arbitrary DuctTape or other patcher changes.
 Keep Canna open until a game it launched exits, or use **Stop instance**, for
 automatic cleanup after confirmed exit. Games launched independently through
 Steam are not adopted or automatically cleaned. Setup restores the tracked
-runtime; Apply modpack or Launch modded prepares the current pack. Launching a parked
+runtime; Launch modded or Launch modded prepares the current pack. Launching a parked
 Rebound pack rechecks current server-verified Beta access before reapplying it.
 The same account-free restore action is available from source with
 `cargo run --release -- --restore-vanilla 1557740` for ROUNDS; it does not launch
@@ -116,7 +118,7 @@ ROUNDS restoration, launch and multiplayer checks remain unverified.
 
 Desktop 0.2.40's **Discover → Browse providers** page (**Browse mods**) includes approved entries from the synced Canna library under **All sources**. Choose **Canna** in the source menu to show those entries alone, or choose an external provider. Canna results use game, search, content-type and page filters; provider-specific categories can exclude them. Canna pages are alphabetical and external providers retain their own sorting, with no promised global ranking. **Refresh library** updates the synced listings after a newly approved release.
 
-To find **HollowPurple Fixed 1.8.2**, select **ROUNDS**, choose **Canna**, refresh the library and search its name. Its card downloads that approved Canna release; the original-project link is attribution. Choose a pack whose actual game is ROUNDS in **Add downloads to**; a custom pack name does not determine compatibility. Without a compatible destination, downloads can still be saved in **Your downloads**. Add the selected entry and use **Apply modpack** or **Launch modded** with the game closed to install it. The existing public-branch, dependency-choice and original/fork guards still apply; browsing and download checks do not establish game or multiplayer compatibility.
+To find **HollowPurple Fixed 1.8.2**, select **ROUNDS**, choose **Canna**, refresh the library and search its name. Its card downloads that approved Canna release; the original-project link is attribution. Choose a pack whose actual game is ROUNDS in **Add downloads to**; a custom pack name does not determine compatibility. Without a compatible destination, downloads can still be saved in **Your downloads**. Add the selected entry and use **Launch modded** or **Launch modded** with the game closed to install it. The existing public-branch, dependency-choice and original/fork guards still apply; browsing and download checks do not establish game or multiplayer compatibility.
 
 Bopl Battle uses the official Windows x64 BepInEx 5.4.23.5 archive from `bopl-battle/Framework/BepInEx.zip`. Harmony is included upstream; this is not a custom BepInEx fork. Other Unity games need their own compatible Windows BepInEx 5 package at `<game>/Framework/BepInEx.zip`. Existing complete loaders are preserved, and conflicting files are reported rather than overwritten. Close the game before setup, installation or mode changes. Gameplay compatibility still requires testing.
 
@@ -172,7 +174,7 @@ Open **Modpacks** in the sidebar, then **Create modpack**. Name the pack, select
 
 The modpack library uses game-art cover cards, sorting and game filters. **New modpack** opens a choice between a custom setup and importing a family pack. Creation and editing use a centered dialog with game, cover color, group, description and mod choices. **New group** creates a named collection and can assign existing packs. Groups and cover colors are preserved during export/import. Opening a card shows its **Content** table and **Pack details**. In the game library, **Create modpack** starts a setup with that game selected.
 
-Saved packs can be edited, duplicated and searched. **Remove**, **Disable** and **Save** accept your selection even if another mod declares that package as a dependency. Dependency metadata stays available for information and diagnostics. **Add Mod** changes only the selected package, preserving removed libraries and disabled selections. Use **Apply modpack** or **Launch modded** with the game closed to install the enabled selections. **Export** writes a `.canna.zip` bundle containing the manifest and any imported local mod files. Repository mods remain version/checksum-pinned references. **Import** supports both `.canna.zip` and older `.canna.json` manifests, validates paths and checksums, and assigns a fresh local pack ID. Exports contain no tokens or local game paths. After importing, use **Apply modpack** or **Launch modded**.
+Saved packs can be edited, duplicated and searched. **Remove**, **Disable** and **Save** accept your selection even if another mod declares that package as a dependency. Dependency metadata stays available for information and diagnostics. **Add Mod** changes only the selected package, preserving removed libraries and disabled selections. Use **Launch modded** or **Launch modded** with the game closed to install the enabled selections. **Export** writes a `.canna.zip` bundle containing the manifest and any imported local mod files. Repository mods remain version/checksum-pinned references. **Import** supports both `.canna.zip` and older `.canna.json` manifests, validates paths and checksums, and assigns a fresh local pack ID. Exports contain no tokens or local game paths. After importing, use **Launch modded** or **Launch modded**.
 
 The family catalog now includes **Drill Through Ball 1.0.4**, a BepInEx plugin built from `mods/DrillThroughBall/`. Its gameplay and multiplayer behavior need playtesting; all participants should use the same version and setting.
 
@@ -212,7 +214,7 @@ The stable Canna desktop checks the latest stable release at `https://cannamods.
 
 This first updater-enabled version must be installed manually once. Future releases use a stable `vMAJOR.MINOR.PATCH` tag and an executable asset named `Canna-Mod-Manager.exe`. `scripts/Publish-AppRelease.ps1` publishes explicitly selected source files and a draft release, verifies uploaded hashes, then makes the release available. The admin token is used only by this publishing script. The publisher also mirrors release metadata and the executable to Canna’s server. Older desktop versions contain a shared read token; replace them with version 0.2.15 or later. Mod access uses the Canna account session.
 
-Each modpack's Content table has an **Enabled** checkbox; right-click a mod for **Enable mod** / **Disable mod**. Switches save immediately without removing the selection or version pin, including libraries declared as dependencies by other enabled mods. Use **Apply modpack** or **Launch modded** with the game closed to apply them. Disabled mods are excluded from downloads and from the fresh managed plugin directory, and exports/imports retain the enabled states. Existing manifests default to enabled. Plugins installed outside Canna's managed directory are unaffected.
+Each modpack's Content table has an **Enabled** checkbox; right-click a mod for **Enable mod** / **Disable mod**. Switches save immediately without removing the selection or version pin, including libraries declared as dependencies by other enabled mods. Use **Launch modded** or **Launch modded** with the game closed to apply them. Disabled mods are excluded from downloads and from the fresh managed plugin directory, and exports/imports retain the enabled states. Existing manifests default to enabled. Plugins installed outside Canna's managed directory are unaffected.
 
 The enabled official [DuctTape package by kieron_exe](https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape/) requires the public ROUNDS branch (Steam → Properties → Betas → None). Canna recognizes its Thunderstore project identity `kieron_exe-DuctTape` and suppresses only the inferred old-branch requirement from UnboundLib 3.2.14 / MMHook 1.0.0. Explicit legacy branch requirements, the original HollowPurple requirement and the guard against enabling original HollowPurple together with HollowPurple Fixed remain. The author's guide says to retain UnboundLib, MMHook and RoundsWithFriends as installed packages; DuctTape substitutes their assemblies during launch. This branch-check change has fixture coverage; live DuctTape gameplay and multiplayer integration have not been verified by these checks.
 

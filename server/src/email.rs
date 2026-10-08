@@ -142,14 +142,14 @@ pub async fn register(
         ));
     }
     let invite_hash = digest(&input.invite);
-    let admin: bool = app
+    let (admin, beta): (bool, bool) = app
         .db
         .lock()
         .unwrap()
         .query_row(
-            "SELECT admin FROM invites WHERE hash=?1 AND expires>?2",
+            "SELECT admin,beta FROM invites WHERE hash=?1 AND expires>?2",
             params![invite_hash, now()],
-            |r| r.get(0),
+            |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?
         .ok_or_else(|| bad("Invitation is invalid or expired"))?;
@@ -187,6 +187,12 @@ pub async fn register(
         ],
     )?;
     let id = tx.last_insert_rowid();
+    if beta {
+        tx.execute(
+            "INSERT INTO user_roles(user_id,role) VALUES(?1,'beta')",
+            [id],
+        )?;
+    }
     tx.execute(
         "UPDATE invitation_history SET status='used',redeemed_by=?2,resolved=?3 WHERE hash=?1",
         params![invite_hash, id, now()],
