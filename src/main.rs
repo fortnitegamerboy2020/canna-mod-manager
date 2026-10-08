@@ -1084,7 +1084,7 @@ impl Canna {
                             play_backup::remember_applied(&game, &applied)?;
                         }
                         let requested = std::time::SystemTime::now();
-                        let owned = runtime::launch(&game, true)?;
+                        let owned = runtime::launch_current(&game, &token, options, &progress)?;
                         let _ = tx.send(Event::Launched(game.app_id, true, requested, owned));
                         Ok("Steam launch requested (current modded setup).".into())
                     }

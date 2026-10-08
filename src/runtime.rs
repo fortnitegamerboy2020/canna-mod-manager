@@ -13,6 +13,9 @@ use std::{
     time::Duration,
 };
 
+const REBOUND_PROFILE: &str = "rounds-public-1.1.2";
+const REBOUND_MANIFEST: &str = "DuctTapePlusPlus/compatibility-manifest.json";
+
 pub(crate) fn client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .user_agent("Canna-Mod-Manager/0.1")
@@ -686,8 +689,214 @@ pub(crate) fn prepare_install_with_configs(
         prepared.files = Some(resolved.files);
         prepared.game_sha256 = Some(resolved.game_sha256);
         prepared.config_sha256 = Some(resolved.config_sha256);
+        bind_rebound_launch(&mut prepared)?;
     }
     Ok(prepared)
+}
+
+fn rebound_hash(value: &str) -> bool {
+    value.len() == 64
+        && value
+            .bytes()
+            .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+}
+
+fn bind_rebound_launch(prepared: &mut PreparedInstall) -> Result<()> {
+    let support = prepared
+        .rebound_support_sha256
+        .as_ref()
+        .context("Missing authorized Rebound support checksum")?;
+    let game = prepared
+        .game_sha256
+        .as_ref()
+        .context("Missing Rebound game checksum")?;
+    let manifests: Vec<_> = prepared
+        .files
+        .as_ref()
+        .context("Missing prepared Rebound files")?
+        .plugins
+        .iter()
+        .filter(|(path, _)| path == Path::new(REBOUND_MANIFEST))
+        .collect();
+    anyhow::ensure!(
+        manifests.len() == 1,
+        "Missing or ambiguous prepared Rebound manifest"
+    );
+    let marked: Vec<_> = prepared
+        .pack
+        .mods
+        .iter_mut()
+        .filter(|item| {
+            item.enabled
+                && item.provenance["compatibility_profile"].as_str() == Some(REBOUND_PROFILE)
+        })
+        .collect();
+    anyhow::ensure!(
+        marked.len() == 1 && rebound_hash(support) && rebound_hash(game),
+        "Invalid prepared Rebound launch binding"
+    );
+    let item = marked.into_iter().next().unwrap();
+    item.provenance["rebound_support_sha256"] = support.clone().into();
+    item.provenance["rebound_game_sha256"] = game.clone().into();
+    item.provenance["rebound_manifest_sha256"] =
+        format!("{:x}", Sha256::digest(&manifests[0].1)).into();
+    Ok(())
+}
+
+fn current_launch_rebound_expectation(
+    game: &InstalledGame,
+    modded: bool,
+    options: InstallOptions,
+    applied: &dyn Fn() -> Result<Option<Modpack>>,
+) -> Result<Option<String>> {
+    if !modded || game.app_id != 1557740 {
+        return Ok(None);
+    }
+    let managed = game.path.join("BepInEx/plugins/Canna");
+    no_links(&managed)?;
+    match fs::symlink_metadata(&managed) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(error).context("Could not inspect the installed Rebound setup"),
+        Ok(metadata) => anyhow::ensure!(
+            metadata.is_dir(),
+            "Invalid installed managed setup; reapply the pack"
+        ),
+    }
+    let active = managed.join("DuctTapePlusPlus");
+    no_links(&active)?;
+    let has_manifest_folder = match fs::symlink_metadata(&active) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Err(error) => return Err(error).context("Could not inspect the installed Rebound setup"),
+        Ok(metadata) => {
+            anyhow::ensure!(
+                metadata.is_dir(),
+                "Invalid installed Rebound setup; reapply the pack"
+            );
+            true
+        }
+    };
+    let pack = match applied() {
+        Ok(pack) => pack,
+        // History alone must not add a launch restriction to an ordinary setup.
+        // Installed Rebound evidence still requires readable, bound metadata.
+        Err(_) if !has_manifest_folder => return Ok(None),
+        Err(error) => {
+            return Err(error)
+                .context("Installed Rebound metadata is unreadable; reapply the pack");
+        }
+    };
+    let has_pack_marker = pack.as_ref().is_some_and(|pack| {
+        pack.mods.iter().any(|item| {
+            item.enabled
+                && item.provenance["compatibility_profile"].as_str() == Some(REBOUND_PROFILE)
+        })
+    });
+    if !has_manifest_folder && !has_pack_marker {
+        return Ok(None);
+    }
+    let pack = pack.context(
+        "This installed Rebound setup needs a fresh binding; reapply the pack before launching",
+    )?;
+    pack.validate()?;
+    anyhow::ensure!(
+        pack.game.app_id == game.app_id,
+        "Rebound setup metadata belongs to another game; reapply the pack"
+    );
+    let marked: Vec<_> = pack
+        .mods
+        .iter()
+        .filter(|item| {
+            item.enabled
+                && item.provenance["compatibility_profile"].as_str() == Some(REBOUND_PROFILE)
+        })
+        .collect();
+    anyhow::ensure!(
+        marked.len() == 1,
+        "This installed Rebound setup needs a fresh binding; reapply the pack before launching"
+    );
+    anyhow::ensure!(
+        options.translate(game, &pack)?,
+        "Enable Canna Rebound and select the supported public ROUNDS branch before launching this setup"
+    );
+    let binding = &marked[0].provenance;
+    let pinned = |key: &str| -> Result<&str> {
+        binding[key]
+            .as_str()
+            .filter(|hash| rebound_hash(hash))
+            .context("This installed Rebound setup needs a fresh binding; reapply the pack before launching")
+    };
+    let support = pinned("rebound_support_sha256")?;
+    let game_hash = pinned("rebound_game_sha256")?;
+    let manifest_hash = pinned("rebound_manifest_sha256")?;
+    let manifest_path = game
+        .path
+        .join("BepInEx/plugins/Canna")
+        .join(REBOUND_MANIFEST);
+    no_links(&manifest_path)?;
+    let metadata = fs::metadata(&manifest_path)
+        .context("Installed Rebound manifest is missing; reapply the pack")?;
+    anyhow::ensure!(
+        metadata.is_file() && metadata.len() <= 4 * 1024 * 1024,
+        "Invalid installed Rebound manifest; reapply the pack"
+    );
+    let mut bytes = Vec::new();
+    fs::File::open(&manifest_path)?
+        .take(4 * 1024 * 1024 + 1)
+        .read_to_end(&mut bytes)?;
+    anyhow::ensure!(
+        bytes.len() <= 4 * 1024 * 1024 && format!("{:x}", Sha256::digest(&bytes)) == manifest_hash,
+        "Installed Rebound manifest changed; reapply the pack before launching"
+    );
+    let manifest: serde_json::Value = serde_json::from_slice(&bytes)
+        .context("Invalid installed Rebound manifest; reapply the pack")?;
+    anyhow::ensure!(
+        manifest["profile"].as_str() == Some(REBOUND_PROFILE)
+            && manifest["protocol"].as_str() == Some("canna.ducttape++/1")
+            && manifest["game_sha256"].as_str() == Some(game_hash),
+        "Installed Rebound manifest does not match its launch binding; reapply the pack"
+    );
+    anyhow::ensure!(
+        crate::ducttape::game_hash(game)? == game_hash,
+        "ROUNDS changed since this Rebound setup was prepared; reapply the pack before launching"
+    );
+    Ok(Some(support.into()))
+}
+
+fn launch_current_with<T>(
+    game: &InstalledGame,
+    modded: bool,
+    options: InstallOptions,
+    applied: &dyn Fn() -> Result<Option<Modpack>>,
+    verify: &dyn Fn(&str) -> Result<()>,
+    launch: impl FnOnce() -> Result<T>,
+) -> Result<T> {
+    if let Some(expected) = current_launch_rebound_expectation(game, modded, options, applied)? {
+        verify(&expected)?;
+        anyhow::ensure!(
+            current_launch_rebound_expectation(game, modded, options, applied)? == Some(expected),
+            "Rebound setup changed while checking access; retry or reapply the pack"
+        );
+    }
+    launch()
+}
+
+pub fn launch_current(
+    game: &InstalledGame,
+    token: &str,
+    options: InstallOptions,
+    progress: &dyn Fn(&str),
+) -> Result<crate::owned_game::OwnedGame> {
+    launch_current_with(
+        game,
+        true,
+        options,
+        &|| crate::play_backup::last_applied(game),
+        &|expected| {
+            progress("Verifying current Canna Rebound Beta access…");
+            crate::rebound_support::verify_current_read_only(token, expected)
+        },
+        || launch(game, true),
+    )
 }
 pub fn install_prepared(
     game: &InstalledGame,
@@ -993,6 +1202,343 @@ mod tests {
         ));
         fs::create_dir(&root).unwrap();
         root
+    }
+    fn bound_current_fixture(name: &str) -> (PathBuf, InstalledGame, PreparedInstall) {
+        let root = temporary_preparation_root(name);
+        let game_root = root.join("steamapps/common/ROUNDS");
+        fs::create_dir_all(game_root.join("ROUNDS_Data/Managed")).unwrap();
+        fs::create_dir_all(game_root.join("BepInEx/plugins/Canna/DuctTapePlusPlus")).unwrap();
+        fs::write(
+            root.join("steamapps/appmanifest_1557740.acf"),
+            r#""AppState" { "buildid" "21020021" "UserConfig" { "BetaKey" "public" } }"#,
+        )
+        .unwrap();
+        fs::write(
+            game_root.join("ROUNDS_Data/Managed/Assembly-CSharp.dll"),
+            b"harmless native fixture bytes",
+        )
+        .unwrap();
+        fs::write(
+            game_root.join("doorstop_config.ini"),
+            b"[General]\nenabled=false\n",
+        )
+        .unwrap();
+        let (mut game, mut pack) = preparation_fixture(&game_root);
+        game.app_id = 1557740;
+        pack.game.app_id = game.app_id;
+        pack.game.name = "ROUNDS".into();
+        pack.game.folder = "rounds".into();
+        pack.mods = vec![serde_json::from_value(serde_json::json!({
+            "name":"Resolved Rebound fixture", "version":REBOUND_PROFILE,
+            "file":"Mods/fixture.zip", "sha256":"a".repeat(64),
+            "provenance":{"compatibility_profile":REBOUND_PROFILE,"required_game_branch":"public"}
+        })).unwrap()];
+        let game_hash = crate::ducttape::game_hash(&game).unwrap();
+        let manifest = serde_json::to_vec(&serde_json::json!({
+            "protocol":"canna.ducttape++/1", "profile":REBOUND_PROFILE,
+            "game_sha256":game_hash, "assemblies":[], "files":[], "digest":"b".repeat(64)
+        }))
+        .unwrap();
+        fs::write(
+            game.path
+                .join("BepInEx/plugins/Canna")
+                .join(REBOUND_MANIFEST),
+            &manifest,
+        )
+        .unwrap();
+        let mut prepared = PreparedInstall {
+            pack,
+            files: Some(PluginEntries {
+                plugins: vec![(REBOUND_MANIFEST.into(), manifest)],
+                ..PluginEntries::default()
+            }),
+            history: vec![],
+            framework: None,
+            game_sha256: Some(game_hash),
+            config_sha256: None,
+            rebound_support_sha256: Some("c".repeat(64)),
+        };
+        bind_rebound_launch(&mut prepared).unwrap();
+        (root, game, prepared)
+    }
+    #[test]
+    fn current_launch_rebound_binds_authorized_support_without_changing_payload_bytes() {
+        let (root, game, mut prepared) = bound_current_fixture("launch-binding");
+        let bytes = prepared.files.as_ref().unwrap().plugins.clone();
+        bind_rebound_launch(&mut prepared).unwrap();
+        assert_eq!(prepared.files.as_ref().unwrap().plugins, bytes);
+        assert_eq!(
+            prepared.pack.mods[0].provenance["rebound_support_sha256"],
+            "c".repeat(64)
+        );
+        assert_eq!(
+            prepared.pack.mods[0].provenance["rebound_game_sha256"],
+            crate::ducttape::game_hash(&game).unwrap()
+        );
+        assert_eq!(
+            prepared.pack.mods[0].provenance["rebound_manifest_sha256"],
+            format!("{:x}", Sha256::digest(&bytes[0].1))
+        );
+        let saved = serde_json::to_vec(&prepared.pack).unwrap();
+        let restored: Modpack = serde_json::from_slice(&saved).unwrap();
+        assert_eq!(
+            current_launch_rebound_expectation(
+                &game,
+                true,
+                InstallOptions {
+                    rebound_enabled: true
+                },
+                &|| Ok(Some(restored.clone()))
+            )
+            .unwrap(),
+            Some("c".repeat(64))
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn current_launch_rebound_checks_access_before_dispatch_and_never_writes_game_files() {
+        let (root, game, prepared) = bound_current_fixture("launch-fresh-auth");
+        let marker = game
+            .path
+            .join("BepInEx/plugins/Canna")
+            .join(REBOUND_MANIFEST);
+        let before_manifest = fs::read(&marker).unwrap();
+        let before_loader = fs::read(game.path.join("doorstop_config.ini")).unwrap();
+        for allowed in [false, true, false] {
+            let requests = std::cell::Cell::new(0);
+            let launches = std::cell::Cell::new(0);
+            let result = launch_current_with(
+                &game,
+                true,
+                InstallOptions {
+                    rebound_enabled: true,
+                },
+                &|| Ok(Some(prepared.pack.clone())),
+                &|expected| {
+                    assert_eq!(expected, "c".repeat(64));
+                    requests.set(requests.get() + 1);
+                    if allowed {
+                        Ok(())
+                    } else {
+                        bail!("Beta access revoked in fixture")
+                    }
+                },
+                || {
+                    launches.set(launches.get() + 1);
+                    Ok(())
+                },
+            );
+            assert_eq!(requests.get(), 1);
+            assert_eq!(result.is_ok(), allowed);
+            assert_eq!(launches.get(), u32::from(allowed));
+            assert_eq!(fs::read(&marker).unwrap(), before_manifest);
+            assert_eq!(
+                fs::read(game.path.join("doorstop_config.ini")).unwrap(),
+                before_loader
+            );
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn current_launch_rebound_rechecks_installed_inputs_after_the_server_reply() {
+        for change_game in [false, true] {
+            let (root, game, prepared) = bound_current_fixture("launch-input-race");
+            let launches = std::cell::Cell::new(0);
+            let result = launch_current_with(
+                &game,
+                true,
+                InstallOptions {
+                    rebound_enabled: true,
+                },
+                &|| Ok(Some(prepared.pack.clone())),
+                &|_| {
+                    let changed = if change_game {
+                        game.path.join("ROUNDS_Data/Managed/Assembly-CSharp.dll")
+                    } else {
+                        game.path
+                            .join("BepInEx/plugins/Canna")
+                            .join(REBOUND_MANIFEST)
+                    };
+                    fs::write(changed, b"changed while server was replying")?;
+                    Ok(())
+                },
+                || {
+                    launches.set(launches.get() + 1);
+                    Ok(())
+                },
+            );
+            assert!(result.is_err());
+            assert_eq!(launches.get(), 0);
+            assert_eq!(
+                fs::read(game.path.join("doorstop_config.ini")).unwrap(),
+                b"[General]\nenabled=false\n"
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test]
+    fn current_launch_rebound_manifest_game_and_metadata_changes_fail_before_http_or_dispatch() {
+        for mutation in 0..8 {
+            let (root, game, mut prepared) =
+                bound_current_fixture(&format!("launch-invalid-{mutation}"));
+            let marker = game
+                .path
+                .join("BepInEx/plugins/Canna")
+                .join(REBOUND_MANIFEST);
+            match mutation {
+                0 => fs::write(&marker, b"altered manifest").unwrap(),
+                1 => fs::remove_file(&marker).unwrap(),
+                2 => fs::write(
+                    game.path.join("ROUNDS_Data/Managed/Assembly-CSharp.dll"),
+                    b"changed game",
+                )
+                .unwrap(),
+                3 => {
+                    prepared.pack.mods[0]
+                        .provenance
+                        .as_object_mut()
+                        .unwrap()
+                        .remove("rebound_support_sha256");
+                }
+                4 => {
+                    prepared.pack.mods[0].provenance["rebound_manifest_sha256"] =
+                        "not-a-hash".into()
+                }
+                5 => prepared.pack.mods.push(prepared.pack.mods[0].clone()),
+                6 => prepared.pack.game.app_id = 1686940,
+                _ => fs::remove_dir_all(game.path.join("BepInEx/plugins/Canna/DuctTapePlusPlus"))
+                    .unwrap(),
+            }
+            let requests = std::cell::Cell::new(0);
+            let launches = std::cell::Cell::new(0);
+            let loader = fs::read(game.path.join("doorstop_config.ini")).unwrap();
+            let result = launch_current_with(
+                &game,
+                true,
+                InstallOptions {
+                    rebound_enabled: true,
+                },
+                &|| Ok(Some(prepared.pack.clone())),
+                &|_| {
+                    requests.set(requests.get() + 1);
+                    Ok(())
+                },
+                || {
+                    launches.set(launches.get() + 1);
+                    Ok(())
+                },
+            );
+            assert!(result.is_err(), "mutation {mutation} accepted");
+            assert_eq!(requests.get(), 0, "mutation {mutation} reached server");
+            assert_eq!(launches.get(), 0, "mutation {mutation} dispatched process");
+            assert_eq!(
+                fs::read(game.path.join("doorstop_config.ini")).unwrap(),
+                loader
+            );
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test]
+    fn current_launch_rebound_missing_binding_disabled_opt_in_or_old_branch_requires_reapply() {
+        for mutation in 0..4 {
+            let (root, game, prepared) =
+                bound_current_fixture(&format!("launch-policy-{mutation}"));
+            let mut options = InstallOptions {
+                rebound_enabled: true,
+            };
+            let mut pack = Some(prepared.pack);
+            match mutation {
+                0 => pack = None,
+                1 => options.rebound_enabled = false,
+                2 => fs::write(
+                    root.join("steamapps/appmanifest_1557740.acf"),
+                    r#""AppState" { "UserConfig" { "BetaKey" "old-rounds-for-mods" } }"#,
+                )
+                .unwrap(),
+                _ => pack.as_mut().unwrap().mods[0].enabled = false,
+            }
+            let result: Result<()> = launch_current_with(
+                &game,
+                true,
+                options,
+                &|| Ok(pack.clone()),
+                &|_| panic!("invalid setup reached server"),
+                || panic!("invalid setup dispatched game"),
+            );
+            assert!(result.is_err());
+            fs::remove_dir_all(root).unwrap();
+        }
+    }
+    #[test]
+    fn current_launch_rebound_vanilla_other_games_and_inactive_trees_never_check_access() {
+        let (root, game, prepared) = bound_current_fixture("launch-scope");
+        let mut other = game.clone();
+        other.app_id = 1686940;
+        for (candidate, modded) in [(&game, false), (&other, true)] {
+            let launched = launch_current_with(
+                candidate,
+                modded,
+                InstallOptions::default(),
+                &|| panic!("unrelated launch loaded Rebound metadata"),
+                &|_| panic!("unrelated launch reached server"),
+                || Ok("allowed"),
+            )
+            .unwrap();
+            assert_eq!(launched, "allowed");
+        }
+        fs::rename(
+            game.path.join("BepInEx/plugins/Canna"),
+            root.join("fixture-parked"),
+        )
+        .unwrap();
+        assert!(
+            launch_current_with(
+                &game,
+                true,
+                InstallOptions::default(),
+                &|| panic!("inactive tree loaded metadata"),
+                &|_| panic!("inactive tree reached server"),
+                || Ok(())
+            )
+            .is_ok()
+        );
+        fs::create_dir(game.path.join("BepInEx/plugins/Canna")).unwrap();
+        let mut ordinary = prepared.pack;
+        ordinary.mods.clear();
+        assert!(
+            launch_current_with(
+                &game,
+                true,
+                InstallOptions::default(),
+                &|| Ok(Some(ordinary.clone())),
+                &|_| panic!("ordinary ROUNDS reached server"),
+                || Ok(())
+            )
+            .is_ok()
+        );
+        assert!(
+            launch_current_with(
+                &game,
+                true,
+                InstallOptions::default(),
+                &|| Ok(None),
+                &|_| panic!("manual ROUNDS reached server"),
+                || Ok(())
+            )
+            .is_ok()
+        );
+        assert!(
+            launch_current_with(
+                &game,
+                true,
+                InstallOptions::default(),
+                &|| bail!("unrelated corrupt history"),
+                &|_| panic!("ordinary corrupt history reached server"),
+                || Ok(())
+            )
+            .is_ok()
+        );
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn rebound_opt_in_does_not_change_ordinary_or_other_game_preparation() {

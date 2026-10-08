@@ -227,6 +227,33 @@ pub fn verify_current(token: &str, expected: &str) -> Result<()> {
     Ok(())
 }
 
+fn verify_current_read_only_with(
+    client: &reqwest::blocking::Client,
+    origin: &str,
+    token: &str,
+    expected: &str,
+) -> Result<()> {
+    ensure!(
+        valid_hash(expected),
+        "Invalid installed Rebound support checksum; reapply the pack"
+    );
+    // Launch checks do not read, download, create or purge support cache files.
+    let current = manifest(client, origin, token)?;
+    ensure!(
+        current.sha256 == expected,
+        "Canna Rebound support changed; reapply the pack before launching"
+    );
+    Ok(())
+}
+
+pub fn verify_current_read_only(token: &str, expected: &str) -> Result<()> {
+    #[cfg(all(test, canna_rebound_local_preview))]
+    if token == "private-rebound-fixture" {
+        return Ok(());
+    }
+    verify_current_read_only_with(&client()?, ORIGIN, token, expected)
+}
+
 pub struct Access {
     session: Zeroizing<String>,
     pending: Option<Receiver<(String, Result<(), String>)>>,
@@ -385,6 +412,61 @@ mod tests {
         assert!(error.to_string().contains("Beta access"));
         assert!(!root.exists());
         server.join().unwrap();
+    }
+    #[test]
+    fn read_only_launch_manifest_check_is_fresh_rejects_revocation_or_stale_support_and_preserves_cache()
+     {
+        let root = scratch();
+        crate::modpacks::with_test_root(root.clone(), || {
+            let cache = cache_root();
+            fs::create_dir_all(&cache).unwrap();
+            let bytes = payload();
+            let cached = cache.join(format!("{}.zip", checksum(&bytes)));
+            fs::write(&cached, &bytes).unwrap();
+            fs::write(cache.join("keep.txt"), b"unrelated fixture").unwrap();
+            let client = client().unwrap();
+            for (status, reply, allowed) in [
+                (200, manifest_bytes(&bytes), true),
+                (403, vec![], false),
+                (200, manifest_bytes(b"PK\x03\x04updated support"), false),
+                (503, vec![], false),
+                (200, manifest_bytes(&bytes), true),
+            ] {
+                let (origin, worker) = server(vec![(MANIFEST_PATH, status, reply)]);
+                let result = verify_current_read_only_with(
+                    &client,
+                    &origin,
+                    "beta-fixture",
+                    &checksum(&bytes),
+                );
+                assert_eq!(result.is_ok(), allowed);
+                worker.join().unwrap();
+                assert_eq!(fs::read(&cached).unwrap(), bytes);
+                assert_eq!(
+                    fs::read(cache.join("keep.txt")).unwrap(),
+                    b"unrelated fixture"
+                );
+                assert_eq!(fs::read_dir(&cache).unwrap().count(), 2);
+            }
+            assert!(
+                verify_current_read_only_with(&client, "http://127.0.0.1:1", "", &checksum(&bytes))
+                    .unwrap_err()
+                    .to_string()
+                    .contains("Sign in")
+            );
+            assert!(
+                verify_current_read_only_with(
+                    &client,
+                    "http://127.0.0.1:1",
+                    "beta-fixture",
+                    "invalid"
+                )
+                .unwrap_err()
+                .to_string()
+                .contains("checksum")
+            );
+        });
+        fs::remove_dir_all(root).unwrap();
     }
     #[test]
     fn authorized_download_is_pinned_and_cached_but_every_read_reauthorizes() {

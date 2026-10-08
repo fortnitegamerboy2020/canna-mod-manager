@@ -16,6 +16,8 @@ static class CannaFixRules
         ValidateCardBarBoundsGuard(module);
         ProjectileDynamicTargets(module, game, changes);
         CardBarRosterSlots(module, game, changes);
+        GlueVisualCleanup(module, game, changes);
+        SatellitePrototypeLifecycle(module, changes);
         var harmony = game.Resolver.Get("0Harmony")?.MainModule.GetType("HarmonyLib.Harmony");
         var constructor = harmony?.Methods.SingleOrDefault(m => m.IsConstructor && !m.IsStatic
             && m.Parameters.Count == 1 && m.Parameters[0].ParameterType.FullName == "System.String");
@@ -59,9 +61,158 @@ static class CannaFixRules
     static bool GameType(TypeReference type, string name) => type.FullName == name
         && type.Scope is AssemblyNameReference scope && scope.Name == "Assembly-CSharp";
 
+    static void GlueVisualCleanup(ModuleDefinition module, Game game, List<string> changes)
+    {
+        if (module.Assembly.Name.Name != "CosmicRounds") return;
+        const string error = "Unsupported CosmicRounds Glue runtime visual cleanup contract";
+        var plugin = module.GetType("CR.CR")?.CustomAttributes.Where(a => a.AttributeType.FullName == "BepInEx.BepInPlugin").ToArray();
+        if (plugin == null || plugin.Length != 1 || plugin[0].ConstructorArguments.Count != 3
+            || plugin[0].ConstructorArguments[0].Value is not string guid || guid != "com.XAngelMoonX.rounds.CosmicRounds"
+            || plugin[0].ConstructorArguments[2].Value is not string version || version != "2.7.0")
+            throw new InvalidDataException(error);
+        var type = module.GetType("CR.MonoBehaviors.GlueMono");
+        var getters = type?.Methods.Where(m => m.Name == "get_glueVisual").ToArray();
+        if (type?.BaseType?.FullName != "ModdingUtils.RoundsEffects.HitSurfaceEffect"
+            || getters == null || getters.Length != 1) throw new InvalidDataException(error);
+        var method = getters[0];
+        if (!method.IsPublic || !method.IsStatic || !method.IsSpecialName || method.GenericParameters.Count != 0
+            || method.Parameters.Count != 0 || method.ReturnType.FullName != "UnityEngine.GameObject"
+            || !method.HasBody || !method.Body.InitLocals || method.Body.ExceptionHandlers.Count != 0
+            || method.Body.Instructions.Count != 146 || method.Body.Variables.Count != 4)
+            throw new InvalidDataException(error);
+        var code = method.Body.Instructions;
+        var cleanups = new List<Instruction>();
+        foreach (string component in new[] { "Explosion", "Explosion_Overpower" })
+        {
+            var matches = code.Where(i => i.OpCode == OpCodes.Callvirt && i.Operand is GenericInstanceMethod get
+                && get.Name == "GetComponent" && get.HasThis && get.Parameters.Count == 0
+                && get.DeclaringType.FullName == "UnityEngine.GameObject" && get.GenericArguments.Count == 1
+                && GameType(get.GenericArguments[0], component)).ToArray();
+            if (matches.Length != 1) throw new InvalidDataException(error);
+            int at = code.IndexOf(matches[0]);
+            if (at < 1 || at + 1 >= code.Count || code[at - 1].OpCode != OpCodes.Ldsfld
+                || code[at - 1].Operand is not FieldReference visual || visual.Name != "glueVisu"
+                || visual.DeclaringType.FullName != type.FullName || visual.DeclaringType.Scope != module
+                || visual.FieldType.FullName != "UnityEngine.GameObject" || code[at + 1].OpCode != OpCodes.Call
+                || code[at + 1].Operand is not MethodReference destroy || destroy.HasThis || destroy.Parameters.Count != 1
+                || destroy.Parameters[0].ParameterType.FullName != "UnityEngine.Object" || destroy.ReturnType.FullName != "System.Void"
+                || destroy.DeclaringType.FullName != "UnityEngine.Object" || destroy.Name is not ("Destroy" or "DestroyImmediate")
+                || destroy.DeclaringType.Scope.Name is not ("UnityEngine" or "UnityEngine.CoreModule"))
+                throw new InvalidDataException(error);
+            cleanups.Add(code[at + 1]);
+        }
+        // The complete pinned getter proves glueVisu is a newly instantiated runtime clone.
+        // Canonicalize only the two reviewed calls, so a partial normalization remains retryable.
+        var shape = code.Select(i => i.OpCode.Code + ":" + (i.Operand is Instruction branch
+            ? code.IndexOf(branch).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : i.Operand is MemberReference member
+                ? cleanups.Contains(i) ? member.FullName.Replace("::DestroyImmediate(", "::Destroy(") : member.FullName
+                : Convert.ToString(i.Operand, System.Globalization.CultureInfo.InvariantCulture) ?? ""));
+        using (var sha = System.Security.Cryptography.SHA256.Create())
+        {
+            var digest = BitConverter.ToString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", shape))))
+                .Replace("-", "").ToLowerInvariant();
+            if (digest != "4521e34163f0b689c9b9961c6f198d2bc5e9f9c78bd71eb267526b3f7fcb431c")
+                throw new InvalidDataException(error);
+        }
+        var destroyers = game.Resolver.Get("UnityEngine.CoreModule")?.MainModule.GetType("UnityEngine.Object")?.Methods
+            .Where(m => m.Name == "DestroyImmediate" && m.IsPublic && m.IsStatic && m.ReturnType.FullName == "System.Void"
+                && m.Parameters.Count == 1 && m.Parameters[0].ParameterType.FullName == "UnityEngine.Object").ToArray();
+        if (destroyers == null || destroyers.Length != 1 || !destroyers[0].HasBody)
+            throw new InvalidDataException(error);
+        // The one-argument native overload forwards allowDestroyingAssets=false.
+        var native = destroyers[0].Body.Instructions;
+        if (!native.Select(i => i.OpCode.Code).SequenceEqual(new[] { Code.Nop, Code.Ldc_I4_0, Code.Stloc_0,
+                Code.Ldarg_0, Code.Ldloc_0, Code.Call, Code.Nop, Code.Ret })
+            || native[5].Operand is not MethodReference forward || forward.Name != "DestroyImmediate" || forward.HasThis
+            || forward.DeclaringType.FullName != "UnityEngine.Object" || forward.Parameters.Count != 2
+            || forward.Parameters[0].ParameterType.FullName != "UnityEngine.Object"
+            || forward.Parameters[1].ParameterType.FullName != "System.Boolean") throw new InvalidDataException(error);
+        foreach (var cleanup in cleanups)
+        {
+            if (((MethodReference)cleanup.Operand).Name == "DestroyImmediate") continue;
+            cleanup.Operand = module.ImportReference(destroyers[0]);
+            changes.Add("CosmicRounds Glue: synchronously remove "
+                + ((GenericInstanceMethod)cleanup.Previous.Operand).GenericArguments[0].FullName
+                + " from the runtime visual clone before its first copy (assets unchanged)");
+        }
+    }
+
     static bool GameField(Instruction instruction, OpCode code, string type, string name, string fieldType) =>
         instruction.OpCode == code && instruction.Operand is FieldReference field
         && GameType(field.DeclaringType, type) && field.Name == name && field.FieldType.FullName == fieldType;
+
+    static string BodyDigest(MethodDefinition method, int skip = 0)
+    {
+        var code = method.Body.Instructions;
+        var shape = code.Skip(skip).Select(i => i.OpCode.Code + ":" + (i.Operand is Instruction branch
+            ? (code.IndexOf(branch) - skip).ToString(System.Globalization.CultureInfo.InvariantCulture)
+            : i.Operand is MemberReference member ? member.FullName
+            : Convert.ToString(i.Operand, System.Globalization.CultureInfo.InvariantCulture) ?? ""));
+        using var sha = System.Security.Cryptography.SHA256.Create();
+        return BitConverter.ToString(sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", shape))))
+            .Replace("-", "").ToLowerInvariant();
+    }
+
+    static void SatellitePrototypeLifecycle(ModuleDefinition module, List<string> changes)
+    {
+        if (module.Assembly.Name.Name != "CosmicRounds") return;
+        const string error = "Unsupported CosmicRounds Satellite prototype lifecycle contract";
+        var type = module.GetType("CR.MonoBehaviors.SatelliteMono");
+        var starts = type?.Methods.Where(m => m.Name == "Start").ToArray();
+        var updates = type?.Methods.Where(m => m.Name == "Update").ToArray();
+        var adds = module.GetType("CR.Cards.SatelliteCard")?.Methods.Where(m => m.Name == "OnAddCard").ToArray();
+        if (type?.BaseType?.FullName != "UnityEngine.MonoBehaviour" || starts == null || starts.Length != 1
+            || updates == null || updates.Length != 1 || adds == null || adds.Length != 1)
+            throw new InvalidDataException(error);
+        var start = starts[0]; var update = updates[0]; var add = adds[0];
+        foreach (var method in new[] { start, update })
+            if (method.IsStatic || method.IsPublic || method.Parameters.Count != 0 || method.GenericParameters.Count != 0
+                || method.ReturnType.FullName != "System.Void" || !method.HasBody || method.Body.ExceptionHandlers.Count != 0
+                || method.Body.Variables.Count != 0) throw new InvalidDataException(error);
+        // The pinned card creates an active, unparented runtime prototype. Native Gun
+        // clones it under the real bullet; deactivating the prototype would deactivate
+        // those copies. Update already excludes the unparented prototype explicitly.
+        if (!add.IsPublic || add.IsStatic || add.Parameters.Count != 8 || !add.HasBody
+            || add.Body.Instructions.Count != 53 || add.Body.Variables.Count != 3 || add.Body.ExceptionHandlers.Count != 0
+            || update.Body.Instructions.Count != 104
+            || BodyDigest(add) != "1ea3c2ba6bfaf4e2b994602ae6b22c65a8a3124c3b9dfe23f324d082d0b18827"
+            || BodyDigest(update) != "db8eb4394a5267645ce7efcf435d65b977e8b1113fc3547b5a4b250a8fcc636a")
+            throw new InvalidDataException(error);
+        var code = start.Body.Instructions;
+        bool normalized = code.Count == 35;
+        if ((!normalized && code.Count != 27) || BodyDigest(start, normalized ? 8 : 0)
+            != "74d092864df07b8cb730d88925303d33162e7e12914ec48ad05dea4add2ee09f")
+            throw new InvalidDataException(error);
+        var gate = update.Body.Instructions.Skip(7).Take(6).ToArray();
+        if (!gate.Select(i => i.OpCode.Code).SequenceEqual(new[] { Code.Ldarg_0, Code.Call, Code.Callvirt,
+                Code.Callvirt, Code.Ldnull, Code.Call })
+            || gate[1].Operand is not MethodReference gameObject || gameObject.FullName != "UnityEngine.GameObject UnityEngine.Component::get_gameObject()"
+            || gate[2].Operand is not MethodReference transform || transform.FullName != "UnityEngine.Transform UnityEngine.GameObject::get_transform()"
+            || gate[3].Operand is not MethodReference parent || parent.FullName != "UnityEngine.Transform UnityEngine.Transform::get_parent()"
+            || gate[5].Operand is not MethodReference inequality || inequality.FullName != "System.Boolean UnityEngine.Object::op_Inequality(UnityEngine.Object,UnityEngine.Object)"
+            || new[] { gameObject, transform, parent, inequality }.Any(m => m.DeclaringType.Scope.Name is not ("UnityEngine" or "UnityEngine.CoreModule")))
+            throw new InvalidDataException(error);
+        if (normalized)
+        {
+            for (int i = 0; i < gate.Length; i++)
+                if (code[i].OpCode != gate[i].OpCode || (code[i].Operand is MemberReference member
+                    ? gate[i].Operand is not MemberReference expected || member.FullName != expected.FullName
+                        || member.DeclaringType.Scope.Name != expected.DeclaringType.Scope.Name
+                    : !Equals(code[i].Operand, gate[i].Operand))) throw new InvalidDataException(error);
+            if (code[6].OpCode != OpCodes.Brtrue || code[6].Operand != code[8] || code[7].OpCode != OpCodes.Ret)
+                throw new InvalidDataException(error);
+            return;
+        }
+        var il = start.Body.GetILProcessor(); var original = code[0];
+        foreach (var instruction in gate)
+            il.InsertBefore(original, instruction.Operand is MethodReference method
+                ? il.Create(instruction.OpCode, method) : il.Create(instruction.OpCode));
+        il.InsertBefore(original, il.Create(OpCodes.Brtrue, original));
+        il.InsertBefore(original, il.Create(OpCodes.Ret));
+        start.Body.MaxStackSize = Math.Max(start.Body.MaxStackSize, 2);
+        changes.Add("CosmicRounds Satellite: apply existing parent gate to prototype Start; attached projectile lifecycle unchanged");
+    }
 
     static bool PlayerList(TypeReference type) => type is GenericInstanceType list
         && list.ElementType.FullName == "System.Collections.Generic.List`1" && list.GenericArguments.Count == 1

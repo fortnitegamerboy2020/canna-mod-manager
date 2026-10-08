@@ -14,6 +14,7 @@ sealed class FixtureResolver
     public FixtureResolver(ModuleDefinition native, ModuleDefinition harmony)
     { modules = new() { ["Assembly-CSharp"] = native.Assembly, ["0Harmony"] = harmony.Assembly }; }
     public AssemblyDefinition Get(string name) => modules.GetValueOrDefault(name);
+    public void Add(ModuleDefinition module) => modules[module.Assembly.Name.Name] = module.Assembly;
 }
 static class Scanner
 {

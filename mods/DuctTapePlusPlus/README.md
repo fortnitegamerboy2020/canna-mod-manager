@@ -5,7 +5,7 @@ ROUNDS build. It combines pinned MIT DuctTape/toolkit code, exact upstream curat
 ports, checked mechanical IL mappings, asset checks and a multiplayer manifest
 guard. It never patches the installed game at startup.
 
-Desktop 0.2.44 offers it as **Settings → Canna Rebound for ROUNDS (preview)**,
+Desktop 0.2.45 offers it as **Settings → Canna Rebound for ROUNDS (preview)**,
 off by default. Enable it before Setup, Apply modpack or Launch modded. Ordinary
 desktop updates remain enabled; only the separate development Preview.exe disables
 updates. With Rebound off, ordinary installs and the official DuctTape workflow
@@ -26,6 +26,13 @@ Support is downloaded only through the protected server endpoint after that
 authorization. Previously distributed 0.2.41 executables retain their original
 bundle. Private test fixtures are excluded from ordinary runtime authorization.
 
+Desktop 0.2.45 also verifies fresh server Beta access before Launch current
+dispatches an already-active managed Rebound setup. Applied metadata binds the
+authorized support archive, installed compatibility manifest and game assembly
+hashes. Older 0.2.44 bindings require one reapply; revoked access, changed support
+or altered inputs stop dispatch. This check reads metadata without downloading,
+purging support or modifying game files.
+
 Desktop 0.2.44 can receive a protected support refresh without a new desktop
 executable. Preparation reads the authorized server manifest and uses a cached ZIP
 only when its size and SHA256 match that manifest. A changed support hash selects
@@ -34,6 +41,27 @@ After a support release, close ROUNDS and **Apply modpack** again with Rebound
 enabled and current Beta access. Already loaded game DLLs do not refresh in a
 running session. Setup restores the tracked runtime; Apply modpack or Launch
 modded prepares the current pack.
+
+## CR visual and projectile lifecycle refresh
+
+The protected Community 0.3.63 support refresh contains two bounded CR 2.7.0
+repairs. Glue removes its two intended explosion components immediately from its
+visual prototype before cloning it, using Unity's one-argument cleanup overload
+that does not permit asset destruction. The pinned getter's other destruction
+calls are unchanged. Satellite Start returns only for an unparented prototype,
+matching its existing Update policy; a parented projectile still executes the
+original initialization and synchronization body. Unknown versions or changed
+method fingerprints are refused before translation writes.
+
+Paired isolated game copies reproduced the Glue effect exception with the prior
+support bytes and removed it with the cleanup repair while retaining native ammo,
+damage source attribution and reversible surface effects. A separate native
+Satellite probe distinguished the unparented template failure from a real bullet
+clone with valid movement, synchronization and ownership. These are controlled
+local Gun.Attack and explicit native HitInfo checks, with disposable offline AI
+input paused in the copy. Natural collision, physical input, full matches and
+two-client multiplayer remain unverified. Earlier card-picker effect/audio errors
+are historical observations, not a claim that every CR card is now error-free.
 
 ## Card-picker compatibility refresh
 

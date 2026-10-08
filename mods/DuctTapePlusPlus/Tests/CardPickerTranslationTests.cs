@@ -26,6 +26,8 @@ static class CardPickerTranslationTests
         using var native = ModuleDefinition.ReadModule(Path.Combine(cached, "ROUNDS_Data/Managed/Assembly-CSharp.dll"));
         using var harmony = ModuleDefinition.ReadModule(Path.Combine(cached, "BepInEx/core/0Harmony.dll"));
         var game = new Game(native, harmony);
+        GlueVisualFixtures.Run(root, cached, game, Check);
+        SatelliteLifecycleFixtures.Run(root, game, Check);
         NativeCardPickerFixtures.Run(native, Check);
         CardBarBindingFixtures.Run(native, game, Path.Combine(cached, "BepInEx/plugins/Canna/DuctTapePlusPlus/Libraries/UnboundLib.dll"),
             Path.Combine(cached, "BepInEx/plugins/Canna/DuctTapePlusPlus/Libraries/ModdingUtils.dll"), Check);
@@ -101,6 +103,8 @@ static class CardPickerTranslationTests
             actual_moddingutils_sha256 = Hash(Path.Combine(cached, "BepInEx/plugins/Canna/DuctTapePlusPlus/Libraries/ModdingUtils.dll")),
             actual_unboundlib_sha256 = Hash(Path.Combine(cached, "BepInEx/plugins/Canna/DuctTapePlusPlus/Libraries/UnboundLib.dll")),
             cardbar_fixture_source_sha256 = Hash(Path.Combine(root, "mods/DuctTapePlusPlus/Tests/CardBarBindingFixtures.cs")),
+            glue_fixture_source_sha256 = Hash(Path.Combine(root, "mods/DuctTapePlusPlus/Tests/GlueVisualFixtures.cs")),
+            satellite_fixture_source_sha256 = Hash(Path.Combine(root, "mods/DuctTapePlusPlus/Tests/SatelliteLifecycleFixtures.cs")),
             native_metadata_sha256 = Hash(Path.Combine(cached, "ROUNDS_Data/Managed/Assembly-CSharp.dll")),
             game_files_changed = false, game_process_changed = false, real_game_or_mod_runtime_loaded = false,
             isolated_actual_prefix_and_conditions_executed = true, live_card_pick_verified = false,
