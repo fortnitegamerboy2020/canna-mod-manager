@@ -67,7 +67,7 @@ fn load_from(location: &std::path::Path, source: &Source) -> Result<Option<Repos
     if snapshot.schema_version != 1 || &snapshot.source != source {
         return Ok(None);
     }
-    if snapshot.games.len() > 100 {
+    if snapshot.games.len() > 512 {
         bail!("Too many games in catalog cache")
     }
     let mut ids = std::collections::BTreeSet::new();
@@ -173,12 +173,17 @@ mod tests {
             catalog_folder: "games".into(),
         };
         let data = RepositoryData {
-            games: vec![crate::model::bopl()],
+            games: crate::model::supported_catalog(),
             icons: BTreeMap::new(),
             warnings: vec![],
             cached_at: None,
         };
         save_to(&path, &source, &data).unwrap();
+        assert!(data.games.len() > 100);
+        assert_eq!(
+            load_from(&path, &source).unwrap().unwrap().games.len(),
+            data.games.len()
+        );
         save_to(&path, &source, &data).unwrap();
         assert_eq!(
             load_from(&path, &source).unwrap().unwrap().games[0].folder,

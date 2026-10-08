@@ -28,6 +28,7 @@ async function refreshLiveViews() {
     }
     if(kinds.has('refresh') || kinds.has('library')) {
       if(!$('libraryview').hidden) await loadLibrary();
+      if(!$('packview').hidden) await loadSharedPack();
       if(currentUser?.admin && !$('moderation').hidden && typeof loadModReviews==='function'){await loadModReviews();await loadAdminOverview();}
     }
   } catch(error) { $('liveconnection').textContent='Live refresh interrupted. Reconnecting…'; }

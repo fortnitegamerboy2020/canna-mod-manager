@@ -30,13 +30,14 @@ function button(label, callback, page) {
 const viewPaths={playview:'/play',forumview:'/forums',browseview:'/mods',subscriptionsview:'/subscriptions',libraryview:'/library',profilesview:'/members',moderation:'/admin',submissionsview:'/submissions',notificationsview:'/notifications'};
 function showView(name,stay=false) {
   if(!stay){return navigatePage(viewPaths[name] || '/forums');}
-  for (const id of ['playview','browseview','subscriptionsview','libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
+  for (const id of ['packview','playview','browseview','subscriptionsview','libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
   updateNavigation();
   if(name==='playview') return loadPlayLab();
   if(name==='forumview') return (async()=>{await loadTopics();})();
   if(name==='browseview') return loadProviderBrowser();
   if(name==='subscriptionsview') return loadSubscriptions();
   if(name==='libraryview') return loadLibrary();
+  if(name==='packview') return loadSharedPack();
   if(name==='submissionsview')return loadSubmissions();
   if(name==='notificationsview')return loadNotifications();
   if (name === 'moderation') return loadAdmin();
@@ -211,6 +212,7 @@ function viewSource(id) { window.open(`/review/mods/${encodeURIComponent(id)}`,'
 
 async function openCommunityPage() {
   const path=location.pathname;
+  if(path.startsWith('/packs/')){await showView('packview',true);return;}
   $('forumback').hidden=!(path.startsWith('/forums/') && path!=='/forums');
   if(path.startsWith('/forums/sections/')) {
     const section=decodeURIComponent(path.slice('/forums/sections/'.length));

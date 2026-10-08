@@ -58,7 +58,7 @@ function entry(item, kind) {
   info.append(title, detail);if(kind==='mods' && item.uploader) {const uploader=document.createElement('small');uploader.textContent='Added by '+item.uploader;info.append(uploader);}
   if(item.details?.author_links?.length) {const authors=document.createElement('p');authors.append('By ');for(const author of item.details.author_links){const link=document.createElement('a');link.textContent=author.name;link.href=author.url;link.target='_blank';link.rel='noopener noreferrer';authors.append(link,' ');}info.append(authors);}
   if(item.description) {const description=document.createElement('p');description.className='moddescription modpreview';description.textContent=item.description;info.append(description);}
-  const more=document.createElement('button');more.textContent='Show more';more.addEventListener('click',()=>openModDetails(item));info.append(more);
+  const more=document.createElement('button');more.textContent=kind==='packs'?'View shared pack':'Show more';more.addEventListener('click',()=>kind==='packs'?navigatePage(`/packs/${item.id}`):openModDetails(item));info.append(more);
   if(item.details?.dependencies?.length) {const deps=document.createElement('p');deps.textContent='Required: '+item.details.dependencies.join(', ');info.append(deps);}
   if(item.details?.install_notes){const notes=document.createElement('p');notes.textContent=item.details.install_notes;info.append(notes);}
   if(item.details?.source_url) {const source=document.createElement('a');source.textContent='Original project · '+(item.details.provider || 'Family catalog');source.href=item.details.source_url;source.target='_blank';source.rel='noopener noreferrer';info.append(source);}
@@ -136,9 +136,6 @@ $('share').addEventListener('submit',event=>{event.preventDefault();action(async
   const file=$('packfile').files[0];if(!file||file.size>2*1024*1024)throw new Error('Choose a Canna modpack export no larger than 2 MiB.');const result=await json('packs',JSON.parse(await file.text()));await refresh();message(`Share link: ${result.url}`);
 });});
 document.addEventListener('DOMContentLoaded',()=>{refresh().catch(error=>{$('bootstatus').textContent='Unable to load this page. Reload to try again.';message(error.message);});});
-if(location.pathname.startsWith('/packs/')) {
-  const id=location.pathname.split('/')[2];const button=document.createElement('button');button.className='primary';button.textContent='Download shared pack';button.addEventListener('click',()=>action(()=>downloadToApp({id,name:'Shared modpack'},'packs')));$('forumview').hidden=true;$('libraryview').hidden=false;$('libraryview').prepend(button);
-}
 window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();});
 
 // Only the displayed page is rendered; searches run across the server's full list.

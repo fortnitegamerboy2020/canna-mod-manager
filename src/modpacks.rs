@@ -37,6 +37,13 @@ pub struct Modpack {
     pub game: PackGame,
     pub repository: Source,
     pub mods: Vec<ModInfo>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shared: Option<SharedPack>,
+}
+#[derive(Clone, Serialize, Deserialize)]
+pub struct SharedPack {
+    pub id: String,
+    pub revision: u64,
 }
 fn new_id() -> String {
     let nanos = SystemTime::now()
@@ -167,9 +174,21 @@ impl Modpack {
             },
             repository,
             mods,
+            shared: None,
         }
     }
     pub fn validate(&self) -> Result<()> {
+        if let Some(shared) = &self.shared {
+            anyhow::ensure!(
+                shared.id.len() == 36
+                    && shared
+                        .id
+                        .bytes()
+                        .all(|c| c.is_ascii_hexdigit() || c == b'-')
+                    && shared.revision > 0,
+                "Invalid shared pack reference"
+            );
+        }
         if self.format != "canna_modpack" || self.schema_version != 1 {
             bail!("Unsupported Canna modpack format or version")
         }
@@ -305,7 +324,7 @@ impl Modpack {
         std::fs::rename(path, destination).context("Could not restore modpack")?;
         Ok(pack)
     }
-    fn save_in(&self, folder: &Path) -> Result<()> {
+    pub(crate) fn save_in(&self, folder: &Path) -> Result<()> {
         self.validate()?;
         std::fs::create_dir_all(folder)?;
         let destination = folder.join(format!("{}.canna.json", self.id));
@@ -640,6 +659,10 @@ mod tests {
         let mut pack = fixture();
         pack.group = "Family nights".into();
         pack.theme = 2;
+        pack.shared = Some(SharedPack {
+            id: "11111111-1111-4111-8111-111111111111".into(),
+            revision: 3,
+        });
         pack.mods[0].enabled = false;
         pack.save_in(&local).unwrap();
         let exported = folder.join("family.canna.json");
@@ -648,6 +671,11 @@ mod tests {
         pack.export(&exported).unwrap();
         let imported = Modpack::import_into(&exported, &local).unwrap();
         assert_ne!(imported.id, pack.id);
+        assert_eq!(
+            imported.shared.as_ref().unwrap().id,
+            pack.shared.as_ref().unwrap().id
+        );
+        assert_eq!(imported.shared.as_ref().unwrap().revision, 3);
         assert_eq!(imported.mods[0].version, "1.2.3");
         assert!(!imported.mods[0].enabled);
         assert_eq!(imported.mods[0].sha256, "a".repeat(64));

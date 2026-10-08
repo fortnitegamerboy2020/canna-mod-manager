@@ -18,6 +18,7 @@ async function fixture(path){
  const doc={createElement:node,createTextNode:t=>Object.assign(node(),{textContent:t}),getElementById:id=>nodes.get(id),addEventListener(){},querySelectorAll:q=>q==='.admintabs button'?all.filter(n=>n.dataset.tab):all.filter(n=>n.id?.startsWith('admin-')),body:node(),head:node()};
  let ctx,updateRetry=0;doc.head.append=n=>{if(n.src==='/admin.js'){vm.runInContext(fs.readFileSync('server/web/admin.js','utf8'),ctx);n.onload();}};
  function data(p){
+  if(/^packs\/.+\/info$/.test(p))return {id:'11111111-1111-4111-8111-111111111111',url:'https://cannamods.vip/packs/11111111-1111-4111-8111-111111111111',author:'Owner',revision:1,ready:true,can_update:true,manifest:{name:'Game night',description:'Shared selections',game:{name:'Bopl Battle'},mods:[]}};
   if(p==='catalog')return {games:[{app_id:1686940,name:'Bopl Battle'},{app_id:1557740,name:'ROUNDS'}]};
   if(p.startsWith('play?'))return {reports:[],rooms:[],channels:[],releases:[],total:0,channel_total:0};if(p.startsWith('invites?'))return {items:[],total:0,page:1,has_more:false};if(p==='providers/games')return {games:[]};if(p.startsWith('providers/search'))return {items:[],categories:[],has_more:false};if(p.startsWith('mods/subscriptions'))return {items:[],page:1,has_more:false};
   if(p==='mods/updates/status')return {retry_at:updateRetry,checks:[]};if(p==='mods/updates/check'){updateRetry=Math.floor(Date.now()/1000)+120;return {queued:true,retry_at:updateRetry};}
@@ -40,6 +41,7 @@ async function fixture(path){
  const browse=await fixture('/mods');assert.equal(browse.get('browseview').hidden,false);assert.equal(browse.get('libraryview').hidden,true);assert(browse.requests.some(p=>p.startsWith('/api/v1/providers/search')));assert(!browse.requests.includes('/api/v1/mods'));
  const subs=await fixture('/subscriptions');assert.equal(subs.get('subscriptionsview').hidden,false);assert(subs.requests.some(p=>p.startsWith('/api/v1/mods/subscriptions')));
  const library=await fixture('/library');
+ const shared=await fixture('/packs/11111111-1111-4111-8111-111111111111');assert.equal(shared.get('packview').hidden,false);assert.equal(shared.get('libraryview').hidden,true);assert(shared.requests.some(p=>p.endsWith('/info')));assert(!shared.requests.includes('/api/v1/mods'));
  const example={id:'fixture-mod',name:'Fixture mod',version:'1.0',description:'A visible original description',author:'Author',details:{game:'Minecraft',provider:'modrinth',icon_data:'fixture',author_links:[{name:'Author',url:'https://modrinth.com/user/Author'}],game_versions:['1.21.1'],loaders:['Fabric'],dependencies:['Fabric API']}};
  assert.deepEqual(JSON.parse(fs.readFileSync('server/web/source-recommendations.json','utf8')),[]);
  library.ctx.curatedExample=example;

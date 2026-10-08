@@ -261,3 +261,7 @@ Canna follows at most three redirects and validates every destination against
 the provider's archive host/path allowlist. API credentials go only to the
 CurseForge API; CDN downloads receive no credentials. Provider checksums, encrypted
 storage, review gating and cache restoration checks remain required.
+
+## Shared modpack links (0.2.34 / server 0.3.52)
+
+Open a desktop modpack and use **Share with link**. The server stores a validated manifest referencing its existing mod files; the member-only page displays the pack, game, creator and included versions. Local files are uploaded for manual review before installation is enabled. **Publish pack update** advances the same link using an expected revision; only the creator can publish. Recipients use **Check pack updates**, review the changes and explicitly accept them before applying the pack. One previous local manifest is retained for recovery. Claimed website transfers preserve their exact revision even when the creator publishes concurrently. Credentials, device identifiers and arbitrary manifest fields are not published. The full game registry now fits the offline catalog cache.

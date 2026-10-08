@@ -18,6 +18,7 @@ pub struct PackUi {
     pub lab_games: Vec<crate::model::InstalledGame>,
     pub lab_memory: BTreeMap<u32, crate::play_metrics::Memory>,
     lab: crate::play_lab::Lab,
+    sharing: crate::shared_packs::Sharing,
     pub console_game: Option<u32>,
     pub discover_pack: Option<String>,
     pub discover_return: bool,
@@ -519,6 +520,7 @@ impl PackUi {
             lab_games: Vec::new(),
             lab_memory: BTreeMap::new(),
             lab: Default::default(),
+            sharing: Default::default(),
             console_game: None,
             discover_pack: None,
             discover_return: false,
@@ -573,6 +575,9 @@ impl PackUi {
         connection_busy: bool,
         artwork: &BTreeMap<u32, egui::TextureHandle>,
     ) -> Option<Source> {
+        if let Some(pack) = self.sharing.poll(ui.ctx()) {
+            self.upsert(pack);
+        }
         let mut action = None;
         let mut connect = None;
         if let Some(pack) = self
@@ -658,7 +663,7 @@ impl PackUi {
                 if primary(ui, "Edit modpack").clicked() {
                     action = Some(Action::Edit(pack.clone()));
                 }
-                if ui.button("Export…").clicked() {
+                if ui.button("Export file…").clicked() {
                     action = Some(Action::Export(pack.clone()));
                 }
                 if ui.button("Console").clicked() {
@@ -684,6 +689,9 @@ impl PackUi {
                     connect = Some(pack.repository.clone());
                 }
             });
+            if let Some(updated) = self.sharing.show(ui, &pack) {
+                self.upsert(updated);
+            }
             ui.add_space(16.0);
             ui.separator();
             ui.horizontal(|ui| {

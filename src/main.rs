@@ -21,6 +21,7 @@ mod play_metrics;
 mod provider_browser;
 mod repository;
 mod runtime;
+mod shared_packs;
 mod skin_catalog;
 mod skins;
 mod source_addons;

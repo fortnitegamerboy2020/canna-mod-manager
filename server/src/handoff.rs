@@ -205,6 +205,8 @@ pub async fn create(
     )?;
     if input.kind == "mods" {
         security::approved(&db, &input.id)?;
+    } else if exists {
+        shared_packs::download_manifest(&db, &input.id)?;
     }
     if !exists {
         return Err(ApiError(StatusCode::NOT_FOUND, "Library item not found"));
@@ -266,10 +268,7 @@ fn descriptor(db: &Connection, kind: &str, id: &str) -> ApiResult<Value> {
         v["id"] = json!(id);
         Ok(v)
     } else {
-        let raw: String = db
-            .query_row("SELECT manifest FROM packs WHERE id=?1", [id], |r| r.get(0))
-            .optional()?
-            .ok_or(ApiError(StatusCode::NOT_FOUND, "Pack was removed"))?;
+        let raw = shared_packs::download_manifest(db, id)?;
         Ok(
             json!({"kind":"packs","id":id,"filename":"Shared-Modpack.canna.json","sha256":digest(&raw),"size":raw.len()}),
         )
@@ -287,6 +286,14 @@ pub async fn claim(
     let mut info = descriptor(&tx, &kind, &id)?;
     let receipt = token();
     info["receipt"] = json!(receipt);
+    if kind == "packs" {
+        tx.execute("DELETE FROM pack_transfers WHERE expires<?1", [now()])?;
+        let raw = shared_packs::download_manifest(&tx, &id)?;
+        tx.execute(
+            "INSERT INTO pack_transfers VALUES(?1,?2,?3)",
+            params![digest(&receipt), raw, now() + 300],
+        )?;
+    }
     tx.execute(
         "UPDATE download_tickets SET state='connected',receipt=?1,expires=?2 WHERE hash=?3",
         params![digest(&receipt), now() + 300, digest(&input.ticket)],
@@ -329,10 +336,28 @@ pub async fn transfer(
         )
             .into_response())
     } else {
-        let raw: String = app.db.lock().unwrap().query_row(
-            "SELECT manifest FROM packs WHERE id=?1",
-            [&id],
+        let db = app.db.lock().unwrap();
+        // Recheck membership/mod approval, while transferring the exact revision claimed.
+        let raw: String = db.query_row(
+            "SELECT manifest FROM pack_transfers WHERE receipt=?1 AND expires>?2",
+            params![digest(&input.receipt), now()],
             |r| r.get(0),
+        )?;
+        let manifest: Value =
+            serde_json::from_str(&raw).map_err(|_| bad("Invalid pack transfer"))?;
+        for item in manifest["mods"].as_array().unwrap() {
+            security::approved(
+                &db,
+                item["file"]
+                    .as_str()
+                    .unwrap()
+                    .trim_start_matches("Mods/")
+                    .trim_end_matches(".zip"),
+            )?;
+        }
+        db.execute(
+            "DELETE FROM pack_transfers WHERE receipt=?1",
+            [digest(&input.receipt)],
         )?;
         Ok(([("content-type", "application/json")], raw).into_response())
     }
@@ -737,9 +762,10 @@ mod tests {
             .unwrap()
             .execute(
                 "INSERT INTO packs SELECT ?1,id,'Test',?2 FROM users WHERE username='owner'",
-                params![id, json!({"game":{"app_id":1686940}}).to_string()],
+                params![id, json!({"format":"canna_modpack","schema_version":1,"name":"Test","game":{"app_id":1686940},"mods":[]}).to_string()],
             )
             .unwrap();
+        shared_packs::initialize(&app.db.lock().unwrap()).unwrap();
         let t = value(
             call(
                 app.clone(),

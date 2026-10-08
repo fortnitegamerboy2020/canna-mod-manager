@@ -46,6 +46,7 @@ mod provider_cache;
 mod scans;
 mod sections;
 mod security;
+mod shared_packs;
 mod source_packages;
 mod subscriptions;
 mod support;
@@ -174,6 +175,7 @@ impl App {
         notifications::initialize(&db)?;
         scans::enforce_manual_uploads(&db)?;
         handoff::initialize(&db)?;
+        shared_packs::initialize(&db)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS profiles(user_id INTEGER PRIMARY KEY REFERENCES users(id), status TEXT NOT NULL DEFAULT '', bio TEXT NOT NULL DEFAULT '', avatar TEXT);
             CREATE TABLE IF NOT EXISTS profile_comments(id TEXT PRIMARY KEY,target INTEGER NOT NULL REFERENCES users(id),author INTEGER NOT NULL REFERENCES users(id),body TEXT NOT NULL,created INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS ratings(target INTEGER NOT NULL REFERENCES users(id),voter INTEGER NOT NULL REFERENCES users(id),stars INTEGER NOT NULL CHECK(stars BETWEEN 1 AND 5),PRIMARY KEY(target,voter),CHECK(target!=voter));")?;
@@ -744,7 +746,7 @@ fn check_pack(manifest: &Value) -> ApiResult<&str> {
         .ok_or_else(|| bad("Invalid modpack name"))?;
     let mods = manifest["mods"]
         .as_array()
-        .filter(|m| m.len() <= 200)
+        .filter(|m| m.len() <= 1000)
         .ok_or_else(|| bad("Invalid mods list"))?;
     if mods
         .iter()
@@ -755,7 +757,7 @@ fn check_pack(manifest: &Value) -> ApiResult<&str> {
         ));
     }
     if manifest["game"]["app_id"].as_u64().unwrap_or_default() == 0 {
-        return Err(bad("Modpack must specify a Steam game"));
+        return Err(bad("Modpack must specify a supported game"));
     }
     Ok(name)
 }
@@ -764,25 +766,7 @@ async fn share(
     headers: HeaderMap,
     axum::Json(manifest): axum::Json<Value>,
 ) -> ApiResult<axum::Json<Value>> {
-    let (owner, _) = app.auth(&headers)?;
-    let name = check_pack(&manifest)?;
-    let id = Uuid::new_v4().to_string();
-    let db = app.db.lock().unwrap();
-    let count: i64 = db.query_row(
-        "SELECT COUNT(*) FROM packs WHERE user_id=?1",
-        [owner],
-        |r| r.get(0),
-    )?;
-    if count >= 200 {
-        return Err(bad("You can share up to 200 packs"));
-    }
-    db.execute(
-        "INSERT INTO packs VALUES(?1,?2,?3,?4)",
-        params![id, owner, name, manifest.to_string()],
-    )?;
-    Ok(axum::Json(
-        json!({"id":id,"url":format!("https://cannamods.vip/packs/{id}")}),
-    ))
+    shared_packs::publish(State(app), headers, axum::Json(manifest)).await
 }
 async fn packs(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Json<Value>> {
     app.auth(&headers)?;
@@ -800,15 +784,7 @@ async fn pack(
 ) -> ApiResult<Response> {
     app.auth(&headers)?;
     Uuid::parse_str(&id).map_err(|_| bad("Invalid pack ID"))?;
-    let manifest: String = app
-        .db
-        .lock()
-        .unwrap()
-        .query_row("SELECT manifest FROM packs WHERE id=?1", [&id], |r| {
-            r.get(0)
-        })
-        .optional()?
-        .ok_or(ApiError(StatusCode::NOT_FOUND, "Modpack not found"))?;
+    let manifest = shared_packs::download_manifest(&app.db.lock().unwrap(), &id)?;
     Ok((
         [
             ("content-type", "application/json"),
@@ -864,6 +840,10 @@ async fn community_page(State(app): State<Shared>, headers: HeaderMap) -> Respon
         Html(source),
     )
         .into_response()
+}
+async fn shared_packs_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
+    app.auth(&headers)?;
+    Ok(asset(include_str!("../web/shared-packs.js")))
 }
 async fn connect_page(State(app): State<Shared>, headers: HeaderMap) -> Response {
     let source = if app.auth(&headers).is_ok() {
@@ -1167,7 +1147,10 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/mods/{id}/approve", post(security::approve))
         .route("/api/v1/mods/{id}", get(download).delete(delete_mod))
         .route("/api/v1/packs", get(packs).post(share))
-        .route("/api/v1/packs/{id}", get(pack).delete(delete_pack))
+        .route("/api/v1/packs/{id}", get(pack).post(shared_packs::update).delete(delete_pack))
+        .route("/api/v1/packs/{id}/info", get(shared_packs::info))
+        .route("/api/v1/packs/local-mod/{hash}",get(shared_packs::local_mod))
+        .route("/shared-packs.js",get(shared_packs_script))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(
             app.clone(),
@@ -1997,7 +1980,7 @@ mod tests {
         );
         assert_eq!(
             value(call(app.clone(), "GET", &path, Value::Null, Some(&other)).await).await,
-            manifest
+            result["manifest"]
         );
         assert_eq!(
             call(app.clone(), "DELETE", &path, Value::Null, Some(&other))
