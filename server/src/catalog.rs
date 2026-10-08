@@ -172,17 +172,17 @@ pub async fn file(
     {
         return Err(bad("Invalid catalog path"));
     }
-    let (id, size, hash) = {
+    let (id, size, hash, artwork) = {
         let db = app.db.lock().unwrap();
-        let asset: Option<(String, i64, String)> = db
+        let asset: Option<(String, i64, String, String)> = db
             .query_row(
-                "SELECT id,size,sha256 FROM game_assets WHERE alias=?1",
+                "SELECT id,size,sha256,kind FROM game_assets WHERE alias=?1",
                 [&q.path],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()?;
-        if let Some(row) = asset {
-            row
+        if let Some((id, size, hash, kind)) = asset {
+            (id, size, hash, kind == "icon")
         } else {
             let filename = q
                 .path
@@ -192,18 +192,23 @@ pub async fn file(
                 .trim_end_matches(".zip");
             let ordinary = db.query_row("SELECT m.id,m.size,m.sha256 FROM mods m LEFT JOIN mod_details d ON d.mod_id=m.id WHERE m.id=?1 OR json_extract(d.data,'$.catalog_file')=?2",params![filename,q.path],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?;
             if let Some(row) = ordinary {
-                row
+                (row.0, row.1, row.2, false)
             } else {
                 let profile = game_profiles::games()
                     .iter()
                     .find(|g| q.path == format!("{}/Framework/BepInEx.zip", g.folder))
                     .ok_or(ApiError(StatusCode::NOT_FOUND, "Catalog file unavailable"))?;
-                db.query_row("SELECT m.id,m.size,m.sha256 FROM mods m JOIN mod_details d ON d.mod_id=m.id JOIN mod_reviews r ON r.mod_id=m.id WHERE (m.app_id=?1 OR EXISTS(SELECT 1 FROM mods parent JOIN mod_details pd ON pd.mod_id=parent.id JOIN json_each(pd.data,'$.dependency_ids') dep WHERE parent.app_id=?1 AND dep.value=m.id)) AND r.approved=1 AND json_type(d.data,'$.framework_root')='text' ORDER BY m.rowid DESC LIMIT 1",[profile.app_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(ApiError(StatusCode::NOT_FOUND,"Import a mod with its official loader dependencies, then review the loader before installing"))?
+                let row: (String, i64, String) = db.query_row("SELECT m.id,m.size,m.sha256 FROM mods m JOIN mod_details d ON d.mod_id=m.id JOIN mod_reviews r ON r.mod_id=m.id WHERE (m.app_id=?1 OR EXISTS(SELECT 1 FROM mods parent JOIN mod_details pd ON pd.mod_id=parent.id JOIN json_each(pd.data,'$.dependency_ids') dep WHERE parent.app_id=?1 AND dep.value=m.id)) AND r.approved=1 AND json_type(d.data,'$.framework_root')='text' ORDER BY m.rowid DESC LIMIT 1",[profile.app_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(ApiError(StatusCode::NOT_FOUND,"Import a mod with its official loader dependencies, then review the loader before installing"))?;
+                (row.0, row.1, row.2, false)
             }
         }
     };
-    security::approved(&app.db.lock().unwrap(), &id)?;
-    provider_cache::ensure(&app, &id).await?;
+    // Icons are trusted server-imported assets, not user-submitted executable mods.
+    // Every other asset and mod retains the approval and dependency gates.
+    if !artwork {
+        security::approved(&app.db.lock().unwrap(), &id)?;
+        provider_cache::ensure(&app, &id).await?;
+    }
     let file = tokio::fs::File::open(app.files.join(format!("{id}.zip"))).await?;
     Ok((
         [
@@ -579,6 +584,66 @@ mod tests {
         migrate(&app, &dir.path().join("assets-import.json"))
             .await
             .unwrap();
+        let member = account(&app, "artwork-member", false);
+        let artwork_path = "/api/v1/catalog/file?path=rounds%2Ficon.png";
+        app.db.lock().unwrap().execute("INSERT INTO game_assets SELECT id || '-rounds', 'rounds/icon.png',sha256,size,1557740,kind FROM game_assets WHERE alias='bopl-battle/icon.png'", []).unwrap();
+        // Give the second alias its own encrypted blob, matching production imports.
+        let id: String = app
+            .db
+            .lock()
+            .unwrap()
+            .query_row(
+                "SELECT id FROM game_assets WHERE alias='rounds/icon.png'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        let file = tokio::fs::File::create(app.files.join(format!("{id}.zip")))
+            .await
+            .unwrap();
+        let mut writer = crypto::Writer::new(file, &app.upload_key, id)
+            .await
+            .unwrap();
+        writer.write(b"image fixture").await.unwrap();
+        writer.finish().await.unwrap();
+        assert_eq!(
+            call(app.clone(), "GET", artwork_path, Value::Null, None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        for path in [
+            artwork_path,
+            "/api/v1/catalog/file?path=bopl-battle%2Ficon.png",
+        ] {
+            let response = call(app.clone(), "GET", path, Value::Null, Some(&member)).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(
+                response.headers()["x-canna-sha256"],
+                hex::encode(Sha256::digest(b"image fixture"))
+            );
+            assert_eq!(
+                axum::body::to_bytes(response.into_body(), 1024)
+                    .await
+                    .unwrap()
+                    .as_ref(),
+                b"image fixture"
+            );
+        }
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE game_assets SET kind='framework' WHERE alias='rounds/icon.png'",
+                [],
+            )
+            .unwrap();
+        assert_eq!(
+            call(app.clone(), "GET", artwork_path, Value::Null, Some(&member))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
         audit(&app).await.unwrap();
         assert_eq!(
             call(
