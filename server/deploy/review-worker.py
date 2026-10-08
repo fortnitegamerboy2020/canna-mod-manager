@@ -1,22 +1,16 @@
 #!/usr/bin/env python3
 """Static analysis only. Run under the isolated canna-review systemd service."""
-import hashlib,json,os,re,shutil,signal,stat,subprocess,time,zipfile,struct,math
+import hashlib,json,os,re,shutil,signal,stat,subprocess,time,zipfile,struct,math,importlib.util
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
-VERSION='canna-static-5'
-RULES=[
- ('network','Network access',r'https?://|\b(?:HttpClient|WebClient|UnityWebRequest|Socket|TcpClient|UdpClient|URLConnection|requests\.(?:get|post)|fetch\s*\()','review'),
- ('identity','Device or account information',r'GetPhysicalAddress|NetworkInterface|Environment\.(?:MachineName|UserName)|GetHostAddresses|GetHostName|System\.getProperty\s*\(\s*"(?:user|os)\.|getenv\s*\(|Environment\.GetEnvironmentVariable','review'),
- ('sensitive-files','Sensitive credential or browser paths',r'Login Data|Local State|Cookies|\.ssh|wallet\.dat|key4\.db|logins\.json|discord.{0,30}token|CryptUnprotectData|ProtectedData\.Unprotect','high'),
- ('filesystem','File system access',r'File\.(?:Read|Write|Delete|Move|Copy|Open)|Directory\.(?:Delete|GetFiles|Enumerate|Create)|FileStream|Files\.(?:read|write|delete)|FileInputStream|FileOutputStream|open\s*\(','review'),
- ('commands','Starting processes or shell commands',r'Process\.Start|ProcessStartInfo|Runtime\.getRuntime|ProcessBuilder|os\.system|subprocess\.|powershell|cmd\.exe|/bin/(?:sh|bash)','high'),
- ('privileges','Privilege changes or persistence',r'\brunas\b|AdjustTokenPrivileges|OpenProcessToken|CreateService|schtasks|CurrentVersion\\(?:Run|RunOnce)|setuid|sudo\b','high'),
- ('native','Native calls, memory access or injection',r'DllImport|LibraryImport|VirtualAlloc|WriteProcessMemory|CreateRemoteThread|GetProcAddress|LoadLibrary|Unsafe\.|sun\.misc\.Unsafe','review'),
- ('dynamic','Dynamic code or encoded payloads',r'Assembly\.Load|Activator\.CreateInstance|FromBase64String|eval\s*\(|defineClass|Invoke-Expression|DownloadString','review')]
-RULES=[(a,b,re.compile(c,re.I),d) for a,b,c,d in RULES]
-TEXT={'.cs','.java','.rs','.js','.ts','.lua','.nut','.py','.cpp','.c','.h','.hpp','.shader','.sh','.ps1','.json','.xml','.toml','.yml','.yaml','.txt','.md','.properties','.cfg','.ini','.res'}
+VERSION='canna-static-6-preview'
+# Fixed sibling module; no dependency or submitted plugin code is imported.
+_context_spec=importlib.util.spec_from_file_location('canna_review_context',Path(__file__).with_name('review_context.py'))
+context=importlib.util.module_from_spec(_context_spec);_context_spec.loader.exec_module(context)
+RULES=context.RULES
+TEXT={'.cs','.java','.rs','.js','.ts','.lua','.nut','.py','.cpp','.c','.h','.hpp','.shader','.sh','.ps1','.bat','.cmd','.json','.xml','.toml','.yml','.yaml','.txt','.md','.properties','.cfg','.ini','.res'}
 class Limit(Exception):pass
 
 def unpack_vpk(source,destination,max_bytes=256*1024*1024,max_files=2000):
@@ -49,50 +43,140 @@ def unpack_vpk(source,destination,max_bytes=256*1024*1024,max_files=2000):
     target=destination.joinpath(*parts.parts);target.parent.mkdir(parents=True,exist_ok=True);target.write_bytes(content);files.append(target)
  return files
 
-def packing_evidence(data):
- findings=[]
- for marker in [b'UPX!',b'.vmp0',b'.vmp1',b'VMProtect',b'Themida',b'.aspack',b'MPRESS',b'ConfusedByAttribute',b'Dotfuscator',b'Eazfuscator',b'Obfuscar',b'Enigma Protector']:
-  # A standalone signature, not the MPRESS substring in Compression/Compressed.
-  if (marker==b'UPX!' and marker in data) or re.search(rb'(?<![A-Za-z0-9_])'+re.escape(marker)+rb'(?![A-Za-z0-9_])',data,re.I):findings.append(('packer-marker','Packer or obfuscator signature marker',marker.decode()))
- if not data.startswith(b'MZ') or len(data)<64:return findings
+def pe_packing_layout(data):
+ """Read bounded PE section metadata. Untrusted section names are only hints."""
+ if not data.startswith(b'MZ'):return None
  try:
+  if len(data)<64:raise ValueError('Truncated DOS header')
   header=struct.unpack_from('<I',data,60)[0]
-  if data[header:header+4]!=b'PE\0\0':return findings
-  count=struct.unpack_from('<H',data,header+6)[0];optional=struct.unpack_from('<H',data,header+20)[0]
-  if not 1<=count<=96 or header+24+optional+40*count>len(data):return findings
-  entry=struct.unpack_from('<I',data,header+40)[0]
+  if header<64 or header+24>len(data) or data[header:header+4]!=b'PE\0\0':raise ValueError('Missing or invalid PE header')
+  count,optional=struct.unpack_from('<H',data,header+6)[0],struct.unpack_from('<H',data,header+20)[0]
+  opt=header+24;table=opt+optional;end=table+40*count
+  if not 1<=count<=96 or end>len(data) or optional<2:raise ValueError('Truncated or unsupported PE section table')
+  magic=struct.unpack_from('<H',data,opt)[0];minimum={0x10b:96,0x20b:112}.get(magic)
+  if minimum is None or optional<minimum:raise ValueError('Invalid PE optional header')
+  entry=struct.unpack_from('<I',data,opt+16)[0];sections=[]
   for n in range(count):
-   start=header+24+optional+40*n;name=data[start:start+8].split(b'\0')[0].decode('ascii','replace')
+   start=table+40*n;name=data[start:start+8].split(b'\0')[0].decode('ascii','replace')
    virtual,rva,size,offset=struct.unpack_from('<IIII',data,start+8);flags=struct.unpack_from('<I',data,start+36)[0]
-   raw=data[offset:offset+min(size,65536)];counts=Counter(raw);entropy=-sum((v/len(raw))*math.log2(v/len(raw)) for v in counts.values()) if raw else 0
-   executable=bool(flags&0x20000000);writable=bool(flags&0x80000000)
-   if executable and len(raw)>4096 and entropy>7.2:findings.append(('packing-review','Possible packed executable section',f'{name}: entropy {entropy:.2f}/8, executable; compression or encryption is possible, not proven'))
-   if executable and writable:findings.append(('packing-review','Writable and executable section',f'{name}: RWX permissions may indicate unpacking, self-modifying code or a legitimate runtime'))
-   if executable and rva<=entry<rva+max(size,virtual) and virtual>max(size*4,65536):findings.append(('packing-review','Unusual entry-point section layout',f'{name}: entry point in expanded executable section, raw {size} bytes, virtual {virtual} bytes'))
- except (struct.error,ValueError):pass
+   if size and (offset<end or offset+size>len(data)):raise ValueError('PE section data is truncated or overlaps headers')
+   if rva+max(size,virtual)>0x100000000:raise ValueError('PE section address range overflows')
+   section={'name':name,'rva':rva,'virtual':virtual,'size':size,'offset':offset,'header':start,'executable':bool(flags&0x20000000),'writable':bool(flags&0x80000000)}
+   for old in sections:
+    if size and old['size'] and offset<old['offset']+old['size'] and old['offset']<offset+size:raise ValueError('Overlapping PE section data')
+    if max(size,virtual) and max(old['size'],old['virtual']) and rva<old['rva']+max(old['size'],old['virtual']) and old['rva']<rva+max(size,virtual):raise ValueError('Overlapping PE section address ranges')
+   sections.append(section)
+  directory_count=struct.unpack_from('<I',data,opt+minimum-4)[0]
+  resource=None
+  if directory_count>2 and optional>=minimum+24:
+   rva,size=struct.unpack_from('<II',data,opt+minimum+16)
+   for section in sections:
+    if size and section['rva']<=rva and rva+size<=section['rva']+section['size']:
+     resource=(section['offset']+rva-section['rva'],size);break
+  return {'entry':entry,'sections':sections,'resource':resource}
+ except (struct.error,ValueError) as error:return {'error':str(error),'sections':[]}
+
+def packing_evidence(data):
+ findings=[];layout=pe_packing_layout(data)
+ if layout and 'error' in layout:findings.append(('coverage','PE packing analysis could not inspect malformed headers',layout['error']))
+ sections=layout['sections'] if layout else []
+ entry=layout.get('entry',0) if layout else 0
+ upx=[s for s in sections if s['name'].casefold() in ('upx0','upx1')]
+ upx_entry=next((s for s in upx if s['executable'] and s['rva']<=entry<s['rva']+max(s['size'],s['virtual'])),None)
+ # Magic plus a conventional UPX layout is stronger than an arbitrary string.
+ # These are packing indicators, never a malware verdict.
+ strong_upx=len({s['name'].casefold() for s in upx})==2 and upx_entry is not None and b'UPX!' in data[upx_entry['offset']:upx_entry['offset']+upx_entry['size']]
+ if strong_upx:findings.append(('packer-marker','UPX packing indicators',f'UPX0/UPX1 section layout, executable entry in {upx_entry["name"]}, UPX! marker in that section; packing does not establish malware'))
+ for marker in [b'UPX!',b'.vmp0',b'.vmp1',b'VMProtect',b'Themida',b'.aspack',b'MPRESS',b'ConfusedByAttribute',b'Dotfuscator',b'Eazfuscator',b'Obfuscar',b'Enigma Protector']:
+  # Names inside assets/metadata are not packer signatures. Retain the hint with
+  # its location, rather than automatically rejecting a mod for a text token.
+  pattern=re.compile(re.escape(marker) if marker==b'UPX!' else rb'(?<![A-Za-z0-9_])'+re.escape(marker)+rb'(?![A-Za-z0-9_])',re.I)
+  match=pattern.search(data)
+  if not match or (marker==b'UPX!' and strong_upx):continue
+  matches={match.start():match}
+  # A resource token near the beginning must not conceal a later occurrence in
+  # an executable section. Keep at most one occurrence per executable section.
+  for section in sections:
+   if section['executable'] and section['size']:
+    executable_match=pattern.search(data,section['offset'],section['offset']+section['size'])
+    if executable_match:matches[executable_match.start()]=executable_match
+  for offset,match in sorted(matches.items()):
+   containing=[s for s in sections if s['offset']<=offset and match.end()<=s['offset']+s['size']]
+   where=f'offset 0x{offset:x}'
+   if containing:
+    section=containing[0];where+=f', {section["name"]!r} ({"executable" if section["executable"] else "non-executable"} section)'
+    resource=layout.get('resource')
+    if resource and resource[0]<=offset and match.end()<=sum(resource):where+=', resource-directory range'
+   else:where+=', header/overlay or unclassified bytes'
+   findings.append(('packing-review','Packer-related text marker requiring context',f'{marker.decode()}: {where}; a name or asset string alone does not establish packing, obfuscation or malware'))
+ if not layout or 'error' in layout:return findings
+ for section in sections:
+  name=section['name'];size=section['size'];offset=section['offset'];virtual=section['virtual'];rva=section['rva']
+  executable=section['executable'];writable=section['writable']
+  if name.casefold() in ('upx0','upx1','.vmp0','.vmp1','.aspack','.mpress1','.mpress2') and not (strong_upx and name.casefold() in ('upx0','upx1')):
+   findings.append(('packing-review','Packer-style section name requiring review',f'{name}: section names can be copied and do not establish packing by themselves'))
+  if executable and size>4096:
+   # Inspect beginning, middle and end: a low-entropy prefix must not hide a
+   # high-entropy tail. Sampling remains a heuristic, not full code analysis.
+   width=min(size,65536);positions=sorted({0,(size-width)//2,size-width});entropies=[]
+   for position in positions:
+    raw=data[offset+position:offset+position+width];counts=Counter(raw)
+    entropies.append(-sum((v/len(raw))*math.log2(v/len(raw)) for v in counts.values()))
+   entropy=max(entropies)
+   if entropy>7.2:findings.append(('packing-review','High entropy bytes in executable section',f'{name}: maximum sampled entropy {entropy:.2f}/8 across {len(positions)} window(s); code sections may also contain compressed assets or data, and packing is not proven'))
+  if executable and writable:findings.append(('packing-review','Writable and executable section',f'{name}: RWX permissions may indicate unpacking, self-modifying code or a legitimate runtime'))
+  if executable and rva<=entry<rva+max(size,virtual) and virtual>max(size*4,65536):findings.append(('packing-review','Unusual entry-point section layout',f'{name}: entry point in expanded executable section, raw {size} bytes, virtual {virtual} bytes'))
  return findings
 
-def die_packing_finding(value):
- evidence=value.get('string','')
- if value.get('type','').lower() not in ('packer','protector','obfuscator') and not re.search(r'pack|protect|obfuscat|virtualiz',evidence,re.I):return None
- # DiE explicitly marks uncertain detections. Keep them visible for review.
- heuristic=bool(re.search(r'\(Heur\)|\bGeneric\b|\bAnti analysis\b',evidence,re.I))
- return ('packing-review' if heuristic else 'packer-signature','Detect It Easy heuristic requiring review' if heuristic else 'Detect It Easy packing / protection signature',evidence or str(value))
+def die_packing_finding(value,data=None):
+ """Classify DiE's detection role, not incidental words in compiler/library text."""
+ if not isinstance(value,dict):return None
+ evidence=value.get('string','');kind=value.get('type','');name=value.get('name','')
+ if not all(isinstance(v,str) for v in (evidence,kind,name)):return None
+ roles=r'packer|protector|protection|obfuscator|obfuscation|cryptor|crypter|virtualizer|virtualization|anti[ -]+analysis'
+ role_label=r'\s*(?:\(\s*heur\s*\)\s*)?(?:'+roles+r')\s*(?:\(\s*heur\s*\)\s*)?:?\s*'
+ typed=re.fullmatch(role_label,kind,re.I)
+ labelled=re.match(r'^\s*(?:\(\s*heur\s*\)\s*)?(?:'+roles+r')\s*:',evidence,re.I)
+ if kind.strip() and not typed:return None
+ if not typed and not labelled:return None
+ combined=' '.join((kind,name,evidence))
+ heuristic=bool(re.search(r'\(\s*heur\s*\)|\bheuristic\b|\bgeneric\b|\banti[ -]+analysis\b',combined,re.I)) or value.get('heuristic') is True
+ # An unnamed role is not a specific detector signature. Missing details stay
+ # visible and unresolved rather than becoming automatic denial/acceptance.
+ if (not evidence and not name) or (not name and re.fullmatch(role_label,evidence,re.I)):heuristic=True
+ evidence=evidence or ': '.join(v for v in (kind,name) if v)
+ if heuristic:
+  evidence+='; heuristic evidence is inconclusive; compressed assets, DLL extension or readable source do not settle this finding'
+  return ('packing-review','Detect It Easy heuristic requiring review',evidence)
+ return ('packer-signature','Detect It Easy packing / protection signature',evidence)
 
 def analyze(job):
- report={'version':VERSION,'files':[],'inventory':[],'findings':[],'engines':{},'note':'Static analysis cannot prove a mod safe. Decompiled code is reconstructed, not the original project. Mods are never launched.'}
- total_text=0;start=time.monotonic();archive=job/'input.zip';work=job/'work';shutil.rmtree(work,ignore_errors=True);work.mkdir()
- def finding(rule,title,file=None,line=None,evidence='',severity='review'):
-  if len(report['findings'])>=2000:return
+ report={'version':VERSION,'files':[],'inventory':[],'findings':[],'observations':[],'engines':{},'note':'Static analysis cannot prove a mod safe. Decompiled code is reconstructed, not the original project. Mods are never launched.'}
+ total_text=0;scanned_text=0;finding_ids=set();observation_ids=set();start=time.monotonic();archive=job/'input.zip';work=job/'work';shutil.rmtree(work,ignore_errors=True);work.mkdir()
+ def finding(rule,title,file=None,line=None,evidence='',severity='review',**details):
   evidence=evidence[:350];key='\0'.join(map(str,[rule,file,line,evidence]));fid=hashlib.sha256(key.encode()).hexdigest()
-  if any(f['id']==fid for f in report['findings']):return
-  report['findings'].append({'id':fid,'rule':rule,'title':title,'file':file,'line':line,'evidence':evidence,'severity':severity})
+  item={'id':details.pop('id',fid),'rule':rule,'title':title,'file':file,'line':line,'evidence':evidence,'severity':severity,**details}
+  if item['id'] in finding_ids:return
+  if len(report['findings'])>=1999:
+   # Reserve a permanent coverage row. Later signatures/coverage replace low
+   # priority noise so padded code cannot hide an antivirus rejection.
+   limit_id='finding-limit'
+   if limit_id not in finding_ids:
+    report['findings'].append({'id':limit_id,'rule':'coverage','title':'Finding limit reached','file':None,'line':None,'evidence':'Further findings were omitted; this report is incomplete and requires review.','severity':'high'});finding_ids.add(limit_id)
+   if rule not in ('signature','coverage','packer-signature','packer-marker'):return
+   priority={'signature':4,'packer-signature':3,'packer-marker':3,'coverage':2}
+   incoming=priority.get(rule,1)
+   candidates=[i for i,f in enumerate(report['findings']) if f['id']!=limit_id and priority.get(f['rule'],1)<incoming]
+   if candidates:
+    removed=report['findings'].pop(candidates[-1]);finding_ids.discard(removed['id'])
+   elif len(report['findings'])>=2001:return
+  finding_ids.add(item['id']);report['findings'].append(item)
  def command(args,timeout):
   if time.monotonic()-start>240:raise Limit('Analysis time budget reached')
   log=job/'tool.log'
   with log.open('wb') as out:
    proc=subprocess.Popen(args,stdout=out,stderr=subprocess.STDOUT,start_new_session=True)
-   deadline=time.monotonic()+timeout
+   deadline=min(time.monotonic()+timeout,start+240)
    try:
     while True:
      try:code=proc.wait(timeout=0.5);break
@@ -101,23 +185,52 @@ def analyze(job):
       if time.monotonic()>deadline or len(files)>6000 or sum(p.stat().st_size for p in files)>400*1024*1024:raise Limit('Analyzer time or disk budget reached')
    except Limit:
     os.killpg(proc.pid,signal.SIGKILL);proc.wait();raise
-  text=log.read_bytes()[:32768].decode('utf-8','replace');log.unlink(missing_ok=True)
+  if log.stat().st_size>256*1024:
+   log.unlink(missing_ok=True);raise Limit('Analyzer output limit reached; output is incomplete')
+  text=log.read_bytes().decode('utf-8','replace');log.unlink(missing_ok=True)
   return code,text
  def add_text(path,name,kind):
-  nonlocal total_text
-  if len(report['files'])>=500 or total_text+path.stat().st_size>8*1024*1024 or path.stat().st_size>1024*1024:
-   finding('coverage','Source preview limit reached',name,severity='high');return
+  nonlocal total_text,scanned_text
+  if time.monotonic()-start>240:
+   finding('coverage','Analysis time budget reached',name,severity='high');return
+  size=path.stat().st_size
+  if size>1024*1024 or scanned_text+size>16*1024*1024:
+   finding('coverage','Source analysis text limit reached',name,severity='high');return
   try:
    raw=path.read_bytes();text=raw.decode('utf-16' if raw.startswith((b'\xff\xfe',b'\xfe\xff')) else 'utf-8-sig')
   except (UnicodeError,OSError):finding('coverage','Text file could not be decoded',name);return
   if '\0' in text:finding('coverage','Binary content in text file',name);return
-  total_text+=len(text.encode());report['files'].append({'name':name,'text':text,'kind':kind})
+  encoded_size=len(text.encode());scanned_text+=encoded_size
+  if len(report['files'])<500 and total_text+encoded_size<=8*1024*1024:
+   total_text+=encoded_size;report['files'].append({'name':name,'text':text,'kind':kind})
+  else:finding('coverage','Source preview limit reached',name,evidence='Code heuristics still ran; this file is omitted from the preview.',severity='high')
   # Documentation and package metadata are displayed but do not execute behavior.
-  if path.suffix.lower()=='.md' or path.name.lower() in ('manifest.json','addoninfo.txt','license'):return
-  for line_no,line in enumerate(text.splitlines(),1):
-   if line.lstrip().startswith(('//','#',';')):continue
-   for rule,title,pattern,severity in RULES:
-    if pattern.search(line):finding(rule,title,name,line_no,line.strip(),severity)
+  if (path.suffix.lower()=='.md' or path.name.lower() in ('manifest.json','addoninfo.txt','license')) and not text.startswith('#!'):return
+  source_findings,observations=context.scan_source(text,name,path.suffix.lower())
+  if path.suffix.lower()=='.cs':source_findings=context.contextualize_file_operations(text,source_findings)
+  for f in source_findings:
+   details={k:v for k,v in f.items() if k not in ('rule','title','file','line','evidence','severity')}
+   finding(f['rule'],f['title'],f['file'],f['line'],f['evidence'],f['severity'],**details)
+  for o in observations:
+   if o['id'] in observation_ids:continue
+   if len(report['observations'])>=500:
+    finding('coverage','Observation preview limit reached',name,severity='high');break
+   observation_ids.add(o['id']);report['observations'].append(o)
+ def antivirus():
+  try:
+   code,log=command(['/usr/bin/clamscan','--no-summary','--infected','--max-filesize=32M','--max-scansize=256M','--max-files=2000','--max-recursion=8','--alert-exceeds-max=yes','--alert-encrypted=yes',str(archive)],100)
+   report['engines']['clamav']={'status':'complete' if code in (0,1) else 'error','version':subprocess.check_output(['/usr/bin/clamscan','--version'],timeout=5).decode().strip()}
+   if code==1:
+    reported=False
+    for line in log.splitlines():
+     if ' FOUND' in line:
+      reported=True;evidence=line.rsplit(': ',1)[-1].removesuffix(' FOUND')
+      if evidence.startswith(('Heuristics.Limits.Exceeded.','Heuristics.Encrypted.')):
+       finding('coverage','Antivirus coverage limit or encrypted content',None,None,evidence,'high');report['engines']['clamav']['status']='incomplete'
+      else:finding('signature','ClamAV malware signature match',None,None,evidence,'critical')
+    if not reported:finding('coverage','Antivirus result could not be interpreted',severity='high');report['engines']['clamav']['status']='error'
+   if code not in (0,1):finding('coverage','Antivirus scan failed',severity='high')
+  except (Limit,OSError,subprocess.SubprocessError):report['engines']['clamav']={'status':'error'};finding('coverage','Antivirus scanner unavailable or timed out',severity='high')
  def extract(source,destination,prefix,depth=0):
   with zipfile.ZipFile(source) as z:
    infos=z.infolist()
@@ -139,6 +252,8 @@ def analyze(job):
       out.write(chunk)
     report['inventory'].append({'name':prefix+name,'size':i.file_size,'kind':'archive'})
    return list(destination.rglob('*'))
+ # Antivirus runs first so decompiler time limits cannot consume its budget.
+ antivirus()
  try:
   paths=extract(archive,work/'archive','archive/')
   expanded_total=sum(p.stat().st_size for p in paths if p.is_file());expanded_count=sum(p.is_file() for p in paths)
@@ -169,30 +284,42 @@ def analyze(job):
    if not path.is_file():continue
    name='archive/'+path.relative_to(work/'archive').as_posix();ext=path.suffix.lower()
    if ext=='.vpk' and path not in inspected_vpks:finding('coverage','Nested VPK is not inspected',name,severity='high')
-   with path.open('rb') as inp:signature=inp.read(4)
+   with path.open('rb') as inp:head=inp.read(16)
+   signature=head[:4]
    pe=signature[:2]==b'MZ'
    if pe:
-    for rule,title,evidence in packing_evidence(path.read_bytes()):finding(rule,title,name,evidence=evidence,severity='high')
+    binary_data=path.read_bytes()
+    for rule,title,evidence in packing_evidence(binary_data):finding(rule,title,name,evidence=evidence,severity='high')
     try:
      code,log=command(['/usr/bin/diec','-j','-u','-d',str(path)],25)
      if code!=0:raise Limit('Packer scanner failed')
-     detection=json.loads(log);report['engines']['detect-it-easy']={'status':'complete','version':'3.21','heuristics':True}
+     detection=json.loads(log)
+     if not isinstance(detection,dict) or not isinstance(detection.get('detects'),list):raise Limit('Invalid packer scanner report')
+     if any(not isinstance(group,dict) or not isinstance(group.get('values'),list) or any(not isinstance(value,dict) for value in group['values']) for group in detection['detects']):raise Limit('Invalid packer detection entries')
+     if any(any(field in value and not isinstance(value[field],str) for field in ('type','string','name')) for group in detection['detects'] for value in group['values']):raise Limit('Invalid packer detection fields')
+     engine=report['engines'].setdefault('detect-it-easy',{'status':'complete','version':'3.21','heuristics':True,'scanned':0,'failed':0});engine['scanned']+=1
      for group in detection.get('detects',[]):
       for value in group.get('values',[]):
-       detected=die_packing_finding(value)
+       detected=die_packing_finding(value,binary_data)
        if detected:
         rule,title,evidence=detected;finding(rule,title,name,evidence=evidence,severity='high')
-    except (Limit,OSError,ValueError):finding('coverage','Packer signature scanner failed or timed out',name,severity='high');report['engines']['detect-it-easy']={'status':'error','version':'3.21'}
+    except (Limit,OSError,ValueError):
+     finding('coverage','Packer signature scanner failed or timed out',name,severity='high')
+     engine=report['engines'].setdefault('detect-it-easy',{'status':'complete','version':'3.21','heuristics':True,'scanned':0,'failed':0});engine['status']='error';engine['failed']+=1
 
-   if ext in TEXT or path.name.lower()=='license':add_text(path,name,'uploaded')
+   native_magic=signature in (b'\x7fELF',b'\xfe\xed\xfa\xce',b'\xfe\xed\xfa\xcf',b'\xce\xfa\xed\xfe',b'\xcf\xfa\xed\xfe')
+   class_magic=signature==b'\xca\xfe\xba\xbe'
+   if native_magic:
+    finding('coverage','Native executable source is not reconstructed',name,evidence='Executable magic takes precedence over the filename or media extension.',severity='high')
+   elif not pe and not class_magic and (ext in TEXT or path.name.lower()=='license'):add_text(path,name,'uploaded')
    elif root_java and ext=='.class':continue
-   elif pe or ext in ('.dll','.exe','.jar','.class'):
+   elif pe or class_magic or ext in ('.dll','.exe','.jar','.class'):
     binaries+=1
     if binaries>16:finding('coverage','Decompiler assembly limit reached',name,severity='high');continue
     out=work/'decompiled'/str(binaries);out.mkdir(parents=True)
     try:
      if pe or ext in ('.dll','.exe'):
-      code,tool_log=command(['/opt/canna-review/tools/ilspycmd','--disable-updatecheck','--nested-directories','-p','-o',str(out),str(path)],35)
+      code,tool_log=command(['/opt/canna-review/tools/ilspycmd','--disable-updatecheck','--nested-directories','-p','-o',str(out),str(path)],60)
      else:
       code,tool_log=command(['/usr/bin/java','-Xmx384m','-jar','/opt/canna-review/tools/cfr.jar',str(path),'--outputdir',str(out),'--silent','true'],40)
      if code!=0: finding('coverage','Decompilation failed or unsupported binary',name,evidence=f'Analyzer exit {code}: '+tool_log[-300:],severity='high')
@@ -200,21 +327,17 @@ def analyze(job):
      if not generated:finding('coverage','No source reconstructed from binary',name,severity='high')
      for p in generated:add_text(p,'decompiled/'+name+'/'+p.relative_to(out).as_posix(),'decompiled')
     except (Limit,OSError):finding('coverage','Decompiler unavailable or time limit reached',name,severity='high')
-   elif ext not in ('.vpk','.png','.jpg','.jpeg','.webp','.gif','.ogg','.wav','.mp3','.ttf','.otf'):
-    finding('coverage','File format not inspected as source',name)
-  try:
-   code,log=command(['/usr/bin/clamscan','--no-summary','--infected','--max-filesize=32M','--max-scansize=256M','--max-files=2000','--max-recursion=8','--alert-exceeds-max=yes','--alert-encrypted=yes',str(archive)],100)
-   report['engines']['clamav']={'status':'complete' if code in (0,1) else 'error','version':subprocess.check_output(['/usr/bin/clamscan','--version'],timeout=5).decode().strip()}
-   if code==1:
-    for line in log.splitlines():
-     if ' FOUND' in line:finding('signature','ClamAV malware signature match',None,None,line.split(': ',1)[-1],'critical')
-   if code not in (0,1):finding('coverage','Antivirus scan failed',severity='high')
-  except (Limit,OSError,subprocess.SubprocessError):report['engines']['clamav']={'status':'error'};finding('coverage','Antivirus scanner unavailable or timed out',severity='high')
+   elif ext!='.vpk':
+    asset_magic={'.png':head.startswith(b'\x89PNG\r\n\x1a\n'),'.jpg':head.startswith(b'\xff\xd8\xff'),'.jpeg':head.startswith(b'\xff\xd8\xff'),'.gif':head.startswith((b'GIF87a',b'GIF89a')),'.webp':head.startswith(b'RIFF') and head[8:12]==b'WEBP','.ogg':head.startswith(b'OggS'),'.wav':head.startswith(b'RIFF') and head[8:12]==b'WAVE','.mp3':head.startswith(b'ID3') or (len(head)>=2 and head[0]==255 and head[1]&0xe0==0xe0),'.ttf':head.startswith((b'\x00\x01\x00\x00',b'ttcf')),'.otf':head.startswith(b'OTTO')}
+    if ext not in asset_magic:finding('coverage','File format not inspected as source',name)
+    elif not asset_magic[ext]:finding('coverage','Asset extension does not match file signature',name,evidence='Unrecognized or disguised content is not treated as a harmless asset.',severity='high')
+
  except PermissionError:
   raise
  except Exception as error:
   finding('coverage','Archive analysis incomplete',evidence=str(error)[:200],severity='high')
- report['engines']['heuristics']={'status':'complete','version':VERSION}
+ report['coverage_complete']=not any(f['rule']=='coverage' for f in report['findings'])
+ report['engines']['heuristics']={'status':'complete' if report['coverage_complete'] else 'incomplete','version':VERSION,'scanned_text_bytes':scanned_text}
  report['status']='complete';report['created']=int(time.time())
  shutil.rmtree(work,ignore_errors=True);return report
 

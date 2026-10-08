@@ -131,14 +131,14 @@ pub fn enforce_manual_uploads(db: &Connection) -> rusqlite::Result<()> {
     transaction.commit()
 }
 pub fn require_review(db: &Connection, id: &str) -> ApiResult<()> {
-    let scan: Option<(String, String)> = db
+    let scan: Option<(String, String, String, String)> = db
         .query_row(
-            "SELECT status,report FROM mod_scans WHERE mod_id=?1",
+            "SELECT s.status,s.report,s.hash,m.sha256 FROM mod_scans s JOIN mods m ON m.id=s.mod_id WHERE s.mod_id=?1",
             [id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?;
-    let Some((status, text)) = scan else {
+    let Some((status, text, scan_hash, archive_hash)) = scan else {
         if std::env::var_os("CANNA_REVIEW_JOBS").is_some() {
             return Err(bad("Automatic source analysis is pending"));
         }
@@ -149,15 +149,21 @@ pub fn require_review(db: &Connection, id: &str) -> ApiResult<()> {
             "Source analysis is pending or failed; inspect the review workspace",
         ));
     }
+    if scan_hash != archive_hash {
+        return Err(bad(
+            "Source analysis does not match this archive; run analysis again",
+        ));
+    }
     let report: Value = serde_json::from_str(&text).map_err(|_| bad("Source report is invalid"))?;
-    if report["findings"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .any(|f| f["accepted"] != true)
+    let findings = report["findings"].as_array().ok_or(bad(
+        "Source report findings are invalid; run analysis again",
+    ))?;
+    if findings
+        .iter()
+        .any(|f| !f.is_object() || f["accepted"] != true)
     {
         return Err(bad(
-            "Resolve suspicious-code findings in the review workspace before approval",
+            "Resolve review findings in the review workspace before approval",
         ));
     }
     Ok(())
@@ -340,7 +346,15 @@ fn preserve_decisions(report: &mut Value, previous: &Value, same_hash: bool) {
                 old["reviewer"].is_number()
                     && old["reviewed"].is_number()
                     && [
-                        "id", "rule", "file", "line", "evidence", "severity", "title",
+                        "id",
+                        "rule",
+                        "file",
+                        "line",
+                        "evidence",
+                        "severity",
+                        "title",
+                        "context",
+                        "locations",
                     ]
                     .into_iter()
                     .all(|field| old[field] == finding[field])
@@ -676,6 +690,21 @@ fn record_decisions(
         "UPDATE mod_scans SET report=?1 WHERE mod_id=?2",
         params![report.to_string(), id],
     )?;
+    let unresolved = report["findings"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|finding| finding["accepted"] != true)
+        .count();
+    let reason = if unresolved == 0 {
+        "Findings resolved; awaiting staff approval".to_owned()
+    } else {
+        format!("{unresolved} findings require review")
+    };
+    tx.execute(
+        "UPDATE mod_submissions SET reason=?1 WHERE id=?2 AND status='pending'",
+        params![reason, id],
+    )?;
     if choices.iter().any(|choice| !choice.accepted) {
         tx.execute("UPDATE mod_reviews SET approved=0 WHERE mod_id=?1", [id])?;
     }
@@ -721,6 +750,133 @@ mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
     #[tokio::test]
+    async fn approval_rejects_stale_analysis_without_changing_review_or_audit() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "stale-analysis-owner", true);
+        let id = Uuid::new_v4().to_string();
+        {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "INSERT INTO mods VALUES(?1,1,1686940,'Stale analysis','1','','current-hash',1)",
+                [&id],
+            )
+            .unwrap();
+            db.execute("INSERT INTO mod_reviews VALUES(?1,0)", [&id])
+                .unwrap();
+            db.execute(
+                "INSERT INTO mod_scans VALUES(?1,'previous-hash','complete','{\"findings\":[]}',0)",
+                [&id],
+            )
+            .unwrap();
+        }
+        let path = format!("/api/v1/mods/{id}/approve");
+        assert_eq!(
+            call(app.clone(), "POST", &path, json!({}), Some(&owner))
+                .await
+                .status(),
+            StatusCode::BAD_REQUEST
+        );
+        {
+            let db = app.db.lock().unwrap();
+            assert_eq!(
+                db.query_row(
+                    "SELECT approved FROM mod_reviews WHERE mod_id=?1",
+                    [&id],
+                    |r| { r.get::<_, i64>(0) }
+                )
+                .unwrap(),
+                0
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM audit WHERE action='approve-mod' AND target=?1",
+                    [&id],
+                    |r| { r.get::<_, i64>(0) }
+                )
+                .unwrap(),
+                0
+            );
+            db.execute(
+                "UPDATE mod_scans SET hash='current-hash' WHERE mod_id=?1",
+                [&id],
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            call(app.clone(), "POST", &path, json!({}), Some(&owner))
+                .await
+                .status(),
+            StatusCode::OK
+        );
+        assert!(security::approved(&app.db.lock().unwrap(), &id).is_ok());
+    }
+    #[tokio::test]
+    async fn approval_rejects_malformed_complete_reports() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "malformed-analysis-owner", true);
+        let id = Uuid::new_v4().to_string();
+        {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "INSERT INTO mods VALUES(?1,1,1686940,'Malformed analysis','1','','current-hash',1)",
+                [&id],
+            )
+            .unwrap();
+            db.execute("INSERT INTO mod_reviews VALUES(?1,0)", [&id])
+                .unwrap();
+            db.execute(
+                "INSERT INTO mod_scans VALUES(?1,'current-hash','complete','{}',0)",
+                [&id],
+            )
+            .unwrap();
+        }
+        let path = format!("/api/v1/mods/{id}/approve");
+        for report in [
+            "{}",
+            "{\"findings\":null}",
+            "{\"findings\":{}}",
+            "{\"findings\":\"accepted\"}",
+            "{\"findings\":[true]}",
+            "{\"findings\":[{\"accepted\":\"true\"}]}",
+            "invalid JSON",
+        ] {
+            app.db
+                .lock()
+                .unwrap()
+                .execute(
+                    "UPDATE mod_scans SET report=?1 WHERE mod_id=?2",
+                    params![report, id],
+                )
+                .unwrap();
+            assert_eq!(
+                call(app.clone(), "POST", &path, json!({}), Some(&owner))
+                    .await
+                    .status(),
+                StatusCode::BAD_REQUEST,
+                "Report {report} must not be treated as a clean completed scan"
+            );
+            let db = app.db.lock().unwrap();
+            assert_eq!(
+                db.query_row(
+                    "SELECT approved FROM mod_reviews WHERE mod_id=?1",
+                    [&id],
+                    |r| { r.get::<_, i64>(0) }
+                )
+                .unwrap(),
+                0
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM audit WHERE action='approve-mod' AND target=?1",
+                    [&id],
+                    |r| { r.get::<_, i64>(0) }
+                )
+                .unwrap(),
+                0
+            );
+        }
+    }
+    #[tokio::test]
     async fn batch_reviews_require_staff_exact_hash_and_atomic_valid_decisions() {
         let (_dir, app) = fixture();
         let owner = account(&app, "batch-owner", true);
@@ -750,6 +906,14 @@ mod tests {
             .lock()
             .unwrap()
             .execute("UPDATE mod_reviews SET approved=0 WHERE mod_id=?1", [&id])
+            .unwrap();
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE mod_submissions SET status='pending',reason='2 findings require review',resolved=NULL WHERE id=?1",
+                [&id],
+            )
             .unwrap();
         let path = format!("/api/v1/mods/{id}/analysis-decisions");
         let choices = json!([{"id":"a","accepted":true,"reason":"Expected loader behavior"},{"id":"b","accepted":true,"reason":"Reviewed coverage limitation"}]);
@@ -849,6 +1013,15 @@ mod tests {
                 .unwrap(),
                 0
             );
+            assert_eq!(
+                db.query_row(
+                    "SELECT reason FROM mod_submissions WHERE id=?1",
+                    [&id],
+                    |r| { r.get::<_, String>(0) }
+                )
+                .unwrap(),
+                "Findings resolved; awaiting staff approval"
+            );
             let text: String = db
                 .query_row("SELECT report FROM mod_scans WHERE mod_id=?1", [&id], |r| {
                     r.get(0)
@@ -898,6 +1071,12 @@ mod tests {
         report["findings"][0]["evidence"] = json!("Different detection");
         preserve_decisions(&mut report, &previous, true);
         assert!(report["findings"][0]["accepted"].is_null());
+        for field in ["context", "locations"] {
+            let mut report = json!({"findings":[finding.clone()]});
+            report["findings"][0][field] = json!(["New output path or related operation"]);
+            preserve_decisions(&mut report, &previous, true);
+            assert!(report["findings"][0]["accepted"].is_null());
+        }
     }
     #[tokio::test]
     async fn interrupted_rescan_keeps_hash_bound_decisions_for_the_retry() {
@@ -981,7 +1160,7 @@ mod tests {
         {
             let db = app.db.lock().unwrap();
             db.execute(
-                "INSERT INTO mod_scans VALUES(?1,'hash','complete',?2,0)",
+                "INSERT INTO mod_scans SELECT ?1,sha256,'complete',?2,0 FROM mods WHERE id=?1",
                 params![
                     id,
                     json!({"findings":[{"evidence":"private code","accepted":false}]}).to_string()

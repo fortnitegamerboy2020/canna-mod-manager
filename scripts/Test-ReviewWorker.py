@@ -16,10 +16,10 @@ with tempfile.TemporaryDirectory() as tmp:
 print('Path traversal rejection and suspicious code file/line findings passed.')
 
 import struct
-sample=bytearray(1024+65536);sample[:2]=b'MZ';struct.pack_into('<I',sample,60,64);sample[64:68]=b'PE\0\0';struct.pack_into('<H',sample,70,1);struct.pack_into('<H',sample,84,224);struct.pack_into('<I',sample,104,4096)
+sample=bytearray(1024+65536);sample[:2]=b'MZ';struct.pack_into('<I',sample,60,64);sample[64:68]=b'PE\0\0';struct.pack_into('<H',sample,70,1);struct.pack_into('<H',sample,84,224);struct.pack_into('<H',sample,88,0x10b);struct.pack_into('<I',sample,104,4096)
 start=64+24+224;sample[start:start+8]=b'changed\0';struct.pack_into('<IIII',sample,start+8,65536,4096,65536,1024);struct.pack_into('<I',sample,start+36,0xe0000020);sample[1024:]=bytes(range(256))*256
 findings=w.packing_evidence(sample);assert any(f[0]=='packing-review' and 'entropy' in f[2] for f in findings);assert any('Writable' in f[1] for f in findings)
-assert any(f[0]=='packer-marker' for f in w.packing_evidence(b'MZ'+b'UPX!'))
+assert any(f[0]=='packing-review' for f in w.packing_evidence(b'MZ'+b'UPX!'))
 print('Known packing markers and unknown high-entropy/RWX PE structure passed.')
 
 # Self-contained VPK fixtures verify extraction, CRC and path boundaries.
@@ -38,8 +38,8 @@ with tempfile.TemporaryDirectory() as tmp:
  except w.Limit:pass
 print('VPK source extraction, traversal, truncation and output collisions passed.')
 
-assert not w.packing_evidence(b'MZ\0System.IO.Compression\0CompressedStream')
-assert any(f[0]=='packer-marker' for f in w.packing_evidence(b'MZ\0MPRESS\0'))
+assert not any(f[0] in ('packing-review','packer-marker') for f in w.packing_evidence(b'MZ\0System.IO.Compression\0CompressedStream'))
+assert any(f[0]=='packing-review' for f in w.packing_evidence(b'MZ\0MPRESS\0'))
 for text in ['(Heur)Packer: Generic','(Heur)Protection: Anti analysis']:
  assert w.die_packing_finding({'type':'Packer','string':text})[0]=='packing-review'
 assert w.die_packing_finding({'type':'Packer','string':'Packer: UPX(4.0)'})[0]=='packer-signature'

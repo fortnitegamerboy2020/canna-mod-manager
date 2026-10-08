@@ -271,6 +271,7 @@ fn framework_entries(bytes: &[u8], il2cpp: bool, app_id: u32) -> Result<Vec<(Pat
     Ok(entries)
 }
 pub fn setup(game: &InstalledGame, pack: &Modpack, token: &str) -> Result<()> {
+    crate::game_compat::check_pack(game, pack)?;
     if crate::model::source_addons(game.app_id).is_some() {
         return crate::source_addons::setup(game);
     }
@@ -618,6 +619,9 @@ pub fn set_mode(root: &Path, modded: bool) -> Result<()> {
     Ok(())
 }
 pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::OwnedGame> {
+    if modded {
+        crate::game_compat::check_current(game)?;
+    }
     ensure_closed(game)?;
     if crate::model::source_addons(game.app_id).is_some() {
         crate::source_addons::set_mode(game, modded)?;

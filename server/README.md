@@ -263,3 +263,31 @@ totals, scan state and unresolved dependency links. Approval checks remain enfor
 ### Batch staff review (0.3.55)
 
 POST `/api/v1/mods/{id}/analysis-decisions` accepts a completed scan hash and up to 1500 `{id, accepted, reason}` finding decisions. It requires staff authentication, validates every finding and reason, commits atomically, and records each decision in the hash-bound ledger and audit log. An invalid finding or stale hash rolls the entire batch back. Acceptance does not publish a mod; the normal approval endpoint still checks the complete dependency graph.
+
+### Contextual analysis (unpublished local preview)
+
+`canna-static-6-preview` is staged locally and is not the production scanner.
+Comments and literal URL references are distinguished from API use. References
+remain visible as informational observations; review findings still gate approval.
+Repeated CLI-directed diagnostic writes can share one review finding with linked
+locations. An operator-selected path, `.txt`/`.png` extension or readable source
+does not prove safe execution. Generic packing hints remain subject to review;
+isolated packer names are contextual evidence rather than specific signatures.
+
+Preview/source limits and engine errors are explicit. Antivirus size/encryption
+alerts are coverage findings, while malware signatures retain rejection policy.
+Executable magic takes precedence over a filename, and unexplained asset formats
+require review. The source heuristics are bounded lexical checks, not a parser,
+data-flow proof or full security audit. Existing exact-hash decision preservation
+also compares context and related locations. Finding decisions update the pending
+reason without publishing the mod.
+
+The preview worker needs `deploy/review_context.py` installed beside
+`review-worker.py` in any future deployment. Do not replace the production worker
+with this preview without approval. Local regression commands are
+`python deploy/test-review-context.py`, `python deploy/test-review-packing.py`,
+`python deploy/test-review-adversarial.py` and `python deploy/test-review-rules.py`.
+On Linux with the existing tools, `python deploy/test-review-offline.py --fixture
+--output <isolated-directory> <archive.zip>` checks real decompilation, DiE and
+ClamAV without using the live queue or executing submitted binaries. These
+checks do not establish live game, account connection or multiplayer behavior.

@@ -425,7 +425,7 @@ mod tests {
             .lock()
             .unwrap()
             .execute(
-                "INSERT INTO mod_scans VALUES(?1,'hash','queued','{}',0)",
+                "INSERT INTO mod_scans SELECT ?1,sha256,'queued','{}',0 FROM mods WHERE id=?1",
                 [&new],
             )
             .unwrap();

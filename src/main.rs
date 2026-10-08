@@ -4,6 +4,7 @@ mod cache;
 mod chrome;
 mod console;
 mod credentials;
+mod game_compat;
 #[path = "../server/src/game_profiles.rs"]
 mod game_profiles;
 mod minecraft;
@@ -949,6 +950,7 @@ impl Canna {
                         Ok("Mod framework is ready. Choose mods for your pack.".into())
                     }
                     pack_ui::RuntimeAction::Install(pack) => {
+                        game_compat::check_pack(&game, &pack)?;
                         play_backup::before_change(&game, &pack)?;
                         runtime::install_pack(&game, &pack, &token, &progress)?;
                         play_backup::remember_applied(&game, &pack)?;
@@ -960,6 +962,7 @@ impl Canna {
                     }
                     pack_ui::RuntimeAction::Launch(pack, modded) => {
                         if modded {
+                            game_compat::check_pack(&game, &pack)?;
                             play_backup::before_change(&game, &pack)?;
                             runtime::install_pack(&game, &pack, &token, &progress)?;
                             play_backup::remember_applied(&game, &pack)?;

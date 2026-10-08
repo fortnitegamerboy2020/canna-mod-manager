@@ -32,7 +32,7 @@ try {
     foreach ($cannaFolder in @('src', 'scripts', 'examples', 'repository-template', 'server/src', 'server/web', 'server/deploy')) {
         $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -Recurse -File | Where-Object { $_.Extension -ne ".pyc" -and $_.FullName -notmatch "[\\/]__pycache__[\\/]" } | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
     }
-    foreach ($cannaFolder in @('mods/DrillThroughBall', 'mods/ProceduralMaps', 'mods/Anvil', 'mods/FamilyVisuals', 'mods/FamilyCatalog', 'mods/TimeStopTimer', 'mods/CannaAutoHop')) {
+    foreach ($cannaFolder in @('mods/DrillThroughBall', 'mods/ProceduralMaps', 'mods/Anvil', 'mods/FamilyVisuals', 'mods/FamilyCatalog', 'mods/TimeStopTimer', 'mods/CannaAutoHop', 'mods/HollowPurpleFixed')) {
         $cannaFiles += @(Get-ChildItem -LiteralPath (Join-Path $cannaRoot $cannaFolder) -File | ForEach-Object { [IO.Path]::GetRelativePath($cannaRoot, $_.FullName).Replace('\','/') })
     }
     $cannaFiles += @('server/Cargo.toml', 'server/Cargo.lock', 'server/README.md')
@@ -61,7 +61,7 @@ try {
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.36 adds searchable alphabetical filter menus and pack selectors, keeps installed games first in alphabetical order, and uses the ROUNDS game cover instead of the BepInEx logo. Website Play Lab sections are clearer numbered cards. The server review queue now shows analysis progress, findings and failed-scan retries; shared dependencies scan first, older jobs keep FIFO order, completed jobs wake the scheduler immediately, and unavailable archives cannot stall later jobs. Dependency blockers link to their review pages. Repeat imports preserve reviewed dependency pins and exact-hash decisions. Pending desktop downloads resume after approval and add to their selected pack only after a successful transfer. Production analysis now runs two sandboxed processes on the upgraded 4 GiB server. Existing approval and download checks remain in place. Desktop and mobile browser workflow tests and native regression checks cover these changes; this release does not claim new live game compatibility verification.
+Canna 0.2.37 shows and checks the author-required Old ROUNDS for mods Steam branch for HollowPurple packs before applying or launching them, including cached upstream metadata. Missing Steam manifests give actionable unknown-branch errors. Vanilla launches and unrelated mods are unaffected. The separately published HollowPurple Fixed 1.8.1 fork credits flofl + Canna and preserves original assets, description, gameplay IL and dependency pins while redirecting Input through the Unity compatibility facade. Static checks passed; live old-branch gameplay and multiplayer verification remain pending.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

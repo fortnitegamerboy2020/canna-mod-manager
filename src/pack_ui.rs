@@ -607,10 +607,9 @@ impl PackUi {
 
                         ui.label(&item.description);
 
-                        for (label, key) in [
-                            ("Minecraft versions", "game_versions"),
-                            ("Loaders", "loaders"),
-                        ] {
+                        for (label, key) in
+                            [("Game versions", "game_versions"), ("Loaders", "loaders")]
+                        {
                             if let Some(values) = item.provenance[key].as_array() {
                                 let values =
                                     values.iter().filter_map(|v| v.as_str()).collect::<Vec<_>>();
@@ -913,6 +912,22 @@ impl PackUi {
             });
 
             ui.add_space(14.0);
+
+            if let Some(branch) = crate::game_compat::required_branch(&pack) {
+                ui.label(format!(
+                    "Required Steam branch: Old ROUNDS for mods ({branch})"
+                ));
+                if let Some(game) = self.lab_games.iter().find(|g| g.app_id == pack.game.app_id) {
+                    let version = crate::steam::installed_version(game);
+                    if let Err(error) = crate::game_compat::branch_status(branch, version.as_ref())
+                    {
+                        ui.label(
+                            RichText::new(error.to_string())
+                                .color(egui::Color32::from_rgb(240, 192, 120)),
+                        );
+                    }
+                }
+            }
 
             ui.horizontal_wrapped(|ui| {
                 let add_mods = primary(ui, "+ Add Mods");
