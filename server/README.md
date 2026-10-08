@@ -4,18 +4,24 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.60
+## Current release: Community 0.3.61
 
 The Admin panel adds a searchable overview, separate Owner invitation-generation
 and registration pause controls, and the additive Beta role. Member, VIP, Admin
 and Owner remain primary permission roles; Beta grants protected Rebound support
-without staff privileges. Desktop 0.2.43 contains no embedded Rebound DLLs and
+without staff privileges. Desktop 0.2.44 contains no embedded Rebound DLLs and
 checks current server authorization before support storage, preparation and
 installation. The Rebound runtime remains a preview with full human-match and
 two-client multiplayer checks outstanding; previously distributed 0.2.41 bundles
 cannot be removed retroactively.
 
-Desktop 0.2.43 adds **Restore vanilla files** for closed Unity games in game
+Desktop 0.2.44 compares the same gameplay-config scope at Rebound preflight and
+final verification, fixing an unchanged-folder mismatch involving BepInEx's own
+loader configuration. `BepInEx/config/BepInEx.cfg` is consistently excluded from
+that fingerprint; included mod configuration and game-file changes still block
+preparation. This correction does not verify CR gameplay or multiplayer.
+
+Desktop 0.2.43 introduced **Restore vanilla files** for closed Unity games in game
 details, Library right-click menus and pack actions. Canna-managed plugin/patcher
 trees and unchanged receipt-owned loader files are parked reversibly outside
 BepInEx; manual, modified and legacy files remain, with Doorstop disabled.
@@ -159,7 +165,7 @@ change a password or invalidate password-reset codes. If mail is unavailable or
 an address has no eligible account, the same public response is returned. The
 local browser fixture uses a test outbox and does not send real email.
 
-Community 0.3.60's review workspace includes Overview, Code & files and
+Community 0.3.61's review workspace includes Overview, Code & files and
 Findings tabs. Deterministic advisory suggestions, coverage and decompilation
 status, heuristic source outlines and retained file metadata are derived at
 staff-only report GET time, including for legacy reports. The full archive file
@@ -340,7 +346,7 @@ POST `/api/v1/mods/{id}/analysis-decisions` accepts a completed scan hash and up
 
 ### Contextual analysis (introduced in 0.3.57)
 
-Community 0.3.60 uses `canna-static-8` for new analyses, extending the contextual
+Community 0.3.61 uses `canna-static-8` for new analyses, extending the contextual
 checks introduced with `canna-static-6` in 0.3.57.
 Comments and literal URL references are distinguished from API use. References
 remain visible as informational observations; review findings still gate approval.

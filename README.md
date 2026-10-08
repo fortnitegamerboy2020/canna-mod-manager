@@ -2,7 +2,7 @@
 
 A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and the private Canna server as the mod catalog. Uploads and external imports are managed on the website.
 
-Canna 0.2.43 uses a compact icon sidebar and a borderless window. The yellow
+Canna 0.2.44 uses a compact icon sidebar and a borderless window. The yellow
 button in the top right minimizes; green maximizes/restores; red closes Canna. Drag
 the header to move the window, or double-click it to maximize/restore. Hover
 sidebar icons for their names. Drag any window edge or corner to resize.
@@ -13,7 +13,7 @@ uses its game cover. Website Play Lab uses numbered expandable cards. Mod review
 show scan progress, dependency blockers, retries and queue totals; shared libraries
 scan first. Public Help / FAQ describes the current workflow and verification limits.
 
-Desktop 0.2.43 and Community 0.3.60 offer server-verified Beta access for the
+Desktop 0.2.44 and Community 0.3.61 offer server-verified Beta access for the
 Rebound runtime preview, searchable official Minecraft version choices and result
 counts. The website adds an Admin overview, invitation and registration pause
 controls, Crash, Blackjack and cosmetic cases, plus email-only Forgot password
@@ -55,7 +55,7 @@ Build a portable executable with `./build.ps1`. Rust and Windows C++ build tools
 
 Creating a modpack automatically sets up BepInEx. Fresh setup creates Canna Doorstop configuration disabled and preserves existing manual configuration. Modded launch enables the loader. **Add Mods** opens **Discover**, where you can search the family catalog, choose a compatible modpack, and add or update only the selected pinned package without adding or re-enabling its libraries; **Import local mod** adds a DLL or plugin ZIP. **Apply modpack** installs the enabled selections in `BepInEx/plugins/Canna` with the game closed. It intentionally leaves that prepared setup until restoration; saving selection changes does not install files. **Launch modded** installs the selected pack and launches through Steam. **Launch vanilla** restores Canna-managed Unity files and disables Doorstop before launching. **Stop instance** terminates the game process Canna launched, using a retained Windows handle. It appears in the pack, its right-click menu, game details, and navigation while that process runs. Independently launched games are never adopted. Existing plugins outside Canna are preserved and also load in modded mode.
 
-Desktop 0.2.43 adds **Restore vanilla files**, without launching the game, in
+Desktop 0.2.43 introduced **Restore vanilla files**, without launching the game, in
 Unity game details, the Library right-click menu and modpack actions. Close the
 game first; this also refuses restoration while ROUNDS runs directly through
 Steam. Canna reversibly parks its managed plugin/patcher trees, including
@@ -181,6 +181,13 @@ The enabled official [DuctTape package by kieron_exe](https://thunderstore.io/c/
 downloads protected Rebound support separately. Previously distributed desktop
 0.2.41 still contains its original opt-in support bundle; updating replaces that
 distribution model but cannot remove already distributed files retroactively.
+
+Desktop 0.2.44 fixes an unchanged-config Rebound preparation refusal: the
+preflight snapshot and final verification now use the same gameplay-config
+scope. BepInEx's own `BepInEx/config/BepInEx.cfg` is consistently excluded from
+that gameplay fingerprint. Changes to included mod configurations or game files
+still stop preparation; close ROUNDS and prepare again after resolving them.
+This fix does not establish CR gameplay, full matches or multiplayer compatibility.
 
 **Canna Rebound Beta workflow:** Beta is an additional
 account role alongside Member, VIP, Admin or Owner. Sign in with an account that
