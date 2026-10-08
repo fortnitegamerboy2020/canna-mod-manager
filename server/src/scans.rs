@@ -608,6 +608,81 @@ pub struct Decision {
     reason: String,
     sha256: String,
 }
+#[derive(Deserialize)]
+pub struct FindingDecision {
+    id: String,
+    accepted: bool,
+    reason: String,
+}
+#[derive(Deserialize)]
+pub struct BatchDecision {
+    sha256: String,
+    findings: Vec<FindingDecision>,
+}
+fn record_decisions(
+    app: &App,
+    actor: i64,
+    id: &str,
+    hash: &str,
+    choices: &[FindingDecision],
+) -> ApiResult<()> {
+    Uuid::parse_str(id).map_err(|_| bad("Invalid mod ID"))?;
+    if choices.is_empty() || choices.len() > 1500 {
+        return Err(bad("Review between 1 and 1500 findings at a time"));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for choice in choices {
+        if choice.reason.trim().len() < 5 || choice.reason.len() > 500 {
+            return Err(bad("Record a review reason between 5 and 500 bytes"));
+        }
+        if !seen.insert(&choice.id) {
+            return Err(bad("Duplicate finding decision"));
+        }
+    }
+    let mut db = app.db.lock().unwrap();
+    let tx = db.transaction()?;
+    let (text, current_hash): (String, String) = tx
+        .query_row(
+            "SELECT report,hash FROM mod_scans WHERE mod_id=?1 AND status='complete'",
+            [id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?
+        .ok_or(bad("Completed analysis not found"))?;
+    if current_hash != hash {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "Mod analysis changed; reload",
+        ));
+    }
+    let mut report: Value = serde_json::from_str(&text).map_err(|_| bad("Invalid report"))?;
+    let findings = report["findings"]
+        .as_array_mut()
+        .ok_or(bad("Invalid findings"))?;
+    let reviewed = now();
+    for choice in choices {
+        let finding = findings
+            .iter_mut()
+            .find(|f| f["id"] == choice.id)
+            .ok_or(bad("Finding not found"))?;
+        finding["accepted"] = json!(choice.accepted);
+        finding["reason"] = json!(choice.reason.trim());
+        finding["reviewer"] = json!(actor);
+        finding["reviewed"] = json!(reviewed);
+        tx.execute("INSERT INTO mod_scan_decisions VALUES(?1,?2,?3,?4) ON CONFLICT(mod_id,hash,finding_id) DO UPDATE SET decision=excluded.decision",params![id,hash,choice.id,finding.to_string()])?;
+        tx.execute("INSERT INTO audit(actor,action,target,created) VALUES(?1,'scan-finding-decision',?2,?3)",params![actor,json!({"mod":id,"finding":choice.id,"accepted":choice.accepted,"reason":choice.reason.trim(),"sha256":hash}).to_string(),reviewed])?;
+    }
+    tx.execute(
+        "UPDATE mod_scans SET report=?1 WHERE mod_id=?2",
+        params![report.to_string(), id],
+    )?;
+    if choices.iter().any(|choice| !choice.accepted) {
+        tx.execute("UPDATE mod_reviews SET approved=0 WHERE mod_id=?1", [id])?;
+    }
+    tx.commit()?;
+    app.live.hint("library");
+    Ok(())
+}
 pub async fn decision(
     State(app): State<Shared>,
     headers: HeaderMap,
@@ -615,59 +690,197 @@ pub async fn decision(
     axum::Json(input): axum::Json<Decision>,
 ) -> ApiResult<axum::Json<Value>> {
     let actor = staff(&app, &headers)?;
-    if input.reason.trim().len() < 5 || input.reason.len() > 500 {
-        return Err(bad("Record a review reason between 5 and 500 bytes"));
-    }
-    let mut db = app.db.lock().unwrap();
-    let tx = db.transaction()?;
-    let (text, hash): (String, String) = tx
-        .query_row(
-            "SELECT report,hash FROM mod_scans WHERE mod_id=?1 AND status='complete'",
-            [&id],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .optional()?
-        .ok_or(bad("Completed analysis not found"))?;
-    if hash != input.sha256 {
-        return Err(ApiError(
-            StatusCode::CONFLICT,
-            "Mod analysis changed; reload",
-        ));
-    }
-    let mut report: Value = serde_json::from_str(&text).map_err(|_| bad("Invalid report"))?;
-    let finding = report["findings"]
-        .as_array_mut()
-        .and_then(|a| a.iter_mut().find(|f| f["id"] == fid))
-        .ok_or(bad("Finding not found"))?;
-    finding["accepted"] = json!(input.accepted);
-    finding["reason"] = json!(input.reason.trim());
-    finding["reviewer"] = json!(actor);
-    finding["reviewed"] = json!(now());
-    tx.execute("INSERT INTO mod_scan_decisions VALUES(?1,?2,?3,?4) ON CONFLICT(mod_id,hash,finding_id) DO UPDATE SET decision=excluded.decision",params![id,hash,fid,finding.to_string()])?;
-    tx.execute(
-        "UPDATE mod_scans SET report=?1 WHERE mod_id=?2",
-        params![report.to_string(), id],
+    record_decisions(
+        &app,
+        actor,
+        &id,
+        &input.sha256,
+        &[FindingDecision {
+            id: fid,
+            accepted: input.accepted,
+            reason: input.reason,
+        }],
     )?;
-    if !input.accepted {
-        tx.execute("UPDATE mod_reviews SET approved=0 WHERE mod_id=?1", [&id])?;
-    }
-    tx.execute(
-        "INSERT INTO audit(actor,action,target,created) VALUES(?1,'scan-finding-decision',?2,?3)",
-        params![
-            actor,
-            json!({"mod":id,"finding":fid,"accepted":input.accepted,"reason":input.reason})
-                .to_string(),
-            now()
-        ],
-    )?;
-    tx.commit()?;
     Ok(axum::Json(json!({"ok":true})))
+}
+pub async fn decisions(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+    axum::Json(input): axum::Json<BatchDecision>,
+) -> ApiResult<axum::Json<Value>> {
+    let actor = staff(&app, &headers)?;
+    record_decisions(&app, actor, &id, &input.sha256, &input.findings)?;
+    Ok(axum::Json(
+        json!({"ok":true,"reviewed":input.findings.len()}),
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[tokio::test]
+    async fn batch_reviews_require_staff_exact_hash_and_atomic_valid_decisions() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "batch-owner", true);
+        let member = account(&app, "batch-member", false);
+        let id = external::store(
+            &app,
+            1,
+            1557740,
+            "Batch fixture",
+            "1",
+            "",
+            "batch-fixture",
+            &json!({}),
+            b"PK\x05\x06test",
+        )
+        .await
+        .unwrap();
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO mod_scans VALUES(?1,'exact-hash','complete',?2,0)",
+                params![id, json!({"findings":[{"id":"a"},{"id":"b"}]}).to_string()],
+            )
+            .unwrap();
+        app.db
+            .lock()
+            .unwrap()
+            .execute("UPDATE mod_reviews SET approved=0 WHERE mod_id=?1", [&id])
+            .unwrap();
+        let path = format!("/api/v1/mods/{id}/analysis-decisions");
+        let choices = json!([{"id":"a","accepted":true,"reason":"Expected loader behavior"},{"id":"b","accepted":true,"reason":"Reviewed coverage limitation"}]);
+        let body = json!({"sha256":"exact-hash","findings":choices});
+        assert_eq!(
+            call(app.clone(), "POST", &path, body.clone(), None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            call(app.clone(), "POST", &path, body.clone(), Some(&member))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                &path,
+                json!({"sha256":"different-hash","findings":choices}),
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        for invalid in [
+            json!([]),
+            json!([{"id":"a","accepted":true,"reason":"short"},{"id":"missing","accepted":true,"reason":"Unknown finding"}]),
+            json!([{"id":"a","accepted":true,"reason":"valid reason"},{"id":"b","accepted":true,"reason":"x"}]),
+            json!([{"id":"a","accepted":true,"reason":"valid reason"},{"id":"a","accepted":false,"reason":"duplicate reason"}]),
+        ] {
+            assert_eq!(
+                call(
+                    app.clone(),
+                    "POST",
+                    &path,
+                    json!({"sha256":"exact-hash","findings":invalid}),
+                    Some(&owner)
+                )
+                .await
+                .status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+        {
+            let db = app.db.lock().unwrap();
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM mod_scan_decisions WHERE mod_id=?1",
+                    [&id],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM audit WHERE action='scan-finding-decision'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0
+            );
+        }
+        let result = value(call(app.clone(), "POST", &path, body, Some(&owner)).await).await;
+        assert_eq!(result["reviewed"], 2);
+        {
+            let db = app.db.lock().unwrap();
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM mod_scan_decisions WHERE mod_id=?1 AND hash='exact-hash'",
+                    [&id],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                2
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT COUNT(*) FROM audit WHERE action='scan-finding-decision' AND actor=1",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                2
+            );
+            assert_eq!(
+                db.query_row(
+                    "SELECT approved FROM mod_reviews WHERE mod_id=?1",
+                    [&id],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0
+            );
+            let text: String = db
+                .query_row("SELECT report FROM mod_scans WHERE mod_id=?1", [&id], |r| {
+                    r.get(0)
+                })
+                .unwrap();
+            let report: Value = serde_json::from_str(&text).unwrap();
+            assert!(
+                report["findings"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|f| f["accepted"] == true
+                        && f["reviewer"] == 1
+                        && f["reviewed"].is_number())
+            );
+            db.execute("UPDATE mod_reviews SET approved=1 WHERE mod_id=?1", [&id])
+                .unwrap();
+        }
+        assert_eq!(call(app.clone(),"POST",&path,json!({"sha256":"exact-hash","findings":[{"id":"a","accepted":false,"reason":"Needs another review"}]}),Some(&owner)).await.status(),StatusCode::OK);
+        assert_eq!(
+            app.db
+                .lock()
+                .unwrap()
+                .query_row(
+                    "SELECT approved FROM mod_reviews WHERE mod_id=?1",
+                    [&id],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+    }
     #[test]
     fn rescan_preserves_only_identical_exact_hash_review_decisions() {
         let finding = json!({"id":"one","rule":"packing-review","file":"plugin.dll","line":null,"evidence":"Generic","severity":"high","title":"Heuristic"});

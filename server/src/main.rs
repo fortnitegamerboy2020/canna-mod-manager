@@ -1015,6 +1015,7 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/mods/updates/check", post(mod_updates::request))
         .route("/api/v1/mods/updates/status", get(mod_updates::status))
         .route("/api/v1/mods/{id}/analysis/{finding}", post(scans::decision))
+        .route("/api/v1/mods/{id}/analysis-decisions", post(scans::decisions))
         .route("/robots.txt", get(|| async { ([("content-type","text/plain; charset=utf-8")], "User-agent: *\nDisallow: /api/\nDisallow: /play\nDisallow: /connect\nDisallow: /support\nDisallow: /packs/\nDisallow: /forums\nDisallow: /mods\nDisallow: /submissions\nDisallow: /notifications\nDisallow: /members\nDisallow: /admin\nSitemap: https://cannamods.vip/sitemap.xml\n") }))
         .route("/sitemap.xml", get(|| async { ([("content-type","application/xml; charset=utf-8")], r#"<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://cannamods.vip/</loc></url><url><loc>https://cannamods.vip/help</loc></url></urlset>"#) }))
         .route("/support", get(|| async { ([("cache-control","no-store")],Html(include_str!("../web/support.html"))) }))

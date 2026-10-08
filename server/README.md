@@ -259,3 +259,7 @@ Archive preparation failures are audited and exposed for staff retry rather than
 blocking every later import. Completed findings and exact-hash review decisions
 survive restarts; interrupted jobs are requeued. Administrator pages show queue
 totals, scan state and unresolved dependency links. Approval checks remain enforced.
+
+### Batch staff review (0.3.55)
+
+POST `/api/v1/mods/{id}/analysis-decisions` accepts a completed scan hash and up to 1500 `{id, accepted, reason}` finding decisions. It requires staff authentication, validates every finding and reason, commits atomically, and records each decision in the hash-bound ledger and audit log. An invalid finding or stale hash rolls the entire batch back. Acceptance does not publish a mod; the normal approval endpoint still checks the complete dependency graph.
