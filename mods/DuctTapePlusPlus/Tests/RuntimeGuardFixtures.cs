@@ -150,8 +150,10 @@ static class RuntimeGuardFixtures
         var config = new BepInEx.Configuration.ConfigFile { ConfigFilePath = active };
         var card = new BepInEx.Configuration.ConfigDefinition { Section = "Cards", Key = "Active" };
         var mouse = new BepInEx.Configuration.ConfigDefinition { Section = "Config Options", Key = "LockMouse" };
+        var art = new BepInEx.Configuration.ConfigDefinition { Section = "Config Options", Key = "SyncArtWithHost" };
         config.Add(card, new BepInEx.Configuration.ConfigEntryBase { Value = "true" });
         config.Add(mouse, new BepInEx.Configuration.ConfigEntryBase { Value = "true" });
+        config.Add(art, new BepInEx.Configuration.ConfigEntryBase { Value = "true" });
         BepInEx.Bootstrap.Chainloader.PluginInfos["active-config-fixture"] = new BepInEx.PluginInfo { Instance = new BepInEx.BaseUnityPlugin { Config = config } };
         Func<CompatibilityManifest> read = () => {
             var result = new CompatibilityManifest { protocol = ManifestContract.Protocol, profile = ManifestContract.Profile,
@@ -166,15 +168,49 @@ static class RuntimeGuardFixtures
             Check(!first.files.Any(row=>row.path=="fr.flofl.rounds.hollowpurple.cfg"), "Inactive known mod config is excluded from peer parity without deleting it");
             File.WriteAllText(active,"# another history\n[Cards]\nOldOtherMod=true\nActive=true\n");
             config[mouse].Value="false";
+            config[art].Value="false";
             Check(first.digest==read().digest, "Bound active settings ignore orphaned old keys and local mouse preference");
             config[card].Value="false";
             Check(first.digest!=read().digest, "Changed bound card setting blocks even before it is saved to disk");
             BepInEx.Bootstrap.Chainloader.PluginInfos["fr.flofl.rounds.hollowpurple"]=new BepInEx.PluginInfo { Instance=new BepInEx.BaseUnityPlugin() };
             Check(read().files.Any(row=>row.path=="fr.flofl.rounds.hollowpurple.cfg"), "Known mod config remains significant when its plugin is active");
+            var volume=new BepInEx.Configuration.ConfigDefinition { Section="CR", Key="Volume for CR SFX" };
+            var vfx=new BepInEx.Configuration.ConfigDefinition { Section="CR", Key="Toggle for CR VFX" };
+            var cosmic=new BepInEx.Configuration.ConfigFile { ConfigFilePath=Path.Combine(configRoot,"com.XAngelMoonX.rounds.CosmicRounds.cfg") };
+            cosmic.Add(volume,new BepInEx.Configuration.ConfigEntryBase { Value="100" });
+            cosmic.Add(vfx,new BepInEx.Configuration.ConfigEntryBase { Value="true" });
+            BepInEx.Bootstrap.Chainloader.PluginInfos["cosmic-fixture"]=new BepInEx.PluginInfo { Instance=new BepInEx.BaseUnityPlugin { Config=cosmic } };
+            var withVolume=read();cosmic[volume].Value="1";
+            Check(withVolume.digest==read().digest,"Different CR sound volume does not block matching gameplay");
+            cosmic[vfx].Value="false";
+            Check(withVolume.digest!=read().digest,"Unclassified CR settings remain significant");
+            var savedCard=new BepInEx.Configuration.ConfigDefinition { Section="Cards: CR", Key="__CR__Beetle" };
+            var savedMap=new BepInEx.Configuration.ConfigDefinition { Section="Levels: Vanilla", Key="MapA" };
+            config.Add(savedCard,new BepInEx.Configuration.ConfigEntryBase { Value="true" });
+            config.Add(savedMap,new BepInEx.Configuration.ConfigEntryBase { Value="true" });
+            BepInEx.Bootstrap.Chainloader.PluginInfos["com.willis.rounds.unbound"]=new BepInEx.PluginInfo { Instance=new UnboundLib.Unbound() };
+            UnboundLib.Utils.CardManager.activeCards=null; UnboundLib.Utils.LevelManager.activeLevels=null;
+            var beforeInitialization=read(); config[savedCard].Value="false";
+            Check(beforeInitialization.digest!=read().digest,"Saved card settings still checked when runtime pool is uninitialized");
+            UnboundLib.Utils.CardManager.activeCards=new List<FixtureCard> { new FixtureCard("__CR__Beetle"),new FixtureCard("__CR__Crow") };
+            UnboundLib.Utils.LevelManager.activeLevels=new List<string> { "MapA","MapB" };
+            var synchronized=read(); config[savedCard].Value="true";config[savedMap].Value="false";
+            UnboundLib.Utils.CardManager.activeCards.Reverse();UnboundLib.Utils.LevelManager.activeLevels.Reverse();
+            Check(synchronized.digest==read().digest,"Host-synchronized pools ignore saved preferences and collection ordering");
+            Check(read().files.Count(row=>row.path.StartsWith("Canna.Rebound.Runtime/"))==2,"Live card and map pool fingerprints retained");
+            UnboundLib.Utils.CardManager.activeCards.RemoveAt(0);
+            Check(synchronized.digest!=read().digest,"Different active card pool still blocks");
+            UnboundLib.Utils.CardManager.activeCards.Add(new FixtureCard("__CR__Crow"));
+            var cardBaseline=read();UnboundLib.Utils.LevelManager.activeLevels.RemoveAt(0);
+            Check(cardBaseline.digest!=read().digest,"Different active map pool still blocks");
+            UnboundLib.Utils.CardManager.activeCards.Add(new FixtureCard("__CR__Crow"));
+            bool duplicateRejected=false;try { read(); } catch(TargetInvocationException ex) { duplicateRejected=ex.InnerException is InvalidDataException; }
+            Check(duplicateRejected,"Duplicate runtime identities fail closed");
         }
         finally
         {
             BepInEx.Bootstrap.Chainloader.PluginInfos.Clear(); File.Delete(stale);File.Delete(active);
+            UnboundLib.Utils.CardManager.activeCards=null;UnboundLib.Utils.LevelManager.activeLevels=null;
         }
     }
     static string Field(object guard, string name)
@@ -271,11 +307,20 @@ namespace RWF.GameModes
     public class GM_TeamDeathmatch : RWFGameMode { }
     public class UnknownMode : RWFGameMode { }
 }
+public class FixtureCard
+{ public UnityEngine.GameObject gameObject { get; set; } public FixtureCard(string name) { gameObject=new UnityEngine.GameObject { name=name }; } }
+namespace UnboundLib
+{ public class Unbound : BepInEx.BaseUnityPlugin { } }
+namespace UnboundLib.Utils
+{
+    public static class CardManager { public static List<FixtureCard> activeCards; }
+    public static class LevelManager { public static List<string> activeLevels; }
+}
 namespace UnityEngine
 {
     public class Object
     { public HideFlags hideFlags; public static implicit operator bool(Object obj) { return obj != null; } public static void DontDestroyOnLoad(Object obj) { } }
-    public class GameObject : Object { }
+    public class GameObject : Object { public string name; }
     [Flags] public enum HideFlags { None = 0, HideAndDontSave = 61 }
     public class MonoBehaviour : Object { }
     public static class Time { public static float realtimeSinceStartup; }

@@ -23,12 +23,54 @@ namespace Canna.DuctTapePlusPlus
     {
         public string Protocol, Profile, GameHash, ContentDigest, Epoch;
         public string ModsDigest, AssetsDigest, ConfigDigest;
+        public string ConfigEvidence;
         public int Actor;
 
         public PeerAdvertisement(string protocol, string profile, string gameHash, string digest, int actor, string epoch,
-            string mods = null, string assets = null, string config = null)
+            string mods = null, string assets = null, string config = null, string configEvidence = null)
         { Protocol = protocol; Profile = profile; GameHash = gameHash; ContentDigest = digest; Actor = actor; Epoch = epoch;
-          ModsDigest = mods; AssetsDigest = assets; ConfigDigest = config; }
+          ModsDigest = mods; AssetsDigest = assets; ConfigDigest = config; ConfigEvidence = configEvidence; }
+
+        public static string DescribeConfig(CompatibilityManifest manifest)
+        {
+            var rows = manifest.files.Where(row => row.root == "config").OrderBy(row => row.path, StringComparer.Ordinal).ToArray();
+            if (rows.Length > 32 || rows.Any(row => !EvidencePath(row.path))) return null;
+            string text = String.Join("\n", rows.Select(row => row.path + "\t" + row.sha256));
+            return text.Length <= 8192 ? text : null;
+        }
+
+        static bool EvidencePath(string path)
+        {
+            return !String.IsNullOrEmpty(path) && path.Length <= 200 && path.All(c =>
+                c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || "._-/".Contains(c)) &&
+                path.Split('/').All(part => part.Length != 0 && part != "." && part != "..");
+        }
+
+        static Dictionary<string, string> ConfigRows(PeerAdvertisement ad)
+        {
+            if (ad == null || ad.ConfigEvidence == null || ad.ConfigEvidence.Length > 8192) return null;
+            var rows = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (ad.ConfigEvidence.Length != 0)
+                foreach (string line in ad.ConfigEvidence.Split('\n'))
+                {
+                    var pair = line.Split('\t');
+                    if (pair.Length != 2 || !EvidencePath(pair[0]) || !IsHash(pair[1]) || rows.Count >= 32 || rows.ContainsKey(pair[0])) return null;
+                    rows.Add(pair[0], pair[1]);
+                }
+            var manifest = new CompatibilityManifest { protocol = ad.Protocol, profile = ad.Profile, game_sha256 = ad.GameHash,
+                assemblies = new AssemblyRow[0], files = rows.Select(row => new FileRow { root = "config", path = row.Key, sha256 = row.Value }).ToArray() };
+            return ManifestContract.ComponentFingerprint(manifest, "config") == ad.ConfigDigest ? rows : null;
+        }
+
+        public static string ConfigDifference(PeerAdvertisement local, PeerAdvertisement peer)
+        {
+            var left = ConfigRows(local); var right = ConfigRows(peer);
+            if (left == null || right == null) return "";
+            var different = left.Keys.Concat(right.Keys).Distinct().Where(key => !left.ContainsKey(key) || !right.ContainsKey(key) || left[key] != right[key]).OrderBy(key => key, StringComparer.Ordinal).Take(3).Select(key =>
+                key == "Canna.Rebound.Runtime/cards" ? "active card pool" : key == "Canna.Rebound.Runtime/maps" ? "active map pool" :
+                (key.Length <= 64 ? key : key.Substring(0, 61) + "...")).ToArray();
+            return different.Length == 0 ? "" : " Different: " + String.Join(", ", different) + ".";
+        }
 
         public static bool IsHash(string value)
         { return value != null && value.Length == 64 && value.All(c => c >= '0' && c <= '9' || c >= 'a' && c <= 'f'); }
@@ -130,7 +172,7 @@ namespace Canna.DuctTapePlusPlus
                     if (PeerAdvertisement.IsHash(local.AssetsDigest) && PeerAdvertisement.IsHash(peer.AssetsDigest) && local.AssetsDigest != peer.AssetsDigest)
                         return new GuardVerdict(false, "Actor " + actor + " has different mod assets or patchers. Reapply the same pack on both PCs.");
                     if (PeerAdvertisement.IsHash(local.ConfigDigest) && PeerAdvertisement.IsHash(peer.ConfigDigest) && local.ConfigDigest != peer.ConfigDigest)
-                        return new GuardVerdict(false, "Actor " + actor + " has different active gameplay settings. Match enabled cards, maps and mod settings on both PCs.");
+                        return new GuardVerdict(false, "Actor " + actor + " has different active gameplay settings." + PeerAdvertisement.ConfigDifference(local, peer) + " Match enabled cards, maps and mod settings on both PCs.");
                     return new GuardVerdict(false, "Actor " + actor + " has different mods, assets or gameplay configuration.");
                 }
             }
@@ -142,7 +184,7 @@ namespace Canna.DuctTapePlusPlus
 #if GUARD_RUNTIME
 namespace Canna.DuctTapePlusPlus
 {
-    [BepInPlugin("canna.ducttapeplusplus.networkguard", "Canna Rebound compatibility guard", "0.1.1")]
+    [BepInPlugin("canna.ducttapeplusplus.networkguard", "Canna Rebound compatibility guard", "0.1.2")]
     [BepInDependency("rounds-port.runtime")]
     [BepInDependency("com.willis.rounds.unbound", BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency("io.olavim.rounds.rwf", BepInDependency.DependencyFlags.SoftDependency)]
@@ -152,6 +194,7 @@ namespace Canna.DuctTapePlusPlus
         const string ProtocolKey = "dtpp.protocol", ProfileKey = "dtpp.profile", GameKey = "dtpp.game";
         const string DigestKey = "dtpp.digest", ActorKey = "dtpp.actor", PeerEpochKey = "dtpp.epoch";
         const string ModsKey = "dtpp.mods", AssetsKey = "dtpp.assets", ConfigKey = "dtpp.config";
+        const string ConfigEvidenceKey = "dtpp.config.rows";
         static NetworkGuard instance;
         readonly RoomCompatibilityPolicy policy = new RoomCompatibilityPolicy();
         readonly HashSet<MethodBase> patched = new HashSet<MethodBase>();
@@ -288,7 +331,7 @@ namespace Canna.DuctTapePlusPlus
                 CheckLoadedPlugins(current);
                 local = new PeerAdvertisement(current.protocol, current.profile, game, current.digest, 0, null,
                     ManifestContract.ComponentFingerprint(current, "mods"), ManifestContract.ComponentFingerprint(current, "assets"),
-                    ManifestContract.ComponentFingerprint(current, "config"));
+                    ManifestContract.ComponentFingerprint(current, "config"), PeerAdvertisement.DescribeConfig(current));
                 contentError = null;
                 policy.ConfigureLocal(local, patchError);
             }
@@ -305,6 +348,7 @@ namespace Canna.DuctTapePlusPlus
 
         void ApplyRuntimeConfig(CompatibilityManifest current)
         {
+            var pools = ReadUnboundPools();
             var bound = new Dictionary<string, ConfigFile>(StringComparer.OrdinalIgnoreCase);
             foreach (var info in BepInEx.Bootstrap.Chainloader.PluginInfos.Values)
             {
@@ -338,13 +382,70 @@ namespace Canna.DuctTapePlusPlus
                 var values = new List<KeyValuePair<string, string>>();
                 foreach (var key in entry.Value.Keys)
                 {
-                    if (entry.Key == "UnboundLib.cfg" && key.Section == "Config Options" && key.Key == "LockMouse") continue;
+                    if (IsLocalPreference(entry.Key, key.Section, key.Key)) continue;
+                    // The room handshake updates live pools with saved=false. Saved
+                    // preferences can differ while both peers play the same host pool.
+                    if (entry.Key.Equals("UnboundLib.cfg", StringComparison.OrdinalIgnoreCase) &&
+                        ((pools.ContainsKey("cards") && (key.Section == "Card categories" || key.Section.StartsWith("Cards: ", StringComparison.Ordinal))) ||
+                         (pools.ContainsKey("maps") && (key.Section == "Level categories" || key.Section.StartsWith("Levels: ", StringComparison.Ordinal))))) continue;
                     string identity = key.Section.Length + ":" + key.Section + key.Key.Length + ":" + key.Key;
                     values.Add(new KeyValuePair<string, string>(identity, entry.Value[key].GetSerializedValue()));
                 }
                 if (values.Count != 0) rows.Add(new FileRow { root = "config", path = entry.Key, sha256 = ManifestContract.ConfigValuesHash(values) });
             }
+            foreach (var pool in pools)
+            {
+                string path = "Canna.Rebound.Runtime/" + pool.Key;
+                if (rows.Any(row => row.root == "config" && row.path == path)) throw new InvalidDataException("Reserved runtime pool path collision.");
+                rows.Add(new FileRow { root = "config", path = path, sha256 = pool.Value });
+            }
             current.files = rows.ToArray();
+        }
+
+        static bool IsLocalPreference(string file, string section, string key)
+        {
+            if (file.Equals("UnboundLib.cfg", StringComparison.OrdinalIgnoreCase))
+                return section == "Config Options" && (key == "LockMouse" || key == "SyncArtWithHost");
+            if (file.Equals("com.XAngelMoonX.rounds.CosmicRounds.cfg", StringComparison.OrdinalIgnoreCase))
+                return section == "CR" && key == "Volume for CR SFX";
+            if (file.Equals("root.classes.manager.reborn.cfg", StringComparison.OrdinalIgnoreCase))
+                return section == "root.classes.manager.reborn" && key == "Debug";
+            return false;
+        }
+
+        static Dictionary<string, string> ReadUnboundPools()
+        {
+            var result = new Dictionary<string, string>(StringComparer.Ordinal);
+            BepInEx.PluginInfo info;
+            if (!BepInEx.Bootstrap.Chainloader.PluginInfos.TryGetValue("com.willis.rounds.unbound", out info) || info.Instance == null) return result;
+            var assembly = info.Instance.GetType().Assembly;
+            foreach (var pool in new[] { new[] { "cards", "UnboundLib.Utils.CardManager", "activeCards" }, new[] { "maps", "UnboundLib.Utils.LevelManager", "activeLevels" } })
+            {
+                var type = assembly.GetType(pool[1], false);
+                var field = type == null ? null : type.GetField(pool[2], BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static);
+                if (field == null) throw new MissingFieldException("Pinned Unbound runtime pool API is unavailable.");
+                var items = field.GetValue(null) as IEnumerable;
+                if (items == null) continue; // Keep saved settings significant until initialization completes.
+                var values = new Dictionary<string, string>(StringComparer.Ordinal);
+                foreach (var item in items)
+                {
+                    string name;
+                    if (pool[0] == "cards")
+                    {
+                        if (item == null) throw new InvalidDataException("Null active card.");
+                        var property = item.GetType().GetProperty("gameObject", BindingFlags.Public | BindingFlags.Instance);
+                        var obj = property == null ? null : property.GetValue(item, null) as UnityEngine.GameObject;
+                        if (obj == null || !obj) throw new InvalidDataException("Unavailable active card object.");
+                        name = obj.name;
+                    }
+                    else name = item as string;
+                    if (String.IsNullOrEmpty(name) || name.Length > 8192 || values.Count >= 8192 || values.ContainsKey(name))
+                        throw new InvalidDataException("Invalid runtime pool identity.");
+                    values.Add(name, "active");
+                }
+                result.Add(pool[0], ManifestContract.ConfigValuesHash(values));
+            }
+            return result;
         }
 
         string ReadContentStamp()
@@ -370,6 +471,8 @@ namespace Canna.DuctTapePlusPlus
                 AddStampAtom(text, "loaded"); AddStampAtom(text, entry.Key); AddStampAtom(text, assembly.GetName().FullName);
                 AddStampAtom(text, ManifestContract.Relative(PreparedPlugins, assembly.Location));
             }
+            foreach (var pool in ReadUnboundPools().OrderBy(p => p.Key, StringComparer.Ordinal))
+            { AddStampAtom(text, pool.Key); AddStampAtom(text, pool.Value); }
             return ManifestContract.Hash(Encoding.UTF8.GetBytes(text.ToString()));
         }
 
@@ -594,7 +697,7 @@ namespace Canna.DuctTapePlusPlus
                 { GameKey, local == null ? null : local.GameHash }, { DigestKey, local == null ? null : local.ContentDigest },
                 { ActorKey, PhotonNetwork.LocalPlayer.ActorNumber }, { PeerEpochKey, epoch }
                 , { ModsKey, local == null ? null : local.ModsDigest }, { AssetsKey, local == null ? null : local.AssetsDigest },
-                { ConfigKey, local == null ? null : local.ConfigDigest }
+                { ConfigKey, local == null ? null : local.ConfigDigest }, { ConfigEvidenceKey, local == null ? null : local.ConfigEvidence }
             };
             if (!PhotonNetwork.LocalPlayer.SetCustomProperties(ad)) Deny("Local compatibility advertisement could not be published.");
         }
@@ -606,7 +709,7 @@ namespace Canna.DuctTapePlusPlus
             if (props[ActorKey] is int)
                 peer = new PeerAdvertisement(props[ProtocolKey] as string, props[ProfileKey] as string,
                     props[GameKey] as string, props[DigestKey] as string, (int)props[ActorKey], props[PeerEpochKey] as string,
-                    props[ModsKey] as string, props[AssetsKey] as string, props[ConfigKey] as string);
+                    props[ModsKey] as string, props[AssetsKey] as string, props[ConfigKey] as string, props[ConfigEvidenceKey] as string);
             policy.ObservePeer(actualPlayer.ActorNumber, peer, policy.Generation);
         }
 
@@ -617,15 +720,16 @@ namespace Canna.DuctTapePlusPlus
             if (PhotonNetwork.LocalPlayer != null)
                 PhotonNetwork.LocalPlayer.SetCustomProperties(new PhotonHashtable {
                     { ProtocolKey, null }, { ProfileKey, null }, { GameKey, null }, { DigestKey, null }, { ActorKey, null }, { PeerEpochKey, null },
-                    { ModsKey, null }, { AssetsKey, null }, { ConfigKey, null }
+                    { ModsKey, null }, { AssetsKey, null }, { ConfigKey, null }, { ConfigEvidenceKey, null }
                 });
         }
 
         void OnGUI()
         {
             if (!PhotonNetwork.InRoom || PhotonNetwork.OfflineMode || String.IsNullOrEmpty(lastMessage)) return;
-            GUI.Box(new Rect(18, 18, 520, 110), "Canna Rebound multiplayer compatibility");
-            GUI.Label(new Rect(32, 47, 490, 72), lastMessage + "\nEvery participant needs the same prepared mods, assets and gameplay configuration.");
+            float height = lastMessage.Length > 200 ? 180 : 110;
+            GUI.Box(new Rect(18, 18, 520, height), "Canna Rebound multiplayer compatibility");
+            GUI.Label(new Rect(32, 47, 490, height - 38), lastMessage + "\nEvery participant needs the same prepared mods, assets and gameplay configuration.");
         }
 
         void OnDestroy()

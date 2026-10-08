@@ -186,3 +186,7 @@ The exact archived CR 2.7.0 ZIP (db059e5c...ee5ea7) also records four
 legacy patch requirements retired by its reviewed curated adaptation. Only that
 archive pin can omit CardThemeLib 1.1.7, GravityPatch 0.0.0, ZeroGBulletPatch
 1.1.0 and StopShootingYoureDead 0.0.0. Unknown CR archives remain blocked.
+
+### Multiplayer configuration comparison (guard 0.1.2)
+
+The guard fingerprints UnboundLib active card and map collections, which its room handshake synchronizes independently of saved card preferences. Saved pool settings remain significant before initialization. Live pool changes trigger the normal polling verification and forced start checks. Known local mouse/art preferences, CR SFX volume and Classes Manager debug logging are excluded by exact file/section/key. Other mod settings remain significant. A bounded diagnostic advertises relative config names and content hashes, verifies them against the config digest, and names a differing file or active pool. No setting values are sent, and diagnostics cannot override aggregate mismatch. Offline policy and Harmony fixtures cover these cases; real two-PC gameplay still requires retesting.

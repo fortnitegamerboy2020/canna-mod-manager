@@ -84,6 +84,24 @@ static class NetworkGuardTests
         Check(!p.Evaluate().Allowed && p.Evaluate().Reason.Contains("assets or patchers"), "Asset mismatch identifies immutable content");
         peer.AssetsDigest=Hash;peer.ConfigDigest=Hash;p.ObservePeer(2,peer,p.Generation);
         Check(!p.Evaluate().Allowed, "Equal component claims cannot override unequal full fingerprint");
+        local=Ad(1);peer=Ad(2,digest:Other);
+        local.ConfigDigest=ManifestContract.ComponentFingerprint(expected,"config");
+        peer.ConfigDigest=ManifestContract.ComponentFingerprint(changed,"config");
+        local.ConfigEvidence=PeerAdvertisement.DescribeConfig(expected);peer.ConfigEvidence=PeerAdvertisement.DescribeConfig(changed);
+        Check(PeerAdvertisement.ConfigDifference(local,peer).Contains("example.cfg"),"Config diagnostics identify the mismatched file without sending setting values");
+        peer.ConfigEvidence="example.cfg\t"+Hash;
+        Check(PeerAdvertisement.ConfigDifference(local,peer)=="","Diagnostic rows cannot disagree with their advertised config digest");
+        peer.ConfigEvidence="../secret.cfg\t"+Other;
+        Check(PeerAdvertisement.ConfigDifference(local,peer)=="","Traversal diagnostic paths are ignored");
+        peer.ConfigEvidence=new string('x',8193);
+        Check(PeerAdvertisement.ConfigDifference(local,peer)=="","Oversized diagnostic evidence is bounded");
+        peer.ConfigEvidence="example.cfg\t"+Other+"\nexample.cfg\t"+Other;
+        Check(PeerAdvertisement.ConfigDifference(local,peer)=="","Duplicate diagnostic rows are rejected");
+        changed.files.First(row=>row.root=="config").path="Canna.Rebound.Runtime/cards";
+        expected.files.First(row=>row.root=="config").path="Canna.Rebound.Runtime/cards";
+        local.ConfigDigest=ManifestContract.ComponentFingerprint(expected,"config");peer.ConfigDigest=ManifestContract.ComponentFingerprint(changed,"config");
+        local.ConfigEvidence=PeerAdvertisement.DescribeConfig(expected);peer.ConfigEvidence=PeerAdvertisement.DescribeConfig(changed);
+        Check(PeerAdvertisement.ConfigDifference(local,peer).Contains("active card pool"),"Runtime card pool mismatch has a readable label");
     }
 
     static CompatibilityManifest Manifest(string asset = null, string config = null, string patcher = null)
