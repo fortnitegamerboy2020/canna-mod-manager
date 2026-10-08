@@ -1027,6 +1027,10 @@ fn router(app: Shared) -> Router {
         .route("/gambling.js", get(gambling_script))
         .route("/admin-games.css", get(admin_games_style))
         .route("/api/v1/cosmetics/assets/{id}", get(cosmetic_asset))
+        .route(
+            "/api/v1/gambling/cosmetics/catalog",
+            get(gambling::cosmetics_catalog),
+        )
         .route("/favicon.png", get(|| async { ([("content-type","image/png"),("cache-control","public, max-age=86400")],include_bytes!("../web/favicon.png").as_slice()) }))
         .route("/brand-logo.png", get(|| async { ([("content-type","image/png"),("cache-control","public, max-age=86400")],include_bytes!("../web/brand-logo.png").as_slice()) }))
         .route(

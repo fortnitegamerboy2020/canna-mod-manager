@@ -1,10 +1,14 @@
 'use strict';
-let members = [], profileId = 0;
+let members = [], profileId = 0,profileRequestSerial=0;
 async function loadPeople() {
   if(location.pathname!=='/members'){return navigatePage('/members');}
+  const serial=++profileRequestSerial,signal=typeof navigationSignal==='function'?navigationSignal():undefined;
   profileId = 0; $('profilecard').hidden = true;
   await showView('profilesview',true);
-  members = await pagedList('profiles','people',loadPeople,'membersearch'); renderPeople();
+  if(serial!==profileRequestSerial||location.pathname!=='/members'||signal?.aborted)return;
+  const result=await pagedList('profiles','people',loadPeople,'membersearch');
+  if(serial!==profileRequestSerial||location.pathname!=='/members'||signal?.aborted)return;
+  members=result;renderPeople();
 }
 function renderPeople() {
   const filtered = members.filter(member => member.username.toLowerCase().includes($('membersearch').value.toLowerCase()));
@@ -22,9 +26,12 @@ $('myprofilenav').addEventListener('click',() => action(() => openProfile(curren
 
 async function openProfile(id) {
   if(location.pathname!==`/members/${id}`){return navigatePage(`/members/${id}`);}
-  const profile = await (await api(`profiles/${id}`)).json(); profileId = id;
+  const serial=++profileRequestSerial,route=`/members/${id}`,signal=typeof navigationSignal==='function'?navigationSignal():undefined;
+  const current=()=>serial===profileRequestSerial&&location.pathname===route&&!signal?.aborted;
+  const profile = await (await api(`profiles/${id}`,{signal})).json();
+  if(!current())return;profileId = id;
   $('people').replaceChildren();
-  await showView('profilesview',true); $('profilecard').hidden = false;
+  await showView('profilesview',true);if(!current())return; $('profilecard').hidden = false;
   $('profilename').textContent = profile.username;
   $('profilebadges').textContent = `${memberRoleLabel(profile)} · ${profile.rank} · ${profile.points} XP${profile.banned ? ' · Banned' : ''}`;
   $('profilestatus').textContent = profile.status; $('profilebio').textContent = profile.bio;
@@ -33,10 +40,11 @@ async function openProfile(id) {
   applyProfileCosmetics(profile);
   $('profilerep').textContent = profile.ratings_count ? `★ ${profile.stars.toFixed(1)} / 5 · ${profile.ratings_count} rating${profile.ratings_count === 1 ? '' : 's'} · ${profile.posts_count} forum posts` : `No ratings yet · ${profile.posts_count} forum posts`;
   const own = id === currentUser.id;
-  renderProfileCosmeticActions(own);
+  renderProfileCosmeticActions(own,profile);
   $('editprofile').hidden = $('avatarform').hidden = !own;
   $('loggeddevices').hidden=!own;
   if(own)await loadDevices();
+  if(!current())return;
   $('ratingform').hidden = own || profile.banned; $('profilecommentform').hidden = profile.banned;
   $('editstatus').value = profile.status; $('editbio').value = profile.bio;
   $('ratingstars').value = String(profile.my_rating || 5);
@@ -64,10 +72,38 @@ function applyProfileCosmetics(profile){
  let frame=$('profileframe');if(!frame){frame=document.createElement('div');frame.id='profileframe';portrait.append(frame);}frame.className='profileframe';frame.replaceChildren();frame.hidden=!profile.cosmetics?.frame;
  if(profile.cosmetics?.frame){const cosmetic=profile.cosmetics.frame;frame.setAttribute('aria-label',cosmetic.name+' avatar frame');const image=profileCosmeticImage(cosmetic);if(image)frame.append(image);else{frame.className='profileframe';if(/^[a-z0-9_-]{1,80}$/.test(cosmetic.style||cosmetic.id||''))frame.classList.add('cosmetic-'+(cosmetic.style||cosmetic.id));}}
 }
-function renderProfileCosmeticActions(own){
- let tools=$('profilecosmetictools');if(!tools){tools=document.createElement('div');tools.id='profilecosmetictools';tools.className='row profilecosmetictools';const manage=button('Manage avatar frame & banner',async()=>{await navigatePage('/gambling');selectGamblingTab('collection');});manage.type='button';manage.dataset.page='/gambling';tools.append(manage);$('profilebio').before(tools);}tools.hidden=!own;
+function renderProfileCosmeticActions(own,profile){
+ let tools=$('profilecosmetictools');if(!tools){tools=document.createElement('div');tools.id='profilecosmetictools';tools.className='row profilecosmetictools';const manage=button('Manage avatar frame & banner',async()=>{await navigatePage('/gambling');if(location.pathname==='/gambling')selectGamblingTab('collection');});manage.id='profile-cosmetic-manage';manage.type='button';manage.dataset.page='/gambling';tools.append(manage,artworkMotionControl());$('profilebio').before(tools);}
+ const animated=!!profile?.cosmetics?.banner?.animated||!!profile?.cosmetics?.frame?.animated;
+ $('profile-cosmetic-manage').hidden=!own;$('cosmetic-motion-toggle').hidden=!animated;tools.hidden=!own&&!animated;refreshCosmeticMotion();
 }
-function profileCosmeticImage(item){const asset=item.animated&&typeof window.matchMedia==='function'&&window.matchMedia('(prefers-reduced-motion: reduce)').matches&&item.poster_asset?item.poster_asset:item.asset;if(typeof asset!=='string'||!/^\/api\/v1\/cosmetics\/assets\/[a-zA-Z0-9_-]+$/.test(asset))return null;const image=document.createElement('img');const hash=asset===item.poster_asset?item.poster_sha256:item.sha256;image.src=asset+(/^[a-f0-9]{64}$/.test(hash||'')?'?v='+hash:'');image.alt='';image.decoding='async';return image;}
+let cosmeticMotionQuery=null,cosmeticMotionReady=false;
+let cosmeticMotionPaused=false;
+try{cosmeticMotionPaused=localStorage.getItem('canna-cosmetic-motion')==='paused';}catch{}
+function cosmeticAssetUrl(asset,hash){return typeof asset==='string'&&/^\/api\/v1\/cosmetics\/assets\/[a-zA-Z0-9_-]+$/.test(asset)?asset+(/^[a-f0-9]{64}$/.test(hash||'')?'?v='+hash:''):null;}
+function cosmeticAnimationsPaused(){return cosmeticMotionPaused||!!cosmeticMotionQuery?.matches;}
+function updateCosmeticMotionImage(image){const url=cosmeticAnimationsPaused()?image.dataset.cosmeticPoster:image.dataset.cosmeticAnimation;if(url&&image.getAttribute('src')!==url)image.src=url;}
+function refreshCosmeticMotion(){
+ for(const image of document.querySelectorAll('img[data-cosmetic-animation]'))updateCosmeticMotionImage(image);
+ const control=$('cosmetic-motion-toggle');if(control){control.setAttribute('aria-pressed',String(cosmeticAnimationsPaused()));control.textContent=cosmeticMotionQuery?.matches?'Artwork animations paused by device':cosmeticMotionPaused?'Resume artwork animations':'Pause artwork animations';control.disabled=!!cosmeticMotionQuery?.matches;control.title=cosmeticMotionQuery?.matches?'Your device requests reduced motion. Artwork uses still images.':'Applies to profile banners and cosmetic previews in this browser.';}
+}
+function setupCosmeticMotion(){
+ if(cosmeticMotionReady)return;cosmeticMotionReady=true;
+ if(typeof window.matchMedia==='function'){cosmeticMotionQuery=window.matchMedia('(prefers-reduced-motion: reduce)');if(cosmeticMotionQuery.addEventListener)cosmeticMotionQuery.addEventListener('change',refreshCosmeticMotion);else cosmeticMotionQuery.addListener?.(refreshCosmeticMotion);}
+ window.addEventListener?.('storage',event=>{if(event.key!=='canna-cosmetic-motion')return;cosmeticMotionPaused=event.newValue==='paused';refreshCosmeticMotion();});
+}
+function bindCosmeticMotion(image,item){
+ if(!item.animated)return;
+ const animation=cosmeticAssetUrl(item.asset,item.sha256),poster=cosmeticAssetUrl(item.poster_asset,item.poster_sha256);
+ if(!animation||!poster)return;
+ setupCosmeticMotion();image.dataset.cosmeticAnimation=animation;image.dataset.cosmeticPoster=poster;updateCosmeticMotionImage(image);
+}
+function artworkMotionControl(){
+ setupCosmeticMotion();const control=document.createElement('button');control.id='cosmetic-motion-toggle';control.type='button';
+ control.addEventListener('click',()=>{cosmeticMotionPaused=!cosmeticMotionPaused;try{localStorage.setItem('canna-cosmetic-motion',cosmeticMotionPaused?'paused':'auto');}catch{}refreshCosmeticMotion();});
+ return control;
+}
+function profileCosmeticImage(item){const asset=cosmeticAssetUrl(item.asset,item.sha256);if(!asset)return null;const image=document.createElement('img');image.src=asset;image.alt='';image.decoding='async';bindCosmeticMotion(image,item);return image;}
 $('editprofile').addEventListener('submit',event => { event.preventDefault(); action(async () => {
   await json('profiles/me',{status:$('editstatus').value,bio:$('editbio').value}); await openProfile(currentUser.id); message('Profile saved.');
 }); });
@@ -85,7 +121,9 @@ $('profilecommentform').addEventListener('submit',event => { event.preventDefaul
 $('welcome').addEventListener('click',()=>action(()=>openProfile(currentUser.id)));
 
 async function loadDevices() {
- const devices=await(await api('devices')).json();
+ const id=profileId,signal=typeof navigationSignal==='function'?navigationSignal():undefined;
+ const devices=await(await api('devices',{signal})).json();
+ if(profileId!==id||location.pathname!==`/members/${id}`||id!==currentUser.id||signal?.aborted)return;
  $('devicelist').replaceChildren(...devices.map(device=>{
   const row=document.createElement('article');row.className='entry';
   const info=document.createElement('div');const name=document.createElement('strong');name.textContent=device.name+(device.current?' · This device':'');

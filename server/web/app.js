@@ -2,6 +2,13 @@
 const $ = id => document.getElementById(id);
 sessionStorage.removeItem('canna-session');
 let currentUser;
+function adoptCurrentUser(user){
+  if(currentUser&&currentUser.id!==user.id){
+    pageWarm.clear();navigationController?.abort();location.reload();
+    const error=new Error('Account changed. Reloading this page.');error.name='AbortError';throw error;
+  }
+  currentUser=user;
+}
 let communityPageReady=false;
 let externalLanding=new URLSearchParams(location.search).has("import");
 let devicesLanding=new URLSearchParams(location.search).has("devices");
@@ -10,8 +17,12 @@ async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   const method=options.method||'GET';
   if(method!=='GET')pageWarm.clear();
+  const member=currentUser?.id;
   const warm=method==='GET' && path!=='me' ? pageWarm.get(path) : null;
-  const response=warm && warm.until>Date.now() ? await warm.promise.then(r=>r.clone()).catch(()=>fetch(`/api/v1/${path}`, {...options, headers})) : await fetch(`/api/v1/${path}`, {...options, headers});
+  const response=warm && warm.member===member && warm.until>Date.now() ? await warm.promise.then(r=>r.clone()).catch(()=>fetch(`/api/v1/${path}`, {...options, headers})) : await fetch(`/api/v1/${path}`, {...options, headers});
+  if(warm&&warm.member===member&&member!==currentUser?.id){
+    const error=new Error('Account changed. Reload this page.');error.name='AbortError';throw error;
+  }
   if (!response.ok) {
     if(response.status===401) location.replace(location.pathname);
     const error = await response.json().catch(() => ({}));
@@ -21,8 +32,9 @@ async function api(path, options = {}) {
   }
   return response;
 }
-async function json(path, data) {
-  return (await api(path, {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(data)})).json();
+async function json(path, data, options = {}) {
+  const headers=new Headers(options.headers||{});headers.set('Content-Type','application/json');
+  return (await api(path, {...options,method:'POST',headers,body:JSON.stringify(data)})).json();
 }
 async function action(callback) {
   message('');
@@ -90,7 +102,7 @@ function entry(item, kind) {
 }
 const libraryItems={mods:[],packs:[]};
 async function loadLibrary() {
-  if(!currentUser) currentUser=await (await api('me')).json();
+  if(!currentUser) adoptCurrentUser(await (await api('me')).json());
   const catalog=await (await api('catalog')).json();
   librarySupportedGames.clear();librarySupportedGames.set('minecraft','Minecraft');
   for(const game of catalog.games) librarySupportedGames.set(game.app_id===4294967295?'minecraft':String(game.app_id),game.name);
@@ -102,7 +114,7 @@ async function loadLibrary() {
   if(typeof loadUpdateStatus==='function')await loadUpdateStatus();
 }
 async function refresh() {
-  currentUser=await (await api('me')).json();
+  adoptCurrentUser(await (await api('me')).json());
   $('admin').hidden=currentUser.role!=='owner';$('adminnav').hidden=!currentUser.admin;
   $('newinvite').disabled=!currentUser.can_invite;
   $('newwave').disabled=!currentUser.can_invite;
@@ -133,14 +145,24 @@ async function inviteAction(id,callback) {
   const btn=$(id);btn.disabled=true;$('invitestatus').textContent='Generating invitations…';
   try {await callback();$('inviteout').focus();}catch(error){$('invitestatus').textContent=error.message;message(error.message);}finally {btn.disabled=!currentUser.can_invite;}
 }
+function invitationLink(code){
+ if(typeof code!=='string'||!/^[A-Za-z0-9_-]{1,64}$/.test(code))throw new Error('Invalid invitation code.');
+ return new URL('/#invite='+encodeURIComponent(code),location.origin).href;
+}
+function renderInvitationOutputs(codes){
+ $('inviteout').value=codes.join('\n');$('invitelinks').value=codes.map(invitationLink).join('\n');
+ $('copyinvitelinks').disabled=$('copyinvitecodes').disabled=!codes.length;
+}
+$('copyinvitelinks').addEventListener('click',()=>action(async()=>{await navigator.clipboard.writeText($('invitelinks').value);message('Invitation links copied. Give one link to each person.');}));
+$('copyinvitecodes').addEventListener('click',()=>action(async()=>{await navigator.clipboard.writeText($('inviteout').value);message('Invitation codes copied. Give one code to each person.');}));
 $('newinvite').addEventListener('click',()=>inviteAction('newinvite',async()=>{
-  const result=await json('invites',{});$('inviteout').value=result.invite;$('waveid').value='';$('revokewave').disabled=true;await refresh();if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent='Invitation created. Copy the code below and give it to one person. It expires in seven days.';
+  const result=await json('invites',{});renderInvitationOutputs([result.invite]);$('waveid').value='';$('revokewave').disabled=true;await refresh();if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent='Invitation created. Share its link or code with one person. Both expire together in seven days.';
 }));
 $('newwave').addEventListener('click',()=>inviteAction('newwave',async()=>{
   const count=Number($('wavecount').value);if(!Number.isInteger(count)||count<1||count>50)throw new Error('Choose 1–50 invitations.');
-  const wave=await json('invite-waves',{count,mode:$('invitemode')?.value||'wave',label:$('invitelabel')?.value||''});$('inviteout').value=wave.invites.join('\n');$('waveid').value=wave.wave;$('revokewave').disabled=!wave.wave;if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent='Invitations created and saved in history. Copy one code for each person. They expire in seven days.';
+  const wave=await json('invite-waves',{count,mode:$('invitemode')?.value||'wave',label:$('invitelabel')?.value||''});renderInvitationOutputs(wave.invites);$('waveid').value=wave.wave;$('revokewave').disabled=!wave.wave;if(typeof loadInvitationHistory==='function')await loadInvitationHistory();$('invitestatus').textContent='Invitations created and saved in history. Share one link or code with each person. They expire in seven days.';
 }));
-$('revokewave').addEventListener('click',()=>action(async()=>{const result=await(await api(`invite-waves/${$('waveid').value}`,{method:'DELETE'})).json();$('inviteout').value='';$('revokewave').disabled=true;message(`${result.revoked} unused invitations revoked. Existing accounts remain active.`);}));
+$('revokewave').addEventListener('click',()=>action(async()=>{const result=await(await api(`invite-waves/${$('waveid').value}`,{method:'DELETE'})).json();renderInvitationOutputs([]);$('revokewave').disabled=true;message(`${result.revoked} unused invitations revoked. Existing accounts remain active.`);}));
 $('upload').addEventListener('submit',event=>{event.preventDefault();action(async()=>{
   const file=$('modfile').files[0];if(!file||file.size>128*1024*1024)throw new Error('Choose a ZIP no larger than 128 MiB.');
   const query=new URLSearchParams({app_id:$('game').value,name:$('modname').value,version:$('version').value,description:$('description').value});message('Uploading mod…');const result=await(await api(`mods?${query}`,{method:'POST',headers:{'Content-Type':'application/zip'},body:file})).json();$('upload').reset();await refresh();message('Mod uploaded. Automatic analysis runs first; a staff member must manually approve this upload. Check My submissions for its status.');
@@ -197,25 +219,41 @@ function pageReads(path){
 }
 function warmPage(path){
  for(const key of pageReads(path)){
-  if(pageWarm.get(key)?.until>Date.now())continue;
+  if(pageWarm.get(key)?.member===currentUser?.id&&pageWarm.get(key)?.until>Date.now())continue;
   if(pageWarm.size>=16)pageWarm.delete(pageWarm.keys().next().value);
-  const item={until:Date.now()+5000,promise:fetch('/api/v1/'+key).then(r=>{if(!r.ok)pageWarm.delete(key);return r;})};
-  pageWarm.set(key,item);item.promise.catch(()=>{pageWarm.delete(key);});
+  const item={member:currentUser?.id,until:Date.now()+5000,promise:fetch('/api/v1/'+key).then(r=>{if(!r.ok&&pageWarm.get(key)===item)pageWarm.delete(key);return r;})};
+  pageWarm.set(key,item);item.promise.catch(()=>{if(pageWarm.get(key)===item)pageWarm.delete(key);});
  }
 }
-let navigating=false;
+let navigating=false,navigationGeneration=0,navigationController=null,navigationPending=null,navigationPromise=null;
+function navigationSignal(){return navigationController?.signal;}
 async function navigatePage(path,back=false){
- if(navigating)return;navigating=true;
+ navigationPending={path,back,generation:++navigationGeneration};navigationController?.abort();
+ if(navigating)return navigationPromise;
+ navigating=true;navigationPromise=drainNavigationRequests();
+ try{return await navigationPromise;}
+ finally{
+  navigating=false;navigationPromise=null;
+  if(navigationPending){const pending=navigationPending;navigationPending=null;await navigatePage(pending.path,pending.back);}
+ }
+}
+async function drainNavigationRequests(){
+ while(navigationPending){
+ const {path,back,generation}=navigationPending;navigationPending=null;
+ const controller=new AbortController();navigationController=controller;
  try{
   // Revalidate the session even when route data was warmed on hover.
-  currentUser=await(await api('me')).json();
+  const user=await(await api('me',{signal:controller.signal})).json();
+  if(generation!==navigationGeneration||controller.signal.aborted)continue;
+  adoptCurrentUser(user);
   renderAccountBadges();
   if(!back)history.pushState(null,'',path);
   openThread='';threadData=undefined;topicPage=0;profileId=0;
   $('topicfilter').value='';$('thread').hidden=true;$('newtopic').hidden=true;$('profilecard').hidden=true;
   $('composetopic').hidden=false;$('forumheading').textContent='Forums';$('forumdescription').textContent='Ask questions. Share your work. Help each other build.';
-  await openCommunityPage();window.scrollTo({top:0});
- }finally{navigating=false;}
+  await openCommunityPage();if(generation===navigationGeneration&&!controller.signal.aborted)window.scrollTo({top:0});
+ }catch(error){if(error.name!=='AbortError'&&generation===navigationGeneration)throw error;}
+ }
 }
 function setupPagePrefetch(){
  const paths={playnav:'/play',forumnav:'/forums',browsenav:'/mods',gamblingnav:'/gambling',subscriptionsnav:'/subscriptions',librarynav:'/library',peoplenav:'/members',adminnav:'/admin',submissionsnav:'/submissions',notificationsnav:'/notifications',myprofilenav:'/members/'+currentUser.id,welcome:'/members/'+currentUser.id,forumback:'/forums',latestdiscussions:'/forums/latest'};

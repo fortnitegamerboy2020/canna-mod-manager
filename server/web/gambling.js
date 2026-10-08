@@ -1,10 +1,14 @@
 'use strict';
 let gamblingReady=false,gamblingTab='crash',gamblingData=null,gamblingBusy=false,gamblingLoading=false;
 let gamblingLoadPromise=null;
+let gamblingCatalog=null,gamblingCatalogPromise=null;
+let gamblingReadGeneration=0,gamblingReadController=null,gamblingRouteSignal=null,gamblingRouteAbort=null;
+let gamblingMemberMismatch=false;
 let gamblingPendingMutation=null;
 let gamblingCaseRenderKey='',gamblingCosmeticRenderKey='';
 let crashPeople={round:null,pages:1,rows:[],total:0,hasMore:false},crashPeopleLoading=false;
 let crashPeopleRefreshPromise=null,crashPeopleRefreshPending=null;
+let crashPeopleGeneration=0,crashPeopleController=null;
 let gamblingAdminReady=false,gamblingAdminData=null,gamblingAdminLoading=false;
 const CRASH_VISUAL_FRESH_MS=2000,CRASH_GROWTH_MS=10000;
 let crashVisual=null,crashAnimation=null,crashMotionQuery=null,crashHooksReady=false;
@@ -42,7 +46,7 @@ function scheduleCrashAnimation(){
  crashAnimation=requestAnimationFrame(()=>{crashAnimation=null;if(!crashIsVisible()){stopCrashAnimation(true);return;}if(drawCrashVisual())scheduleCrashAnimation();});
 }
 function refreshCrashVisibility(){if(!crashIsVisible()){stopCrashAnimation(true);return;}drawCrashVisual();scheduleCrashAnimation();}
-function requestCrashRefresh(){if(crashVisual&&crashIsVisible()&&!gamblingBusy)loadGambling().catch(error=>setGamblingStatus(error.message,true));}
+function requestCrashRefresh(){if(crashVisual&&crashIsVisible()&&!gamblingBusy)loadGambling().catch(error=>{if(error.name!=='AbortError')setGamblingStatus(error.message,true);});}
 function setupCrashAnimation(){
  if(crashHooksReady)return;crashHooksReady=true;
  if(typeof window.matchMedia==='function'){crashMotionQuery=window.matchMedia('(prefers-reduced-motion: reduce)');const change=()=>{stopCrashAnimation();drawCrashVisual();scheduleCrashAnimation();};if(crashMotionQuery.addEventListener)crashMotionQuery.addEventListener('change',change);else crashMotionQuery.addListener?.(change);}
@@ -73,31 +77,101 @@ function setupGambling(){
  const panes=gameNode('div',null,'gamepanes');for(const [id,name]of [['crash','↗ Crash'],['blackjack','♠ Blackjack'],['cases','◇ Cosmetic crates'],['collection','▣ My collection']]){const tab=gameButton(name,()=>selectGamblingTab(id));tab.dataset.game=id;nav.append(tab);const pane=gameNode('section');pane.id='gambling-'+id;pane.hidden=id!==gamblingTab;panes.append(pane);}
  const status=gameNode('p');status.id='gambling-status';status.setAttribute('role','status');const retry=gameButton('Retry pending action',()=>{const pending=gamblingPendingMutation;return pending&&gamblingMutation(pending.path,pending.data,pending.success);});retry.id='gambling-retry';retry.hidden=true;root.append(hero,notice,nav,status,retry,panes);setupCrash();setupBlackjack();setupCases();setupCosmeticCollection();selectGamblingTab(gamblingTab);
 }
-function selectGamblingTab(id){gamblingTab=id;document.querySelectorAll('.gamepanes>section').forEach(p=>p.hidden=p.id!=='gambling-'+id);document.querySelectorAll('.gametabs button').forEach(b=>{const active=b.dataset.game===id;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');});refreshCrashVisibility();if(id==='crash'&&crashVisual&&(crashVisual.needsFresh||crashClock()-crashVisual.receivedAt>=CRASH_VISUAL_FRESH_MS))requestCrashRefresh();}
-async function loadGambling(){setupGambling();if(!gamblingReady)return;if(gamblingLoading)return gamblingLoadPromise;gamblingLoading=true;gamblingLoadPromise=(async()=>{try{const data=await(await api('gambling')).json();gamblingData=data;renderGambling(data);queueCrashParticipantRefresh(data.crash);}finally{gamblingLoading=false;}})();return gamblingLoadPromise;}
+function selectGamblingTab(id){gamblingTab=id;if(id!=='crash')cancelCrashParticipantReads();document.querySelectorAll('.gamepanes>section').forEach(p=>p.hidden=p.id!=='gambling-'+id);document.querySelectorAll('.gametabs button').forEach(b=>{const active=b.dataset.game===id;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');});refreshCrashVisibility();if(id==='crash'&&crashVisual&&(crashVisual.needsFresh||crashClock()-crashVisual.receivedAt>=CRASH_VISUAL_FRESH_MS))requestCrashRefresh();}
+function acceptGamblingCatalog(data){
+ if(!data||!/^[a-f0-9]{64}$/.test(data.version||'')||!Array.isArray(data.catalog)||!data.catalog.length||data.catalog.length>2000||!Array.isArray(data.cases)||data.cases.length!==3)throw new Error('Cosmetic catalog could not load. Refresh to try again.');
+ gamblingCatalog={version:data.version,catalog:data.catalog,cases:data.cases};return gamblingCatalog;
+}
+function gamblingAbortError(){const error=new Error('This page request was cancelled.');error.name='AbortError';return error;}
+function gamblingRouteActive(){return typeof location==='undefined'||location.pathname==='/gambling';}
+function readGamblingJson(path,signal){
+ if(signal?.aborted)return Promise.reject(gamblingAbortError());
+ return new Promise((resolve,reject)=>{
+  const abort=()=>reject(gamblingAbortError());signal?.addEventListener('abort',abort,{once:true});
+  Promise.resolve().then(()=>{if(signal?.aborted)throw gamblingAbortError();return api(path,signal?{signal}:{});}).then(response=>response.json()).then(data=>{if(signal?.aborted)throw gamblingAbortError();resolve(data);},reject).finally(()=>signal?.removeEventListener('abort',abort)).catch(reject);
+ });
+}
+function cancelGamblingPrimaryReads(){
+ const controller=gamblingReadController;gamblingReadGeneration++;gamblingReadController=null;gamblingLoading=false;gamblingLoadPromise=null;gamblingCatalogPromise=null;controller?.abort();
+}
+function cancelCrashParticipantReads(){
+ const controller=crashPeopleController;crashPeopleGeneration++;crashPeopleController=null;crashPeopleLoading=false;crashPeopleRefreshPromise=null;crashPeopleRefreshPending=null;controller?.abort();
+ if($('crash-people-more'))$('crash-people-more').disabled=false;
+}
+function observeGamblingRoute(){
+ if(typeof navigationSignal!=='function'||!gamblingRouteActive())return;
+ const signal=navigationSignal();if(signal===gamblingRouteSignal){if(signal?.aborted)throw gamblingAbortError();return;}
+ gamblingRouteSignal?.removeEventListener('abort',gamblingRouteAbort);gamblingRouteSignal=signal;
+ gamblingRouteAbort=()=>{cancelGamblingPrimaryReads();cancelCrashParticipantReads();stopCrashAnimation(true);};
+ signal?.addEventListener('abort',gamblingRouteAbort,{once:true});if(signal?.aborted){gamblingRouteAbort();throw gamblingAbortError();}
+}
+function gamblingIdentityError(){const error=new Error('Your signed-in account changed. Reload this page before using Kash or your collection.');error.status=409;return error;}
+function rejectGamblingMember(){
+ gamblingMemberMismatch=true;gamblingData=null;gamblingPendingMutation=null;cancelGamblingPrimaryReads();cancelCrashParticipantReads();
+ if($('gambling-balance'))$('gambling-balance').textContent='—';
+ for(const id of ['cosmetic-collection','case-result','crash-people-rows'])$(id)?.replaceChildren();
+ for(const control of $('gamblingview')?.querySelectorAll('button')||[])control.disabled=true;
+ setGamblingStatus(gamblingIdentityError().message,true);throw gamblingIdentityError();
+}
+function gamblingMember(){
+ const member=currentUser?.id;
+ if(gamblingMemberMismatch||!Number.isSafeInteger(member)||member<=0||gamblingData&&gamblingData.member_id!==member||gamblingPendingMutation&&gamblingPendingMutation.member_id!==member)rejectGamblingMember();
+ return member;
+}
+function verifyGamblingMember(data,expected){if(data?.member_id!==expected||currentUser?.id!==expected)rejectGamblingMember();}
+async function loadGamblingCatalog(signal){
+ if(signal?.aborted)throw gamblingAbortError();if(gamblingCatalog)return gamblingCatalog;
+ if(gamblingCatalogPromise)return gamblingCatalogPromise;
+ const promise=(async()=>{try{return acceptGamblingCatalog(await readGamblingJson('gambling/cosmetics/catalog',signal));}finally{if(gamblingCatalogPromise===promise)gamblingCatalogPromise=null;}})();gamblingCatalogPromise=promise;return promise;
+}
+function attachGamblingCatalog(data){
+ const cosmetics=data?.cosmetics;
+ if(!cosmetics||!Array.isArray(cosmetics.owned)||!cosmetics.equipped)throw new Error('Your collection could not load. Refresh to try again.');
+ if(Array.isArray(cosmetics.catalog))acceptGamblingCatalog({version:cosmetics.catalog_version,catalog:cosmetics.catalog,cases:data.cases});
+ if(!gamblingCatalog||cosmetics.catalog_version!==gamblingCatalog.version){gamblingCatalog=null;throw new Error('The cosmetic catalog changed. Refresh to load its current version.');}
+ cosmetics.catalog=gamblingCatalog.catalog;data.cases=gamblingCatalog.cases;return data;
+}
+async function loadGambling(){
+ setupGambling();if(!gamblingReady||!gamblingRouteActive())return;observeGamblingRoute();const member=gamblingMember();
+ if(gamblingLoading)return gamblingLoadPromise;
+ const generation=++gamblingReadGeneration,controller=new AbortController();gamblingReadController=controller;gamblingLoading=true;
+ const promise=(async()=>{try{
+  const catalog=await loadGamblingCatalog(controller.signal);const response=await readGamblingJson('gambling?catalog_version='+catalog.version,controller.signal);
+  if(generation!==gamblingReadGeneration||controller.signal.aborted)throw gamblingAbortError();verifyGamblingMember(response,member);
+  const data=attachGamblingCatalog(response);gamblingData=data;renderGambling(data);queueCrashParticipantRefresh(data.crash);
+ }finally{if(generation===gamblingReadGeneration){gamblingLoading=false;gamblingReadController=null;gamblingLoadPromise=null;}}})();gamblingLoadPromise=promise;return promise;
+}
 function renderGambling(data){
  $('gambling-balance').textContent=kashText(data.wallet.balance);$('kashbalance').textContent=kashText(data.wallet.balance);if(currentUser)currentUser.kash=data.wallet.balance;
  $('gambling-daily').disabled=gamblingBusy||!!gamblingPendingMutation||!data.wallet.daily_available;$('gambling-daily').textContent=data.wallet.daily_available?'Claim daily Kash':'Daily already claimed';
  $('gambling-retry').hidden=!gamblingPendingMutation||gamblingBusy;$('gambling-retry').disabled=gamblingBusy;
  const disclosure=data.notice||'Kash cannot be bought or withdrawn. The owner can inspect upcoming Crash results and configure future rounds.';$('gambling-disclosure').textContent=disclosure;
  renderCrash(data.crash,data.server_time_ms);renderBlackjack(data.blackjack);
- const casesKey=JSON.stringify([data.cases,data.cosmetics.catalog,data.wallet.balance,gamblingBusy,!!gamblingPendingMutation]);
+ const casesKey=JSON.stringify([data.cosmetics.catalog_version,data.wallet.balance,gamblingBusy,!!gamblingPendingMutation]);
  if(casesKey!==gamblingCaseRenderKey){renderCases(data);gamblingCaseRenderKey=casesKey;}
- const cosmeticKey=JSON.stringify([data.cosmetics,gamblingBusy,!!gamblingPendingMutation]);
+ const cosmeticKey=JSON.stringify([data.cosmetics.catalog_version,data.cosmetics.owned,data.cosmetics.equipped,gamblingBusy,!!gamblingPendingMutation]);
  if(cosmeticKey!==gamblingCosmeticRenderKey){renderCosmeticCollection(data.cosmetics);gamblingCosmeticRenderKey=cosmeticKey;}
 }
 async function gamblingMutation(path,data,success){
- if(gamblingBusy)return;
+ if(gamblingBusy)return;const member=gamblingMember();
  const key=JSON.stringify({path,data});
  if(gamblingPendingMutation&&gamblingPendingMutation.key!==key)throw new Error('Retry your pending action before starting another. Its original request is preserved to prevent a second charge.');
- const pending=gamblingPendingMutation||{path,data,success,key,payload:{...data,request_id:gameRequestId()}};
- gamblingBusy=true;setGamblingStatus('Working…');if(gamblingData)renderGambling(gamblingData);let recorded=false;
- try{if(gamblingLoading)await gamblingLoadPromise;const result=await json(path,pending.payload);recorded=true;gamblingPendingMutation=null;await loadGambling();setGamblingStatus(typeof success==='function'?success(result):success||'Done.');return result;}
- catch(error){
-  if(!recorded&&(!Number.isInteger(error.status)||error.status>=500)){gamblingPendingMutation=pending;setGamblingStatus('The connection ended before the result was confirmed. Retry the pending action; Canna will reuse the same request and prevent a second charge.',true);}
-  else{gamblingPendingMutation=null;setGamblingStatus(recorded?'Your action was recorded. The latest balance could not load; refresh this page.':error.message,true);}
+ const pending=gamblingPendingMutation||{path,data,success,key,member_id:member,payload:{...data,request_id:gameRequestId()}};
+ gamblingBusy=true;setGamblingStatus('Working…');if(gamblingData)renderGambling(gamblingData);let recorded=false,submitted=false;
+ // A delayed display poll must never hold up a time-sensitive cashout. Its
+ // eventual response is discarded; a confirmed mutation gets a fresh snapshot.
+ cancelGamblingPrimaryReads();
+ try{
+  if(currentUser?.id!==pending.member_id)rejectGamblingMember();submitted=true;
+  const result=await json(path,pending.payload,{headers:{'X-Canna-Member':String(pending.member_id)}});recorded=true;gamblingPendingMutation=null;
+  if(currentUser?.id!==pending.member_id)rejectGamblingMember();
+  if(gamblingRouteActive()){try{await loadGambling();}catch(error){if(error.name!=='AbortError')throw error;}}
+  setGamblingStatus(typeof success==='function'?success(result):success||'Done.');return result;
+ }catch(error){
+  if(!recorded&&submitted&&(!Number.isInteger(error.status)||error.status>=500)){gamblingPendingMutation=pending;setGamblingStatus('The connection ended before the result was confirmed. Retry the pending action; Canna will reuse the same request and prevent a second charge.',true);}
+  else{gamblingPendingMutation=null;setGamblingStatus(gamblingMemberMismatch?gamblingIdentityError().message:recorded?'Your action was recorded. The latest balance could not load; refresh this page.':error.message,true);}
   throw error;
- }finally{gamblingBusy=false;if(gamblingData)renderGambling(gamblingData);}
+ }finally{gamblingBusy=false;if(gamblingData&&!gamblingMemberMismatch)renderGambling(gamblingData);}
 }
 function setupCrash(){
  const root=$('gambling-crash');const layout=gameNode('div',null,'crashlayout');const stage=gameNode('div',null,'crashstage');stage.setAttribute('aria-label','Current Crash round');
@@ -123,7 +197,7 @@ function renderCrash(crash,now){
  acceptCrashParticipants(crash);renderCrashParticipants(crash.phase);
 }
 function acceptCrashParticipants(crash){
- if(crashPeople.round!==crash.id){crashPeople={round:crash.id,pages:1,rows:[],total:0,hasMore:false};if($('crash-people-status'))$('crash-people-status').textContent='';}
+ if(crashPeople.round!==crash.id){cancelCrashParticipantReads();crashPeople={round:crash.id,pages:1,rows:[],total:0,hasMore:false};if($('crash-people-status'))$('crash-people-status').textContent='';}
  const first=Array.isArray(crash.participants)?crash.participants:[];
  // Retain loaded later pages until their fresh snapshots arrive. Round changes
  // replace the whole list; a crash or wagering pause retains the current round.
@@ -138,22 +212,22 @@ function queueCrashParticipantRefresh(crash){
 }
 async function refreshCrashParticipantPages(crash){
  if(crashPeople.pages<2||!crash.participant_has_more||crash.id===null)return;
- const round=crash.id,pages=crashPeople.pages,rows=[];let cursor=crash.participant_next_after_user_id,more=!!crash.participant_has_more;
- crashPeopleLoading=true;renderCrashParticipants(crash.phase);
+ const round=crash.id,pages=crashPeople.pages,member=gamblingMember(),generation=++crashPeopleGeneration,controller=new AbortController(),rows=[];
+ let cursor=crash.participant_next_after_user_id,more=!!crash.participant_has_more;crashPeopleController=controller;crashPeopleLoading=true;renderCrashParticipants(crash.phase);
  try{for(let page=1;page<pages&&more;page++){
-  const result=await(await api(`gambling?crash_round_id=${encodeURIComponent(round)}&crash_after_user_id=${encodeURIComponent(cursor)}`)).json();
-  if(crashPeople.round!==round||result.crash.id!==round)return;
-  rows.push(...(result.crash.participants||[]));more=!!result.crash.participant_has_more;cursor=result.crash.participant_next_after_user_id;
+  const result=await readGamblingJson(`gambling?crash_round_id=${encodeURIComponent(round)}&crash_after_user_id=${encodeURIComponent(cursor)}`,controller.signal);
+  if(generation!==crashPeopleGeneration||controller.signal.aborted||crashPeople.round!==round||result.crash.id!==round)return;
+  verifyGamblingMember(result,member);rows.push(...(result.crash.participants||[]));more=!!result.crash.participant_has_more;cursor=result.crash.participant_next_after_user_id;
  }
- if(crashPeople.round===round){
+ if(generation===crashPeopleGeneration&&crashPeople.round===round){
   // Primary state and cashout mutations never wait for this secondary list.
   // Keep a newer first page and never regress an already settled bet to pending.
   const merged=new Map(crashPeople.rows.map(row=>[row.user_id,row]));
   for(const row of rows){const old=merged.get(row.user_id);if(old&&old.status!=='pending'&&row.status==='pending')continue;merged.set(row.user_id,row);}
   crashPeople.rows=[...merged.values()].sort((a,b)=>a.user_id-b.user_id);crashPeople.hasMore=crashPeople.rows.length<crashPeople.total;$('crash-people-status').textContent='';
  }
- }catch(error){if(crashPeople.round===round)$('crash-people-status').textContent=error.status===409?'The next round started. Refreshing players…':'Player updates could not load. They will retry with the next update.';}
- finally{crashPeopleLoading=false;renderCrashParticipants(gamblingData?.crash.phase||crash.phase);if(crashPeopleRefreshPending){const latest=crashPeopleRefreshPending;crashPeopleRefreshPending=null;queueCrashParticipantRefresh(latest);}}
+ }catch(error){if(error.name!=='AbortError'&&generation===crashPeopleGeneration&&crashPeople.round===round)$('crash-people-status').textContent=gamblingMemberMismatch?gamblingIdentityError().message:error.status===409?'The next round started. Refreshing players…':'Player updates could not load. They will retry with the next update.';}
+ finally{if(generation===crashPeopleGeneration){crashPeopleLoading=false;crashPeopleController=null;renderCrashParticipants(gamblingData?.crash.phase||crash.phase);if(crashPeopleRefreshPending){const latest=crashPeopleRefreshPending;crashPeopleRefreshPending=null;queueCrashParticipantRefresh(latest);}}}
 }
 function renderCrashParticipants(phase){
  if(!$('crash-people-rows'))return;
@@ -190,7 +264,7 @@ function cosmeticPreview(item,large=false){
  if(item.kind==='frame')preview.append(gameNode('span',currentUser?.username?.slice(0,1).toUpperCase()||'C','cosmeticinitial'));else preview.append(gameNode('span','CANNA','cosmeticbannertext'));
  if(item.kind==='banner'&&['mw2','bo2'].includes(cosmeticCollection(item))){preview.classList.add('calling-card');preview.title=item.name;}
  const asset=item.animated&&typeof window.matchMedia==='function'&&window.matchMedia('(prefers-reduced-motion: reduce)').matches&&item.poster_asset?item.poster_asset:item.asset;
- if(typeof asset==='string'&&/^\/api\/v1\/cosmetics\/assets\/[a-zA-Z0-9_-]+$/.test(asset)){const img=gameNode('img');const hash=asset===item.poster_asset?item.poster_sha256:item.sha256;img.src=asset+(/^[a-f0-9]{64}$/.test(hash||'')?'?v='+hash:'');img.alt='';img.loading='lazy';img.decoding='async';img.className='cosmeticasset';preview.append(img);}
+ if(typeof asset==='string'&&/^\/api\/v1\/cosmetics\/assets\/[a-zA-Z0-9_-]+$/.test(asset)){const img=gameNode('img');const hash=asset===item.poster_asset?item.poster_sha256:item.sha256;img.src=asset+(/^[a-f0-9]{64}$/.test(hash||'')?'?v='+hash:'');if(typeof bindCosmeticMotion==='function')bindCosmeticMotion(img,item);img.alt='';img.loading='lazy';img.decoding='async';img.className='cosmeticasset';preview.append(img);}
  preview.dataset.rarity=item.rarity||'common';preview.setAttribute('aria-label',item.name+' '+item.kind+' preview');return preview;
 }
 function renderCases(data){
@@ -260,5 +334,5 @@ function renderGamblingAdminPreview(data){
  $('admin-crash-history').replaceChildren(...(crash.history||[]).map(r=>gameNode('span',multiplierText(r.crash_multiplier)+' · '+r.mode,'crashchip')));
 }
 async function refreshGamblingAdminPreview(){if(gamblingAdminLoading)return;gamblingAdminLoading=true;try{renderGamblingAdminPreview(await(await api('admin/gambling')).json());}finally{gamblingAdminLoading=false;}}
-setInterval(()=>{if(!gamblingReady||document.hidden||$('gamblingview')?.hidden||gamblingBusy)return;loadGambling().catch(error=>setGamblingStatus(error.message,true));},1500);
+setInterval(()=>{if(!gamblingReady||document.hidden||$('gamblingview')?.hidden||gamblingBusy)return;loadGambling().catch(error=>{if(error.name!=='AbortError')setGamblingStatus(error.message,true);});},1500);
 setInterval(()=>{if(!gamblingAdminReady||document.hidden||$('moderation')?.hidden||$('admin-gambling')?.hidden)return;refreshGamblingAdminPreview().catch(error=>{const n=$('admin-crash-status');if(n)n.textContent=error.message;});},2000);

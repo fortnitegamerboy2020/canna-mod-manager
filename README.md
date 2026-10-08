@@ -2,7 +2,7 @@
 
 A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and the private Canna server as the mod catalog. Uploads and external imports are managed on the website.
 
-Canna 0.2.44 uses a compact icon sidebar and a borderless window. The yellow
+Canna 0.2.45 uses a compact icon sidebar and a borderless window. The yellow
 button in the top right minimizes; green maximizes/restores; red closes Canna. Drag
 the header to move the window, or double-click it to maximize/restore. Hover
 sidebar icons for their names. Drag any window edge or corner to resize.
@@ -13,10 +13,10 @@ uses its game cover. Website Play Lab uses numbered expandable cards. Mod review
 show scan progress, dependency blockers, retries and queue totals; shared libraries
 scan first. Public Help / FAQ describes the current workflow and verification limits.
 
-Desktop 0.2.44 and Community 0.3.62 offer server-verified Beta access for the
+Desktop 0.2.45 and Community 0.3.63 offer server-verified Beta access for the
 Rebound runtime preview, searchable official Minecraft version choices and result
 counts. The website adds an Admin overview, invitation and registration pause
-controls, Crash, Blackjack and separate BO2/MW2/avatar-frame crates, plus email-only Forgot password
+controls, signup invitation links alongside manual codes, Crash, Blackjack and separate BO2/MW2/avatar-frame crates, plus email-only Forgot password
 and Forgot username forms. Staff review now has an advisory overview, a full
 archive/source browser, source outlines, search and line navigation. Crash now
 has a smooth flight curve and progress bar that pause when server updates are
@@ -29,6 +29,20 @@ pack. Its 13 animated WebP cards retain native frame pixels; reduced motion
 uses static posters. Timing uses a documented 100ms per source frame because
 the supplied sheets contain no timing metadata. Crash lists round participants,
 stakes and green cashouts with server times, retaining rows until the next round.
+Community 0.3.63 keeps compiled cosmetic metadata in a versioned process cache
+and sends compact state polls after the client loads that catalog. Every request
+still verifies current membership; account balances, ownership and equipment
+remain fresh. Navigation queues the latest destination during slow profile reads
+and ignores stale responses. A changed signed-in account reloads the page before
+adopting another account, and prefetched reads remain bound to their member.
+Animated profile artwork has a persistent browser
+pause control and reacts immediately to system reduced-motion changes.
+Desktop 0.2.45 rechecks current server Beta authorization before launching an
+already-active managed Rebound setup. The applied pack binds the authorized
+support archive, installed compatibility manifest and game assembly hashes;
+older or changed setups ask you to reapply the pack. This prelaunch check reads
+metadata and does not install or remove files. Other games and vanilla launches
+retain their ordinary launch flow.
 New static-8
 analyses record reconstruction origins, tool results, safe partial output and
 coverage limits. Exact canonical license prose is separated from code while
@@ -43,8 +57,17 @@ and rebuilt card-bar contracts. An isolated game copy passed 204 assertions
 over six native turns using IDs 0/1, 0/2 and 1/2, retaining actual-ID CardData
 and checking intended bars and completed handoffs. Temporary prefab effect/audio
 exceptions and an earlier startup failure remain documented. Physical-input
-play, full matches, firing and multiplayer are unverified. Close ROUNDS and
+play, full matches and multiplayer are unverified; newer limited firing probes
+are described below. Close ROUNDS and
 Apply modpack again with Beta access to fetch the refreshed protected support.
+
+The Community 0.3.63 protected support refresh makes narrow CR 2.7.0 Glue
+visual-cleanup and Satellite prototype-lifecycle repairs, with exact pinned
+method checks. Controlled isolated native firing and explicit-impact probes
+retain ammunition, damage attribution and real projectile movement/sync. These
+checks do not certify natural collisions, physical input, full matches or
+two-client multiplayer. Earlier card-picker-only errors remain documented;
+Rebound continues to be a Beta preview.
 
 ## Run
 

@@ -4,16 +4,20 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.62
+## Current release: Community 0.3.63
+
+Invite generation now produces signup links and manual codes for the same single-use invitations. Active Owner history entries have Copy invite link. Links use a fragment so the code is not in the HTTP URL, prefill the existing public registration form and clear the address after reading. Opening a link does not redeem or validate it; signup retains expiration, revocation, registration pause and email verification checks. Query-form links are accepted too for compatibility. No new public invitation lookup endpoint is exposed.
 
 The Admin panel adds a searchable overview, separate Owner invitation-generation
 and registration pause controls, and the additive Beta role. Member, VIP, Admin
 and Owner remain primary permission roles; Beta grants protected Rebound support
-without staff privileges. Desktop 0.2.44 contains no embedded Rebound DLLs and
+without staff privileges. Desktop 0.2.45 contains no embedded Rebound DLLs and
 checks current server authorization before support storage, preparation and
 installation. The Rebound runtime remains a preview with full human-match and
 two-client multiplayer checks outstanding; previously distributed 0.2.41 bundles
 cannot be removed retroactively.
+
+Desktop 0.2.45 additionally revalidates fresh server Beta access before Launch current dispatches an already-active managed Rebound setup, binding applied metadata to authorized support and installed manifest/game hashes. Old or changed bindings require reapplying the pack. The new check does not download/purge support or mutate game files; ordinary/vanilla/unrelated setups retain their existing launch path. Temporary fixtures and real loopback manifest tests passed; no new actual game or multiplayer launch is claimed.
 
 Desktop 0.2.44 compares the same gameplay-config scope at Rebound preflight and
 final verification, fixing an unchanged-folder mismatch involving BepInEx's own
@@ -51,10 +55,24 @@ larger originals. The supplied Volkz BO2 replacement pack adds 237 cards,
 including 13 lossless native-frame animations with authenticated still posters.
 Playback uses 100 ms per source frame because the sheets supply no timing.
 These are source pixels and user-supplied replacement art, not generated HD.
-Cosmetic
-assets and member profiles remain authenticated. Official Minecraft version
+Cosmetic assets and member profiles remain authenticated. Official Minecraft version
 choices and the current-page result count are available on the website and
 matching desktop; Minecraft account/launch API approval remains pending.
+
+The pending update caches validated compiled cosmetic metadata once per process.
+The authenticated `/api/v1/gambling/cosmetics/catalog` endpoint returns its
+fingerprint, artwork choices and crate definitions without creating a wallet or
+advancing Crash. Updated clients reuse this catalog and send its fingerprint
+with live-state requests; matching requests omit the static catalog and crate
+definitions while retaining the same account and game state. Changed fingerprints
+return current metadata. Older clients still receive the complete state. Every
+request checks current membership and uses private, no-store responses.
+
+Calling-card animations respond to device reduced-motion changes while on screen.
+Animated profiles also offer Pause/Resume artwork animations for this browser,
+with the preference retained locally and synchronized between its tabs. Device
+reduced-motion preferences keep animations paused and the control explains why.
+These website changes add no live game or multiplayer verification.
 
 Staff review includes an advisory overview, full archive/source browser and
 bounded code navigation. New analyses use canna-static-8 and preserve explicit
@@ -97,6 +115,27 @@ Do not publish the private VPC address in public DNS.
 proxies to the Rust service on loopback port 8787. Shared modpack links require
 a family account. Uploaded archives are never extracted or executed on the
 server, and downloads require authentication.
+
+## CR visual and projectile lifecycle refresh
+
+The protected Community 0.3.63 support refresh contains two bounded CR 2.7.0
+repairs. Glue removes its two intended explosion components immediately from its
+visual prototype before cloning it, using Unity's one-argument cleanup overload
+that does not permit asset destruction. The pinned getter's other destruction
+calls are unchanged. Satellite Start returns only for an unparented prototype,
+matching its existing Update policy; a parented projectile still executes the
+original initialization and synchronization body. Unknown versions or changed
+method fingerprints are refused before translation writes.
+
+Paired isolated game copies reproduced the Glue effect exception with the prior
+support bytes and removed it with the cleanup repair while retaining native ammo,
+damage source attribution and reversible surface effects. A separate native
+Satellite probe distinguished the unparented template failure from a real bullet
+clone with valid movement, synchronization and ownership. These are controlled
+local Gun.Attack and explicit native HitInfo checks, with disposable offline AI
+input paused in the copy. Natural collision, physical input, full matches and
+two-client multiplayer remain unverified. Earlier card-picker effect/audio errors
+are historical observations, not a claim that every CR card is now error-free.
 
 ## Accounts and uploads
 
@@ -408,3 +447,5 @@ On Linux with the existing tools, `python deploy/test-review-offline.py --fixtur
 --output <isolated-directory> <archive.zip>` checks real decompilation, DiE and
 ClamAV without using the live queue or executing submitted binaries. These
 checks do not establish live game, account connection or multiplayer behavior.
+
+Community 0.3.63 cancels stale navigation and participant reads without cancelling submitted mutations. Member mutation requests carry an optional expected-member header, checked against current authenticated identity before any wallet write; old clients remain compatible. Live state identifies its member, and the new client refuses stale-account state and cross-account replay. Same-member ambiguous replies retain their original request ID. A fresh session identifying a different member clears prefetched reads and reloads before adopting that account. Cached responses are member-bound and refused if identity changes while awaiting them. Synthetic client and real-router identity tests passed; final release QA reruns the full suite.

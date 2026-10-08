@@ -9,6 +9,19 @@ let recoveryGeneration = 0;
 let recoveryTimer;
 
 const message = text => { $('message').textContent = text; };
+function acceptInvitationLink(){
+ const query=new URLSearchParams(location.search||''),fragment=new URLSearchParams((location.hash||'').slice(1));
+ const values=[...query.getAll('invite'),...fragment.getAll('invite')];if(!values.length)return;
+ // New links keep their code in the fragment, outside HTTP requests/referrers.
+ // Remove it from this history entry after reading; opening a link never redeems it.
+ query.delete('invite');fragment.delete('invite');
+ const search=query.toString(),hash=fragment.toString();
+ history.replaceState(history.state,'',(location.pathname||'/')+(search?'?'+search:'')+(hash?'#'+hash:''));
+ if(values.length!==1||!/^[A-Za-z0-9_-]{1,64}$/.test(values[0])){message('This invitation link is invalid. Ask for a new link or paste your code.');return;}
+ $('invite').value=values[0];$('password').autocomplete='new-password';$('authheading').textContent='You’re invited';$('authdescription').textContent='Create your account below. Your invitation is already filled in.';
+ message('Invitation filled in. Choose a username, email and password, then select Create account.');
+}
+acceptInvitationLink();
 async function api(path, options = {}) {
   const headers = new Headers(options.headers || {});
   const response = await fetch(`/api/v1/${path}`, {...options, headers});

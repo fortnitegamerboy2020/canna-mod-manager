@@ -43,6 +43,9 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
         // Historical wins have no recorded clock time; leave them unknown.
         db.execute_batch("ALTER TABLE gambling_crash_bets ADD COLUMN cashout_at_ms INTEGER;")?;
     }
+    // Warm immutable metadata during initialization, before this connection is
+    // shared or used by gameplay transactions. Invalid metadata stays unavailable.
+    let _ = cached_catalog();
     Ok(())
 }
 
@@ -99,6 +102,30 @@ fn credit(db: &Connection, actor: i64, payout: i64, stake: i64) -> ApiResult<i64
         params![paid, profit, actor],
     )?;
     Ok(paid)
+}
+
+// The optional identity header binds a pending browser action to its original
+// member even if another tab replaces the shared session cookie. Old clients
+// remain compatible; authentication always runs before this additional guard.
+fn mutation_actor(app: &App, headers: &HeaderMap) -> ApiResult<i64> {
+    let actor = app.auth(headers)?.0;
+    let mut values = headers.get_all("x-canna-member").iter();
+    if let Some(value) = values.next() {
+        let expected = value
+            .to_str()
+            .ok()
+            .filter(|value| {
+                !value.is_empty() && value.len() <= 19 && value.bytes().all(|c| c.is_ascii_digit())
+            })
+            .and_then(|value| value.parse::<i64>().ok());
+        if values.next().is_some() || expected != Some(actor) || actor <= 0 {
+            return Err(ApiError(
+                StatusCode::CONFLICT,
+                "Your signed-in account changed; reload this page before starting another action",
+            ));
+        }
+    }
+    Ok(actor)
 }
 
 fn record(db: &Connection, actor: i64, kind: &str, target: &Value) -> ApiResult<()> {
@@ -405,7 +432,7 @@ pub async fn crash_bet(
     headers: HeaderMap,
     axum::Json(input): axum::Json<BetInput>,
 ) -> ApiResult<axum::Json<Value>> {
-    let actor = app.auth(&headers)?.0;
+    let actor = mutation_actor(&app, &headers)?;
     once(
         &app,
         actor,
@@ -454,7 +481,7 @@ pub async fn crash_cashout(
     headers: HeaderMap,
     axum::Json(input): axum::Json<CashoutInput>,
 ) -> ApiResult<axum::Json<Value>> {
-    let actor = app.auth(&headers)?.0;
+    let actor = mutation_actor(&app, &headers)?;
     once(
         &app,
         actor,
@@ -617,7 +644,7 @@ pub async fn blackjack_deal(
     headers: HeaderMap,
     axum::Json(input): axum::Json<DealInput>,
 ) -> ApiResult<axum::Json<Value>> {
-    let actor = app.auth(&headers)?.0;
+    let actor = mutation_actor(&app, &headers)?;
     once(
         &app,
         actor,
@@ -684,7 +711,7 @@ pub async fn blackjack_action(
     headers: HeaderMap,
     axum::Json(input): axum::Json<HandInput>,
 ) -> ApiResult<axum::Json<Value>> {
-    let actor = app.auth(&headers)?.0;
+    let actor = mutation_actor(&app, &headers)?;
     once(
         &app,
         actor,
@@ -731,9 +758,16 @@ pub async fn blackjack_action(
     )
 }
 
-fn catalog() -> ApiResult<Value> {
-    let catalog: Value = serde_json::from_str(include_str!("../web/cosmetics/catalog.json"))
-        .map_err(|_| bad("Cosmetics catalog is unavailable"))?;
+struct CosmeticCatalog {
+    value: Value,
+    version: String,
+    cases: Value,
+    response: Vec<u8>,
+}
+
+fn build_catalog(source: &str) -> ApiResult<CosmeticCatalog> {
+    let catalog: Value =
+        serde_json::from_str(source).map_err(|_| bad("Cosmetics catalog is unavailable"))?;
     let items = catalog["items"]
         .as_array()
         .ok_or_else(|| bad("Cosmetics catalog is unavailable"))?;
@@ -772,7 +806,50 @@ fn catalog() -> ApiResult<Value> {
     {
         return Err(bad("Cosmetics catalog is unavailable"));
     }
-    Ok(catalog)
+    let version = hex::encode(Sha256::digest(source.as_bytes()));
+    let cases = cases_view(&catalog)?;
+    let response =
+        serde_json::to_vec(&json!({"version":version,"catalog":catalog["items"],"cases":cases}))
+            .map_err(|_| bad("Cosmetics catalog is unavailable"))?;
+    Ok(CosmeticCatalog {
+        value: catalog,
+        version,
+        cases,
+        response,
+    })
+}
+
+fn cached_catalog() -> ApiResult<&'static CosmeticCatalog> {
+    // Catalog bytes are compiled into this executable. A deployment gets a new
+    // fingerprint and cache; no account data or ownership enters this cache.
+    static CATALOG: std::sync::OnceLock<Option<CosmeticCatalog>> = std::sync::OnceLock::new();
+    CATALOG
+        .get_or_init(|| build_catalog(include_str!("../web/cosmetics/catalog.json")).ok())
+        .as_ref()
+        .ok_or_else(|| bad("Cosmetics catalog is unavailable"))
+}
+
+fn catalog() -> ApiResult<&'static Value> {
+    Ok(&cached_catalog()?.value)
+}
+
+pub async fn cosmetics_catalog(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+) -> ApiResult<Response> {
+    // Even a fully warmed process cache requires current membership per request.
+    app.auth(&headers)?;
+    let catalog = cached_catalog()?;
+    Ok((
+        [
+            ("content-type", "application/json"),
+            ("cache-control", "private, no-store"),
+            ("vary", "Cookie, Authorization"),
+            ("x-content-type-options", "nosniff"),
+        ],
+        catalog.response.as_slice(),
+    )
+        .into_response())
 }
 
 fn case_definition(id: &str) -> ApiResult<(&'static str, Option<&'static str>, &'static str)> {
@@ -841,9 +918,12 @@ fn cases_view(catalog: &Value) -> ApiResult<Value> {
         .map(|cases| json!(cases))
 }
 
-fn cosmetics_view(db: &Connection, actor: i64) -> ApiResult<(Value, Value)> {
-    let catalog = catalog()?;
-    let items = catalog["items"].as_array().unwrap();
+fn cosmetics_view(
+    db: &Connection,
+    actor: i64,
+    catalog: &CosmeticCatalog,
+    include_catalog: bool,
+) -> ApiResult<(Value, Option<Value>)> {
     let owned = db
         .prepare("SELECT item_id,count FROM gambling_cosmetics WHERE user_id=?1 ORDER BY item_id")?
         .query_map([actor], |r| {
@@ -858,9 +938,13 @@ fn cosmetics_view(db: &Connection, actor: i64) -> ApiResult<(Value, Value)> {
         )
         .optional()?
         .unwrap_or_default();
-    let cosmetics =
-        json!({"catalog":items,"owned":owned,"equipped":{"frame":frame,"banner":banner}});
-    let cases = cases_view(&catalog)?;
+    let mut cosmetics = json!({"catalog_version":catalog.version,"owned":owned,"equipped":{"frame":frame,"banner":banner}});
+    let cases = if include_catalog {
+        cosmetics["catalog"] = catalog.value["items"].clone();
+        Some(catalog.cases.clone())
+    } else {
+        None
+    };
     Ok((cosmetics, cases))
 }
 
@@ -893,7 +977,8 @@ pub async fn case_open(
     headers: HeaderMap,
     axum::Json(input): axum::Json<CaseInput>,
 ) -> ApiResult<axum::Json<Value>> {
-    let actor = app.auth(&headers)?.0;
+    let actor = mutation_actor(&app, &headers)?;
+    let catalog = catalog()?;
     once(
         &app,
         actor,
@@ -901,12 +986,11 @@ pub async fn case_open(
         "cosmetic_case",
         &json!({"case_id":input.case_id}),
         |db| {
-            let catalog = catalog()?;
-            let (_, sum) = case_pool(&catalog, &input.case_id)?;
+            let (_, sum) = case_pool(catalog, &input.case_id)?;
             if sum == 0 {
                 return Err(bad("Cosmetic case is unavailable"));
             }
-            let item = select_case_item(&catalog, &input.case_id, OsRng.gen_range(0..sum))?;
+            let item = select_case_item(catalog, &input.case_id, OsRng.gen_range(0..sum))?;
             debit(db, actor, catalog["case"]["price"].as_i64().unwrap())?;
             let id = item["id"].as_str().unwrap();
             db.execute("INSERT INTO gambling_cosmetics VALUES(?1,?2,1) ON CONFLICT(user_id,item_id) DO UPDATE SET count=MIN(1000000,count+1)",params![actor,id])?;
@@ -930,10 +1014,10 @@ pub async fn equip(
     headers: HeaderMap,
     axum::Json(input): axum::Json<EquipInput>,
 ) -> ApiResult<axum::Json<Value>> {
-    let actor = app.auth(&headers)?.0;
+    let actor = mutation_actor(&app, &headers)?;
+    let catalog = catalog()?;
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let catalog = catalog()?;
     for (kind, id) in [("frame", &input.frame), ("banner", &input.banner)] {
         if let Some(id) = id {
             if !catalog["items"]
@@ -973,7 +1057,7 @@ pub async fn daily(
     headers: HeaderMap,
     axum::Json(input): axum::Json<RequestInput>,
 ) -> ApiResult<axum::Json<Value>> {
-    let actor = app.auth(&headers)?.0;
+    let actor = mutation_actor(&app, &headers)?;
     once(
         &app,
         actor,
@@ -1003,6 +1087,7 @@ pub async fn daily(
 pub struct OverviewQuery {
     crash_round_id: Option<i64>,
     crash_after_user_id: Option<i64>,
+    catalog_version: Option<String>,
 }
 
 pub async fn overview(
@@ -1019,6 +1104,21 @@ pub async fn overview(
             "Supply the current Crash round and a valid participant cursor",
         ));
     }
+    if query.catalog_version.as_ref().is_some_and(|version| {
+        version.len() != 64
+            || !version
+                .bytes()
+                .all(|c| c.is_ascii_digit() || (b'a'..=b'f').contains(&c))
+    }) {
+        return Err(bad("Supply a valid cosmetic catalog fingerprint"));
+    }
+    // Resolve and validate immutable metadata before acquiring the game DB lock.
+    // The participant-only branch needs no catalog at all.
+    let catalog = if query.crash_after_user_id.is_none() {
+        Some(cached_catalog()?)
+    } else {
+        None
+    };
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let time = milliseconds();
@@ -1041,7 +1141,9 @@ pub async fn overview(
         // Participant polling shares the authenticated clock and transaction,
         // without repeating the wallet, blackjack or large cosmetics catalog.
         tx.commit()?;
-        return Ok(axum::Json(json!({"server_time_ms":time,"crash":crash})));
+        return Ok(axum::Json(
+            json!({"member_id":actor,"server_time_ms":time,"crash":crash}),
+        ));
     }
     let (balance, earned, daily) = wallet(&tx, actor)?;
     let hand_id:Option<String>=tx.query_row("SELECT id FROM gambling_blackjack WHERE user_id=?1 ORDER BY created DESC,rowid DESC LIMIT 1",[actor],|r|r.get(0)).optional()?;
@@ -1049,8 +1151,10 @@ pub async fn overview(
         .map(|id| load_hand(&tx, &id, actor).map(|h| hand_view(&h)))
         .transpose()?
         .unwrap_or(Value::Null);
-    let (cosmetics, cases) = cosmetics_view(&tx, actor)?;
-    let result = json!({"wallet":{"balance":balance,"earned":earned,"daily_available":daily!=now()/86400},"server_time_ms":time,"notice":NOTICE,"crash":crash,"blackjack":hand,"cosmetics":cosmetics,"cases":cases,"limits":{"max_stake":MAX_STAKE,"max_new_games_per_utc_day":200}});
+    let catalog = catalog.unwrap();
+    let include_catalog = query.catalog_version.as_deref() != Some(catalog.version.as_str());
+    let (cosmetics, cases) = cosmetics_view(&tx, actor, catalog, include_catalog)?;
+    let result = json!({"member_id":actor,"wallet":{"balance":balance,"earned":earned,"daily_available":daily!=now()/86400},"server_time_ms":time,"notice":NOTICE,"crash":crash,"blackjack":hand,"cosmetics":cosmetics,"cases":cases,"limits":{"max_stake":MAX_STAKE,"max_new_games_per_utc_day":200}});
     tx.commit()?;
     Ok(axum::Json(result))
 }
@@ -1204,6 +1308,426 @@ mod tests {
         .unwrap();
         debit(db, actor, 100).unwrap();
         id
+    }
+
+    async fn bound_call(
+        app: Shared,
+        path: &str,
+        body: Value,
+        token: Option<&str>,
+        member: &str,
+    ) -> Response {
+        use tower::ServiceExt;
+        let mut request = axum::http::Request::builder()
+            .method("POST")
+            .uri(path)
+            .header("content-type", "application/json")
+            .header("x-canna-member", member);
+        if let Some(token) = token {
+            request = request.header("authorization", format!("Bearer {token}"));
+        }
+        router(app)
+            .oneshot(request.body(Body::from(body.to_string())).unwrap())
+            .await
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn all_member_mutations_refuse_changed_or_invalid_identity_before_writes() {
+        let (_dir, app) = fixture();
+        let first = account(&app, "identity-first", false);
+        let second = account(&app, "identity-second", false);
+        balance(&app, 1, 1000);
+        balance(&app, 2, 1000);
+        let paths = [
+            (
+                "/api/v1/gambling/crash/bet",
+                json!({"request_id":"bound-bet","round_id":1,"stake":25,"auto_cashout":null}),
+            ),
+            (
+                "/api/v1/gambling/crash/cashout",
+                json!({"request_id":"bound-cash","round_id":1}),
+            ),
+            (
+                "/api/v1/gambling/blackjack/deal",
+                json!({"request_id":"bound-deal","stake":25}),
+            ),
+            (
+                "/api/v1/gambling/blackjack/action",
+                json!({"request_id":"bound-hit","hand_id":"missing","action":"hit"}),
+            ),
+            (
+                "/api/v1/gambling/cases/open",
+                json!({"request_id":"bound-case","case_id":"avatar-frames"}),
+            ),
+            (
+                "/api/v1/gambling/cosmetics/equip",
+                json!({"frame":null,"banner":null}),
+            ),
+            (
+                "/api/v1/gambling/daily",
+                json!({"request_id":"bound-daily"}),
+            ),
+        ];
+        for (path, body) in &paths {
+            for expected in ["1", "", "-2", " 2", "2,1", "9223372036854775808"] {
+                let response =
+                    bound_call(app.clone(), path, body.clone(), Some(&second), expected).await;
+                assert_eq!(
+                    response.status(),
+                    StatusCode::CONFLICT,
+                    "{path} accepted {expected:?}"
+                );
+                assert!(
+                    value(response).await["error"]
+                        .as_str()
+                        .unwrap()
+                        .contains("reload")
+                );
+            }
+            assert_eq!(
+                bound_call(app.clone(), path, body.clone(), None, "1")
+                    .await
+                    .status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
+        {
+            let db = app.db.lock().unwrap();
+            for id in [1, 2] {
+                assert_eq!(wallet(&db, id).unwrap().0, 1000);
+            }
+            for table in [
+                "gambling_requests",
+                "gambling_crash_rounds",
+                "gambling_blackjack",
+                "gambling_cosmetics",
+                "gambling_equipped",
+            ] {
+                let count: i64 = db
+                    .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                    .unwrap();
+                assert_eq!(count, 0, "identity refusal wrote {table}");
+            }
+        }
+        // Matching identity keeps exact lost-reply replay semantics.
+        let input = json!({"request_id":"same-member-retry","case_id":"avatar-frames"});
+        let result = value(
+            bound_call(
+                app.clone(),
+                "/api/v1/gambling/cases/open",
+                input.clone(),
+                Some(&first),
+                "1",
+            )
+            .await,
+        )
+        .await;
+        let retry = value(
+            bound_call(
+                app.clone(),
+                "/api/v1/gambling/cases/open",
+                input.clone(),
+                Some(&first),
+                "1",
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(result, retry);
+        assert_eq!(
+            bound_call(
+                app.clone(),
+                "/api/v1/gambling/cases/open",
+                input,
+                Some(&second),
+                "1"
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        // Header-less older clients remain supported.
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/daily",
+                json!({"request_id":"legacy-daily"}),
+                Some(&second)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        let db = app.db.lock().unwrap();
+        assert_eq!(wallet(&db, 1).unwrap().0, 900);
+        assert_eq!(wallet(&db, 2).unwrap().0, 1100);
+    }
+
+    #[tokio::test]
+    async fn dynamic_state_binds_member_identity_but_static_catalog_is_shared() {
+        let (_dir, app) = fixture();
+        let first = account(&app, "state-first", false);
+        let second = account(&app, "state-second", false);
+        let one = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/gambling",
+                Value::Null,
+                Some(&first),
+            )
+            .await,
+        )
+        .await;
+        let two = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/gambling",
+                Value::Null,
+                Some(&second),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(one["member_id"], 1);
+        assert_eq!(two["member_id"], 2);
+        let cursor = format!(
+            "/api/v1/gambling?crash_round_id={}&crash_after_user_id=0",
+            two["crash"]["id"]
+        );
+        let page = value(call(app.clone(), "GET", &cursor, Value::Null, Some(&second)).await).await;
+        assert_eq!(page["member_id"], 2);
+        assert!(page.get("wallet").is_none());
+        let catalog = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/gambling/cosmetics/catalog",
+                Value::Null,
+                Some(&second),
+            )
+            .await,
+        )
+        .await;
+        assert!(catalog.get("member_id").is_none());
+        let mut headers = HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {second}").parse().unwrap());
+        headers.append("x-canna-member", "2".parse().unwrap());
+        headers.append("x-canna-member", "2".parse().unwrap());
+        assert_eq!(
+            mutation_actor(&app, &headers).unwrap_err().0,
+            StatusCode::CONFLICT
+        );
+    }
+
+    #[tokio::test]
+    async fn catalog_cache_still_requires_current_membership_and_never_starts_games() {
+        let (_dir, app) = fixture();
+        let member = account(&app, "catalog-member", false);
+        let other = account(&app, "catalog-other", false);
+        let path = "/api/v1/gambling/cosmetics/catalog";
+        assert_eq!(
+            call(app.clone(), "GET", path, Value::Null, None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let mut first = None;
+        for token in [&member, &other, &member] {
+            let response = call(app.clone(), "GET", path, Value::Null, Some(token)).await;
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["cache-control"], "no-store");
+            assert_eq!(response.headers()["content-type"], "application/json");
+            assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+            let result = value(response).await;
+            assert_eq!(result["version"], cached_catalog().unwrap().version);
+            assert_eq!(result["catalog"].as_array().unwrap().len(), 654);
+            assert_eq!(result["cases"].as_array().unwrap().len(), 3);
+            assert!(result.get("owned").is_none());
+            assert!(result.get("wallet").is_none());
+            if let Some(previous) = first.as_ref() {
+                assert_eq!(&result, previous);
+            } else {
+                first = Some(result);
+            }
+        }
+        {
+            let db = app.db.lock().unwrap();
+            for table in ["gambling_crash_rounds", "bot_wallets", "gambling_requests"] {
+                let count: i64 = db
+                    .query_row(&format!("SELECT count(*) FROM {table}"), [], |r| r.get(0))
+                    .unwrap();
+                assert_eq!(count, 0, "catalog read changed {table}");
+            }
+            db.execute("UPDATE users SET banned=1 WHERE id=1", [])
+                .unwrap();
+            db.execute("UPDATE sessions SET expires=0 WHERE user_id=2", [])
+                .unwrap();
+        }
+        for token in [&member, &other] {
+            assert_eq!(
+                call(app.clone(), "GET", path, Value::Null, Some(token))
+                    .await
+                    .status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn versioned_polls_reduce_payload_keep_game_state_and_refresh_stale_catalogs() {
+        let (_dir, app) = fixture();
+        let member = account(&app, "compact-gambler", false);
+        balance(&app, 1, 1000);
+        let legacy = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/gambling",
+                Value::Null,
+                Some(&member),
+            )
+            .await,
+        )
+        .await;
+        let version = legacy["cosmetics"]["catalog_version"].as_str().unwrap();
+        let full_size = serde_json::to_vec(&legacy).unwrap().len();
+        assert!(full_size > 600_000);
+        assert_eq!(
+            legacy["cosmetics"]["catalog"].as_array().unwrap().len(),
+            654
+        );
+        assert!(legacy["cases"].is_array());
+        let compact_path = format!("/api/v1/gambling?catalog_version={version}");
+        for _ in 0..12 {
+            let compact = value(
+                call(
+                    app.clone(),
+                    "GET",
+                    &compact_path,
+                    Value::Null,
+                    Some(&member),
+                )
+                .await,
+            )
+            .await;
+            assert!(compact["cosmetics"].get("catalog").is_none());
+            assert!(compact["cases"].is_null());
+            assert_eq!(compact["cosmetics"]["catalog_version"], version);
+            assert_eq!(compact["cosmetics"]["owned"], legacy["cosmetics"]["owned"]);
+            assert_eq!(
+                compact["cosmetics"]["equipped"],
+                legacy["cosmetics"]["equipped"]
+            );
+            assert_eq!(compact["wallet"], legacy["wallet"]);
+            assert_eq!(compact["crash"]["id"], legacy["crash"]["id"]);
+            assert!(serde_json::to_vec(&compact).unwrap().len() < full_size / 100);
+        }
+        let stale_path = format!("/api/v1/gambling?catalog_version={}", "0".repeat(64));
+        let stale =
+            value(call(app.clone(), "GET", &stale_path, Value::Null, Some(&member)).await).await;
+        assert_eq!(stale["cosmetics"]["catalog_version"], version);
+        assert_eq!(
+            stale["cosmetics"]["catalog"],
+            legacy["cosmetics"]["catalog"]
+        );
+        assert_eq!(stale["cases"], legacy["cases"]);
+        assert_eq!(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/gambling?catalog_version=bad",
+                Value::Null,
+                Some(&member)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+
+        let input = json!({"request_id":"compact-crate","case_id":"avatar-frames"});
+        let drop = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/cases/open",
+                input.clone(),
+                Some(&member),
+            )
+            .await,
+        )
+        .await;
+        let repeated = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/cases/open",
+                input,
+                Some(&member),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(drop, repeated);
+        let equipped = call(
+            app.clone(),
+            "POST",
+            "/api/v1/gambling/cosmetics/equip",
+            json!({"frame":drop["item"]["id"],"banner":null}),
+            Some(&member),
+        )
+        .await;
+        assert_eq!(equipped.status(), StatusCode::OK);
+        let compact = value(
+            call(
+                app.clone(),
+                "GET",
+                &compact_path,
+                Value::Null,
+                Some(&member),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(compact["wallet"]["balance"], 900);
+        assert_eq!(
+            compact["cosmetics"]["owned"],
+            json!([{"id":drop["item"]["id"],"count":1}])
+        );
+        assert_eq!(
+            compact["cosmetics"]["equipped"]["frame"],
+            drop["item"]["id"]
+        );
+        assert!(compact["cosmetics"].get("catalog").is_none());
+        let fresh_legacy =
+            value(call(app, "GET", "/api/v1/gambling", Value::Null, Some(&member)).await).await;
+        assert_eq!(fresh_legacy["wallet"], compact["wallet"]);
+        assert_eq!(
+            fresh_legacy["cosmetics"]["owned"],
+            compact["cosmetics"]["owned"]
+        );
+        assert_eq!(
+            fresh_legacy["cosmetics"]["equipped"],
+            compact["cosmetics"]["equipped"]
+        );
+    }
+
+    #[test]
+    fn catalog_fingerprint_changes_with_embedded_metadata_and_validates_before_caching() {
+        let source = include_str!("../web/cosmetics/catalog.json");
+        let current = build_catalog(source).unwrap();
+        let mut changed: Value = serde_json::from_str(source).unwrap();
+        changed["items"][0]["name"] = json!("A new catalog label");
+        let newer = build_catalog(&changed.to_string()).unwrap();
+        assert_ne!(newer.version, current.version);
+        let response: Value = serde_json::from_slice(&newer.response).unwrap();
+        assert_eq!(response["version"], newer.version);
+        assert_eq!(response["catalog"][0]["name"], "A new catalog label");
+        changed["items"][0]["collection"] = json!("client-created-pool");
+        assert!(build_catalog(&changed.to_string()).is_err());
     }
 
     #[tokio::test]
@@ -1559,7 +2083,8 @@ mod tests {
         );
         let page_only =
             value(call(app.clone(), "GET", &page_path, Value::Null, Some(&viewer)).await).await;
-        assert_eq!(page_only.as_object().unwrap().len(), 2);
+        assert_eq!(page_only.as_object().unwrap().len(), 3);
+        assert_eq!(page_only["member_id"], 1);
         assert!(page_only["server_time_ms"].as_i64().is_some());
         assert_eq!(page_only["crash"]["participant_count"], 205);
         assert_eq!(
@@ -1615,7 +2140,8 @@ mod tests {
             r.id
         );
         let second = value(call(app.clone(), "GET", &path, Value::Null, Some(&viewer)).await).await;
-        assert_eq!(second.as_object().unwrap().len(), 2);
+        assert_eq!(second.as_object().unwrap().len(), 3);
+        assert_eq!(second["member_id"], 1);
         let second = &second["crash"];
         assert_eq!(second["participant_count"], 205);
         assert_eq!(second["participants"].as_array().unwrap().len(), 5);
