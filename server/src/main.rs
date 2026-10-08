@@ -1676,19 +1676,67 @@ mod tests {
         let member = account(&app, "cosmetics-reader", false);
         let catalog: Value =
             serde_json::from_str(include_str!("../web/cosmetics/catalog.json")).unwrap();
-        assert_eq!(catalog["items"].as_array().unwrap().len(), 315);
-        for path in [
-            "/admin-games.css".to_owned(),
-            catalog["items"][0]["asset"].as_str().unwrap().to_owned(),
-        ] {
+        let items = catalog["items"].as_array().unwrap();
+        assert_eq!(items.len(), 654);
+        for (collection, count) in [("mw2", 398), ("bo2", 237), ("frames", 16), ("canna", 3)] {
             assert_eq!(
-                call(app.clone(), "GET", &path, Value::Null, None)
+                items
+                    .iter()
+                    .filter(|item| item["collection"] == collection)
+                    .count(),
+                count,
+                "wrong {collection} crate pool size"
+            );
+        }
+        let animated = items
+            .iter()
+            .filter(|item| item["animated"] == true)
+            .collect::<Vec<_>>();
+        assert_eq!(animated.len(), 13);
+        for item in &animated {
+            assert_eq!(item["collection"], "bo2");
+            assert_eq!(item["kind"], "banner");
+            assert!(item["frame_count"].as_u64().unwrap() > 1);
+            assert_eq!(
+                (item["width"].as_u64(), item["height"].as_u64()),
+                (Some(256), Some(64))
+            );
+            let poster = item["poster_asset"].as_str().unwrap();
+            assert!(poster.starts_with("/api/v1/cosmetics/assets/"));
+            assert_ne!(item["asset"], item["poster_asset"]);
+            assert_eq!(item["poster_sha256"].as_str().unwrap().len(), 64);
+            // Posters are asset aliases, never separate crate drops or inventory IDs.
+            assert!(!items.iter().any(|candidate| candidate["asset"] == poster));
+        }
+        let animated = animated[0];
+        let paths = [
+            ("/admin-games.css", "text/css; charset=utf-8", None),
+            (
+                items[0]["asset"].as_str().unwrap(),
+                "image/svg+xml",
+                items[0]["sha256"].as_str(),
+            ),
+            (
+                animated["asset"].as_str().unwrap(),
+                "image/webp",
+                animated["sha256"].as_str(),
+            ),
+            (
+                animated["poster_asset"].as_str().unwrap(),
+                "image/png",
+                animated["poster_sha256"].as_str(),
+            ),
+        ];
+        for (path, mime, expected_hash) in paths {
+            assert_eq!(
+                call(app.clone(), "GET", path, Value::Null, None)
                     .await
                     .status(),
                 StatusCode::UNAUTHORIZED
             );
-            let response = call(app.clone(), "GET", &path, Value::Null, Some(&member)).await;
+            let response = call(app.clone(), "GET", path, Value::Null, Some(&member)).await;
             assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["content-type"], mime);
             assert_eq!(response.headers()["cache-control"], "no-store");
             assert!(
                 response
@@ -1697,6 +1745,21 @@ mod tests {
                     .iter()
                     .any(|v| v.to_str().unwrap().contains("Cookie"))
             );
+            if let Some(expected_hash) = expected_hash {
+                assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+                let bytes = axum::body::to_bytes(response.into_body(), 2 * 1024 * 1024)
+                    .await
+                    .unwrap();
+                assert_eq!(hex::encode(Sha256::digest(&bytes)), expected_hash);
+                match mime {
+                    "image/webp" => {
+                        assert!(bytes.starts_with(b"RIFF"));
+                        assert_eq!(bytes.get(8..12), Some(b"WEBP".as_slice()));
+                    }
+                    "image/png" => assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n")),
+                    _ => {}
+                }
+            }
         }
         assert_eq!(
             call(
@@ -1715,18 +1778,14 @@ mod tests {
             .unwrap()
             .execute("UPDATE users SET banned=1", [])
             .unwrap();
-        assert_eq!(
-            call(
-                app,
-                "GET",
-                catalog["items"][0]["asset"].as_str().unwrap(),
-                Value::Null,
-                Some(&member)
-            )
-            .await
-            .status(),
-            StatusCode::UNAUTHORIZED
-        );
+        for (path, _, _) in paths {
+            assert_eq!(
+                call(app.clone(), "GET", path, Value::Null, Some(&member))
+                    .await
+                    .status(),
+                StatusCode::UNAUTHORIZED
+            );
+        }
     }
     pub(super) fn fixture() -> (tempfile::TempDir, Shared) {
         let dir = tempfile::tempdir().unwrap();

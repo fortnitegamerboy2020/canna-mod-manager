@@ -4,7 +4,7 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.61
+## Current release: Community 0.3.62
 
 The Admin panel adds a searchable overview, separate Owner invitation-generation
 and registration pause controls, and the additive Beta role. Member, VIP, Admin
@@ -35,15 +35,23 @@ patcher changes need their own restoration. Validation uses temporary fixture
 folders; no new live ROUNDS restoration, launch or multiplayer result is claimed.
 
 The Gambling page uses free fictional Kash for shared Crash rounds, Blackjack
-and 100-Kash cosmetic cases. Kash cannot be bought, cashed out or transferred.
+and three 100-Kash crates for BO2 calling cards, MW2 calling cards and avatar
+frames. Kash cannot be bought, cashed out or transferred.
 Owner-only outcome inspection and future-round controls are disclosed; paid
 games can still settle when new bets are paused. Crash shows a smooth rising
 curve and progress bar, pauses its estimate after two seconds without a fresh
 server update, and respects reduced-motion preferences. Cashouts and payouts
-remain server-authoritative. Collection opens to owned frames and banners, with
-drop equip buttons and profile links. Classic MW2 cards display at their native
-compact pixel-art dimensions; their original backgrounds remain part of the
-source images. No higher-resolution artwork is claimed. Cosmetic
+remain server-authoritative. The current-round list shows bettors, stakes and
+green cashouts with server times, retains them until the next round and pages
+without blocking cashouts. Collection opens to owned frames and banners, with
+drop equip buttons and profile links. Profiles display complete calling cards
+in responsive banner headers. The requested wiki originals expand MW2 to 398
+entries, retaining all existing IDs and upgrading 27 thumbnails to genuinely
+larger originals. The supplied Volkz BO2 replacement pack adds 237 cards,
+including 13 lossless native-frame animations with authenticated still posters.
+Playback uses 100 ms per source frame because the sheets supply no timing.
+These are source pixels and user-supplied replacement art, not generated HD.
+Cosmetic
 assets and member profiles remain authenticated. Official Minecraft version
 choices and the current-page result count are available on the website and
 matching desktop; Minecraft account/launch API approval remains pending.

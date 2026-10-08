@@ -58,7 +58,7 @@ async function openProfile(id) {
 function applyProfileCosmetics(profile){
  const card=$('profilecard');let banner=$('profilebanner');if(!banner){banner=document.createElement('div');banner.id='profilebanner';banner.className='profilebanner';card.prepend(banner);}
  const item=profile.cosmetics?.banner;banner.className='profilebanner';banner.replaceChildren();banner.hidden=!item;
- if(item){banner.setAttribute('aria-label',item.name+' profile banner');banner.setAttribute('role','img');if(String(item.id).startsWith('mw2-')){banner.classList.add('classic-card');banner.title='Original classic MW2 title artwork, shown without enlarging the source image.';}else banner.title=item.name;const image=profileCosmeticImage(item);if(image)banner.append(image);else{if(/^[a-z0-9_-]{1,80}$/.test(item.style||item.id||''))banner.classList.add('cosmetic-'+(item.style||item.id));}}
+ if(item){banner.setAttribute('aria-label',item.name+(item.animated?' animated':'')+' profile banner');banner.setAttribute('role','img');banner.title=item.name;const image=profileCosmeticImage(item);if(image)banner.append(image);else{if(/^[a-z0-9_-]{1,80}$/.test(item.style||item.id||''))banner.classList.add('cosmetic-'+(item.style||item.id));}}
  const avatar=$('profileavatar');let portrait=$('profileportrait');if(!portrait){portrait=document.createElement('div');portrait.id='profileportrait';portrait.className='profileportrait';avatar.before(portrait);portrait.append(avatar);const initial=document.createElement('span');initial.id='profileinitial';portrait.append(initial);}
  $('profileinitial').textContent=profile.username.slice(0,1).toUpperCase();$('profileinitial').hidden=!!profile.avatar;
  let frame=$('profileframe');if(!frame){frame=document.createElement('div');frame.id='profileframe';portrait.append(frame);}frame.className='profileframe';frame.replaceChildren();frame.hidden=!profile.cosmetics?.frame;
@@ -67,7 +67,7 @@ function applyProfileCosmetics(profile){
 function renderProfileCosmeticActions(own){
  let tools=$('profilecosmetictools');if(!tools){tools=document.createElement('div');tools.id='profilecosmetictools';tools.className='row profilecosmetictools';const manage=button('Manage avatar frame & banner',async()=>{await navigatePage('/gambling');selectGamblingTab('collection');});manage.type='button';manage.dataset.page='/gambling';tools.append(manage);$('profilebio').before(tools);}tools.hidden=!own;
 }
-function profileCosmeticImage(item){if(typeof item.asset!=='string'||!/^\/api\/v1\/cosmetics\/assets\/[a-zA-Z0-9_-]+$/.test(item.asset))return null;const image=document.createElement('img');image.src=item.asset;image.alt='';return image;}
+function profileCosmeticImage(item){const asset=item.animated&&typeof window.matchMedia==='function'&&window.matchMedia('(prefers-reduced-motion: reduce)').matches&&item.poster_asset?item.poster_asset:item.asset;if(typeof asset!=='string'||!/^\/api\/v1\/cosmetics\/assets\/[a-zA-Z0-9_-]+$/.test(asset))return null;const image=document.createElement('img');const hash=asset===item.poster_asset?item.poster_sha256:item.sha256;image.src=asset+(/^[a-f0-9]{64}$/.test(hash||'')?'?v='+hash:'');image.alt='';image.decoding='async';return image;}
 $('editprofile').addEventListener('submit',event => { event.preventDefault(); action(async () => {
   await json('profiles/me',{status:$('editstatus').value,bio:$('editbio').value}); await openProfile(currentUser.id); message('Profile saved.');
 }); });

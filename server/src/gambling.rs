@@ -9,6 +9,7 @@ const MAX_STAKE: i64 = 1_000_000;
 const MAX_MULTIPLIER: i64 = 10_000; // hundredths: 100.00x
 const BETTING_MS: i64 = 10_000;
 const INTERMISSION_MS: i64 = 4_000;
+const PARTICIPANT_PAGE_SIZE: i64 = 200;
 const NOTICE: &str = "Kash is free fictional currency: no purchase, cash-out or transfer. The owner can see Crash outcomes before each round, including random rounds. Controlled rounds are openly marked; this is not a provably-fair game. Blackjack uses a shuffled 52-card shoe, dealer stands on soft 17, no splits or insurance; natural blackjack pays 3:2, rounded down to whole Kash. Balances are capped at 9007199254740991 Kash.";
 
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
@@ -17,7 +18,7 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
          INSERT OR IGNORE INTO gambling_config(id) VALUES(1);
          CREATE TABLE IF NOT EXISTS gambling_crash_queue(id INTEGER PRIMARY KEY AUTOINCREMENT,multiplier INTEGER NOT NULL CHECK(multiplier BETWEEN 100 AND 10000));
          CREATE TABLE IF NOT EXISTS gambling_crash_rounds(id INTEGER PRIMARY KEY AUTOINCREMENT,created_ms INTEGER NOT NULL,start_ms INTEGER NOT NULL,crash_ms INTEGER NOT NULL,multiplier INTEGER NOT NULL CHECK(multiplier BETWEEN 100 AND 10000),mode TEXT NOT NULL CHECK(mode IN ('random','controlled')),settled INTEGER NOT NULL DEFAULT 0);
-         CREATE TABLE IF NOT EXISTS gambling_crash_bets(round_id INTEGER NOT NULL REFERENCES gambling_crash_rounds(id),user_id INTEGER NOT NULL REFERENCES users(id),stake INTEGER NOT NULL CHECK(stake BETWEEN 1 AND 1000000),auto_multiplier INTEGER,status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','won','lost')),payout INTEGER NOT NULL DEFAULT 0,cashout_multiplier INTEGER,PRIMARY KEY(round_id,user_id));
+         CREATE TABLE IF NOT EXISTS gambling_crash_bets(round_id INTEGER NOT NULL REFERENCES gambling_crash_rounds(id),user_id INTEGER NOT NULL REFERENCES users(id),stake INTEGER NOT NULL CHECK(stake BETWEEN 1 AND 1000000),auto_multiplier INTEGER,status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','won','lost')),payout INTEGER NOT NULL DEFAULT 0,cashout_multiplier INTEGER,cashout_at_ms INTEGER,PRIMARY KEY(round_id,user_id));
          CREATE TABLE IF NOT EXISTS gambling_blackjack(id TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),stake INTEGER NOT NULL CHECK(stake BETWEEN 1 AND 2000000),deck TEXT NOT NULL,cursor INTEGER NOT NULL,player TEXT NOT NULL,dealer TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'playing',payout INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL);
          CREATE UNIQUE INDEX IF NOT EXISTS gambling_one_active_hand ON gambling_blackjack(user_id) WHERE status='playing';
          CREATE TABLE IF NOT EXISTS gambling_requests(user_id INTEGER NOT NULL REFERENCES users(id),request_id TEXT NOT NULL,fingerprint TEXT NOT NULL,response TEXT NOT NULL,created INTEGER NOT NULL,kind TEXT NOT NULL DEFAULT 'legacy',PRIMARY KEY(user_id,request_id));
@@ -33,6 +34,14 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
         db.execute_batch(
             "ALTER TABLE gambling_requests ADD COLUMN kind TEXT NOT NULL DEFAULT 'legacy';",
         )?;
+    }
+    let columns = db
+        .prepare("PRAGMA table_info(gambling_crash_bets)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    if !columns.iter().any(|name| name == "cashout_at_ms") {
+        // Historical wins have no recorded clock time; leave them unknown.
+        db.execute_batch("ALTER TABLE gambling_crash_bets ADD COLUMN cashout_at_ms INTEGER;")?;
     }
     Ok(())
 }
@@ -199,7 +208,13 @@ fn running_multiplier(round: &Round, time: i64) -> i64 {
         .min((round.multiplier - 1).max(100) as f64) as i64
 }
 
-fn settle_bet(db: &Connection, round: i64, actor: i64, multiplier: Option<i64>) -> ApiResult<()> {
+fn settle_bet(
+    db: &Connection,
+    round: i64,
+    actor: i64,
+    multiplier: Option<i64>,
+    cashout_at: i64,
+) -> ApiResult<()> {
     let stake: Option<i64> = db.query_row(
         "SELECT stake FROM gambling_crash_bets WHERE round_id=?1 AND user_id=?2 AND status='pending'",
         params![round, actor],
@@ -211,8 +226,8 @@ fn settle_bet(db: &Connection, round: i64, actor: i64, multiplier: Option<i64>) 
             None => 0,
         };
         db.execute(
-            "UPDATE gambling_crash_bets SET status=?1,payout=?2,cashout_multiplier=?3 WHERE round_id=?4 AND user_id=?5 AND status='pending'",
-            params![if multiplier.is_some() {"won"} else {"lost"}, payout, multiplier, round, actor],
+            "UPDATE gambling_crash_bets SET status=?1,payout=?2,cashout_multiplier=?3,cashout_at_ms=?4 WHERE round_id=?5 AND user_id=?6 AND status='pending'",
+            params![if multiplier.is_some() {"won"} else {"lost"}, payout, multiplier, multiplier.map(|_| cashout_at), round, actor],
         )?;
     }
     Ok(())
@@ -229,9 +244,15 @@ fn advance(db: &Connection, time: i64) -> ApiResult<Option<Round>> {
             if let Some(auto) = auto.filter(|auto| {
                 *auto < round.multiplier && time >= at_multiplier(round.start, *auto)
             }) {
-                settle_bet(db, round.id, actor, Some(auto))?;
+                settle_bet(
+                    db,
+                    round.id,
+                    actor,
+                    Some(auto),
+                    at_multiplier(round.start, auto),
+                )?;
             } else if time >= round.crash {
-                settle_bet(db, round.id, actor, None)?;
+                settle_bet(db, round.id, actor, None, time)?;
             }
         }
         if time >= round.crash {
@@ -285,10 +306,32 @@ fn advance(db: &Connection, time: i64) -> ApiResult<Option<Round>> {
 
 fn bet_view(db: &Connection, round: i64, actor: i64) -> ApiResult<Value> {
     Ok(db.query_row(
-        "SELECT stake,auto_multiplier,status,payout,cashout_multiplier FROM gambling_crash_bets WHERE round_id=?1 AND user_id=?2",
+        "SELECT stake,auto_multiplier,status,payout,cashout_multiplier,cashout_at_ms FROM gambling_crash_bets WHERE round_id=?1 AND user_id=?2",
         params![round, actor],
-        |r| Ok(json!({"round_id":round,"stake":r.get::<_,i64>(0)?,"auto_cashout":r.get::<_,Option<i64>>(1)?.map(|v|v as f64/100.0),"status":r.get::<_,String>(2)?,"payout":r.get::<_,i64>(3)?,"cashout_multiplier":r.get::<_,Option<i64>>(4)?.map(|v|v as f64/100.0)})),
+        |r| Ok(json!({"round_id":round,"stake":r.get::<_,i64>(0)?,"auto_cashout":r.get::<_,Option<i64>>(1)?.map(|v|v as f64/100.0),"status":r.get::<_,String>(2)?,"payout":r.get::<_,i64>(3)?,"cashout_multiplier":r.get::<_,Option<i64>>(4)?.map(|v|v as f64/100.0),"cashout_at_ms":r.get::<_,Option<i64>>(5)?})),
     ).optional()?.unwrap_or(Value::Null))
+}
+
+fn participant_view(db: &Connection, round: &Round, after: i64) -> ApiResult<Value> {
+    let count: i64 = db.query_row(
+        "SELECT count(*) FROM gambling_crash_bets WHERE round_id=?1",
+        [round.id],
+        |r| r.get(0),
+    )?;
+    let mut participants = db.prepare(
+        "SELECT b.user_id,CASE WHEN u.verified=1 AND u.banned=0 THEN u.username ELSE NULL END,b.stake,b.status,b.cashout_multiplier,b.cashout_at_ms FROM gambling_crash_bets b JOIN users u ON u.id=b.user_id WHERE b.round_id=?1 AND b.user_id>?2 ORDER BY b.user_id LIMIT ?3",
+    )?.query_map(params![round.id,after,PARTICIPANT_PAGE_SIZE+1], |r| {
+        let id: i64 = r.get(0)?;
+        let name: Option<String> = r.get(1)?;
+        let cashout_at: Option<i64> = r.get(5)?;
+        Ok(json!({"user_id":id,"username":name,"display_name":name.as_deref().unwrap_or("Unavailable member"),"profile_url":name.as_ref().map(|_|format!("/members/{id}")),"stake":r.get::<_,i64>(2)?,"status":r.get::<_,String>(3)?,"cashout_multiplier":r.get::<_,Option<i64>>(4)?.map(|v|v as f64/100.0),"cashout_at_ms":cashout_at,"cashout_elapsed_ms":cashout_at.map(|at|at.saturating_sub(round.start).max(0))}))
+    })?.collect::<Result<Vec<_>,_>>()?;
+    let has_more = participants.len() > PARTICIPANT_PAGE_SIZE as usize;
+    participants.truncate(PARTICIPANT_PAGE_SIZE as usize);
+    let next = has_more.then(|| participants.last().unwrap()["user_id"].clone());
+    Ok(
+        json!({"participants":participants,"participant_count":count,"participant_has_more":has_more,"participant_next_after_user_id":next,"participant_page_size":PARTICIPANT_PAGE_SIZE}),
+    )
 }
 
 fn crash_view(
@@ -297,6 +340,7 @@ fn crash_view(
     actor: i64,
     time: i64,
     owner: bool,
+    after: i64,
 ) -> ApiResult<Value> {
     let (mode, paused): (String, bool) = db.query_row(
         "SELECT mode,paused FROM gambling_config WHERE id=1",
@@ -306,7 +350,14 @@ fn crash_view(
     let history = db.prepare("SELECT id,multiplier,mode FROM gambling_crash_rounds WHERE crash_ms<=?1 ORDER BY id DESC LIMIT 20")?
         .query_map([time], |r| Ok(json!({"id":r.get::<_,i64>(0)?,"crash_multiplier":r.get::<_,i64>(1)? as f64/100.0,"mode":r.get::<_,String>(2)?})))?
         .collect::<Result<Vec<_>,_>>()?;
-    let mut view = json!({"id":null,"phase":"paused","multiplier":1.0,"mode":mode,"paused":paused,"owner_visible":true,"bet":null,"history":history});
+    let mut view = json!({"id":null,"phase":"paused","multiplier":1.0,"mode":mode,"paused":paused,"owner_visible":true,"bet":null,"history":history,"participants":[],"participant_count":0,"participant_has_more":false,"participant_next_after_user_id":null,"participant_page_size":PARTICIPANT_PAGE_SIZE});
+    // Pausing stops new rounds, not the display of the most recent round's bets.
+    let previous = if round.is_none() {
+        latest_round(db)?
+    } else {
+        None
+    };
+    let round = round.or(previous.as_ref());
     if let Some(round) = round {
         view["id"] = json!(round.id);
         view["phase"] = json!(if time < round.start {
@@ -320,6 +371,9 @@ fn crash_view(
         view["betting_ends_ms"] = json!(round.start);
         view["multiplier"] = json!(running_multiplier(round, time) as f64 / 100.0);
         view["bet"] = bet_view(db, round.id, actor)?;
+        for (key, value) in participant_view(db, round, after)?.as_object().unwrap() {
+            view[key] = value.clone();
+        }
         if time >= round.crash {
             view["crash_multiplier"] = json!(round.multiplier as f64 / 100.0);
             view["crashed_at_ms"] = json!(round.crash);
@@ -428,6 +482,7 @@ pub async fn crash_cashout(
                     } else {
                         None
                     },
+                    time,
                 )?;
             }
             Ok(json!({"bet":bet_view(db,round.id,actor)?}))
@@ -694,6 +749,10 @@ fn catalog() -> ApiResult<Value> {
         if !identifier(id)
             || !ids.insert(id)
             || !matches!(item["kind"].as_str(), Some("frame" | "banner"))
+            || !matches!(
+                (item["kind"].as_str(), item["collection"].as_str()),
+                (Some("frame"), Some("frames")) | (Some("banner"), Some("bo2" | "mw2" | "canna"))
+            )
         {
             return Err(bad("Cosmetics catalog is unavailable"));
         }
@@ -716,10 +775,75 @@ fn catalog() -> ApiResult<Value> {
     Ok(catalog)
 }
 
+fn case_definition(id: &str) -> ApiResult<(&'static str, Option<&'static str>, &'static str)> {
+    match id {
+        "bo2-calling-cards" => Ok(("BO2 calling cards crate", Some("bo2"), "banner")),
+        "mw2-calling-cards" => Ok(("MW2 calling cards crate", Some("mw2"), "banner")),
+        "avatar-frames" => Ok(("Avatar frames crate", Some("frames"), "frame")),
+        // Old clients can still open the original mixed case. Its inventory IDs
+        // remain valid, while new clients show the three separate collections.
+        "canna-case" => Ok(("Canna cosmetics case", None, "mixed")),
+        _ => Err(bad("Cosmetic case not found")),
+    }
+}
+
+fn case_pool<'a>(catalog: &'a Value, id: &str) -> ApiResult<(Vec<&'a Value>, u64)> {
+    let (_, collection, kind) = case_definition(id)?;
+    let mut pool = Vec::new();
+    let mut sum = 0_u64;
+    for item in catalog["items"]
+        .as_array()
+        .ok_or_else(|| bad("Cosmetics catalog is unavailable"))?
+    {
+        if collection
+            .is_some_and(|collection| item["collection"] != collection || item["kind"] != kind)
+        {
+            continue;
+        }
+        let weight = item["weight"]
+            .as_u64()
+            .ok_or_else(|| bad("Cosmetics catalog is unavailable"))?;
+        if weight > 0 {
+            sum = sum
+                .checked_add(weight)
+                .filter(|sum| *sum <= 1_000_000)
+                .ok_or_else(|| bad("Cosmetics catalog is unavailable"))?;
+            pool.push(item);
+        }
+    }
+    Ok((pool, sum))
+}
+
+fn select_case_item(catalog: &Value, id: &str, mut roll: u64) -> ApiResult<Value> {
+    let (pool, sum) = case_pool(catalog, id)?;
+    if sum == 0 || roll >= sum {
+        return Err(bad("Cosmetic case is unavailable"));
+    }
+    for item in pool {
+        let weight = item["weight"].as_u64().unwrap();
+        if roll < weight {
+            return Ok(item.clone());
+        }
+        roll -= weight;
+    }
+    Err(bad("Cosmetic case is unavailable"))
+}
+
+fn cases_view(catalog: &Value) -> ApiResult<Value> {
+    ["bo2-calling-cards", "mw2-calling-cards", "avatar-frames"]
+        .into_iter()
+        .map(|id| {
+            let (name, collection, kind) = case_definition(id)?;
+            let (pool, sum) = case_pool(catalog, id)?;
+            Ok(json!({"id":id,"name":name,"cost":catalog["case"]["price"],"collection":collection,"kind":kind,"item_count":pool.len(),"available":sum>0,"contents":name,"items":pool.iter().map(|item|json!({"id":item["id"],"odds_percent":100.0*item["weight"].as_u64().unwrap() as f64/sum as f64})).collect::<Vec<_>>(),"duplicates":"Duplicates increase your collection count; there is no sale or trade."}))
+        })
+        .collect::<ApiResult<Vec<_>>>()
+        .map(|cases| json!(cases))
+}
+
 fn cosmetics_view(db: &Connection, actor: i64) -> ApiResult<(Value, Value)> {
     let catalog = catalog()?;
     let items = catalog["items"].as_array().unwrap();
-    let sum: u64 = items.iter().map(|i| i["weight"].as_u64().unwrap()).sum();
     let owned = db
         .prepare("SELECT item_id,count FROM gambling_cosmetics WHERE user_id=?1 ORDER BY item_id")?
         .query_map([actor], |r| {
@@ -736,7 +860,7 @@ fn cosmetics_view(db: &Connection, actor: i64) -> ApiResult<(Value, Value)> {
         .unwrap_or_default();
     let cosmetics =
         json!({"catalog":items,"owned":owned,"equipped":{"frame":frame,"banner":banner}});
-    let cases = json!([{"id":"canna-case","name":catalog["case"]["name"],"cost":catalog["case"]["price"],"items":items.iter().filter(|i|i["weight"].as_u64().unwrap()>0).map(|i|json!({"id":i["id"],"odds_percent":100.0*i["weight"].as_u64().unwrap() as f64/sum as f64})).collect::<Vec<_>>(),"duplicates":"Duplicates increase your collection count; there is no sale or trade."}]);
+    let cases = cases_view(&catalog)?;
     Ok((cosmetics, cases))
 }
 
@@ -759,6 +883,7 @@ pub fn equipped(db: &Connection, actor: i64) -> ApiResult<Value> {
 }
 
 #[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct CaseInput {
     request_id: String,
     case_id: String,
@@ -776,23 +901,12 @@ pub async fn case_open(
         "cosmetic_case",
         &json!({"case_id":input.case_id}),
         |db| {
-            if input.case_id != "canna-case" {
-                return Err(bad("Cosmetic case not found"));
-            }
             let catalog = catalog()?;
-            let items = catalog["items"].as_array().unwrap();
-            let sum: u64 = items.iter().map(|i| i["weight"].as_u64().unwrap()).sum();
-            let mut roll = OsRng.gen_range(0..sum);
-            let mut selected = None;
-            for item in items {
-                let weight = item["weight"].as_u64().unwrap();
-                if roll < weight {
-                    selected = Some(item.clone());
-                    break;
-                }
-                roll -= weight;
+            let (_, sum) = case_pool(&catalog, &input.case_id)?;
+            if sum == 0 {
+                return Err(bad("Cosmetic case is unavailable"));
             }
-            let item = selected.ok_or_else(|| bad("Cosmetic case is unavailable"))?;
+            let item = select_case_item(&catalog, &input.case_id, OsRng.gen_range(0..sum))?;
             debit(db, actor, catalog["case"]["price"].as_i64().unwrap())?;
             let id = item["id"].as_str().unwrap();
             db.execute("INSERT INTO gambling_cosmetics VALUES(?1,?2,1) ON CONFLICT(user_id,item_id) DO UPDATE SET count=MIN(1000000,count+1)",params![actor,id])?;
@@ -801,7 +915,7 @@ pub async fn case_open(
                 params![actor, id],
                 |r| r.get(0),
             )?;
-            Ok(json!({"item":item,"count":count}))
+            Ok(json!({"case_id":input.case_id,"item":item,"count":count}))
         },
     )
 }
@@ -885,15 +999,50 @@ pub async fn daily(
     )
 }
 
+#[derive(Default, Deserialize)]
+pub struct OverviewQuery {
+    crash_round_id: Option<i64>,
+    crash_after_user_id: Option<i64>,
+}
+
 pub async fn overview(
     State(app): State<Shared>,
     headers: HeaderMap,
+    Query(query): Query<OverviewQuery>,
 ) -> ApiResult<axum::Json<Value>> {
     let actor = app.auth(&headers)?.0;
+    if query.crash_round_id.is_some_and(|id| id <= 0)
+        || query.crash_after_user_id.is_some_and(|id| id < 0)
+        || (query.crash_after_user_id.is_some() && query.crash_round_id.is_none())
+    {
+        return Err(bad(
+            "Supply the current Crash round and a valid participant cursor",
+        ));
+    }
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let time = milliseconds();
     let round = advance(&tx, time)?;
+    let crash = crash_view(
+        &tx,
+        round.as_ref(),
+        actor,
+        time,
+        false,
+        query.crash_after_user_id.unwrap_or(0),
+    )?;
+    if query.crash_round_id.is_some_and(|id| crash["id"] != id) {
+        return Err(ApiError(
+            StatusCode::CONFLICT,
+            "The Crash round changed; reload its participants",
+        ));
+    }
+    if query.crash_after_user_id.is_some() {
+        // Participant polling shares the authenticated clock and transaction,
+        // without repeating the wallet, blackjack or large cosmetics catalog.
+        tx.commit()?;
+        return Ok(axum::Json(json!({"server_time_ms":time,"crash":crash})));
+    }
     let (balance, earned, daily) = wallet(&tx, actor)?;
     let hand_id:Option<String>=tx.query_row("SELECT id FROM gambling_blackjack WHERE user_id=?1 ORDER BY created DESC,rowid DESC LIMIT 1",[actor],|r|r.get(0)).optional()?;
     let hand = hand_id
@@ -901,7 +1050,7 @@ pub async fn overview(
         .transpose()?
         .unwrap_or(Value::Null);
     let (cosmetics, cases) = cosmetics_view(&tx, actor)?;
-    let result = json!({"wallet":{"balance":balance,"earned":earned,"daily_available":daily!=now()/86400},"server_time_ms":time,"notice":NOTICE,"crash":crash_view(&tx,round.as_ref(),actor,time,false)?,"blackjack":hand,"cosmetics":cosmetics,"cases":cases,"limits":{"max_stake":MAX_STAKE,"max_new_games_per_utc_day":200}});
+    let result = json!({"wallet":{"balance":balance,"earned":earned,"daily_available":daily!=now()/86400},"server_time_ms":time,"notice":NOTICE,"crash":crash,"blackjack":hand,"cosmetics":cosmetics,"cases":cases,"limits":{"max_stake":MAX_STAKE,"max_new_games_per_utc_day":200}});
     tx.commit()?;
     Ok(axum::Json(result))
 }
@@ -919,7 +1068,7 @@ fn admin_view(db: &Connection, actor: i64, time: i64) -> ApiResult<Value> {
             Ok(json!({"crash_multiplier":r.get::<_,i64>(0)? as f64/100.0}))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    let crash = crash_view(db, round.as_ref(), actor, time, true)?;
+    let crash = crash_view(db, round.as_ref(), actor, time, true, 0)?;
     Ok(
         json!({"mode":mode,"paused":paused,"queue":queue,"crash":crash,"planned_crash_multiplier":crash["planned_crash_multiplier"],"planned_crash_at_ms":crash["planned_crash_at_ms"],"server_time_ms":time,"notice":NOTICE,"limits":{"queued_rounds":20,"min_multiplier":1.0,"max_multiplier":100.0},"queue_empty_behavior":"Controlled mode remains visibly controlled and draws random rounds when its queue is empty."}),
     )
@@ -1285,6 +1434,411 @@ mod tests {
         assert_eq!(wallet(&db, 1).unwrap().0, 1100);
         assert_eq!(wallet(&db, 2).unwrap().0, 900);
         assert!(latest_round(&db).unwrap().is_some());
+    }
+
+    #[test]
+    fn crash_participants_persist_through_crash_and_pause_then_clear_at_next_round() {
+        let (_dir, app) = fixture();
+        for name in ["manual", "automatic", "lost", "hidden"] {
+            account(&app, name, false);
+        }
+        for actor in 1..=4 {
+            balance(&app, actor, 1000);
+        }
+        let db = app.db.lock().unwrap();
+        db.execute("UPDATE gambling_config SET paused=1", [])
+            .unwrap();
+        let r = round(&db, 100_000, 300);
+        for (actor, auto) in [(1, None), (2, Some(200)), (3, Some(300)), (4, None)] {
+            debit(&db, actor, 100).unwrap();
+            db.execute("INSERT INTO gambling_crash_bets(round_id,user_id,stake,auto_multiplier) VALUES(?1,?2,100,?3)",params![r.id,actor,auto]).unwrap();
+        }
+        db.execute(
+            "UPDATE users SET banned=1,email='private@example.test' WHERE id=4",
+            [],
+        )
+        .unwrap();
+        let before = crash_view(&db, Some(&r), 3, r.start - 1, false, 0).unwrap();
+        assert_eq!(before["participant_count"], 4);
+        assert!(
+            before["participants"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|p| p["status"] == "pending")
+        );
+        assert!(before.get("planned_crash_multiplier").is_none());
+        assert!(before.get("planned_crash_at_ms").is_none());
+        assert_eq!(before["participants"][0]["username"], "manual");
+        assert_eq!(before["participants"][0]["profile_url"], "/members/1");
+        let hidden = &before["participants"][3];
+        assert_eq!(hidden["display_name"], "Unavailable member");
+        assert!(hidden["username"].is_null() && hidden["profile_url"].is_null());
+        for p in before["participants"].as_array().unwrap() {
+            assert_eq!(p.as_object().unwrap().len(), 9);
+            for private in [
+                "email",
+                "wallet",
+                "balance",
+                "auto_cashout",
+                "auto_multiplier",
+                "payout",
+                "password",
+                "token",
+                "planned_crash_at_ms",
+            ] {
+                assert!(p.get(private).is_none(), "participant leaked {private}");
+            }
+        }
+        let manual_at = r.start + 1850;
+        settle_bet(&db, r.id, 1, Some(120), manual_at).unwrap();
+        // A delayed poll still records the automatic threshold crossing, not poll time.
+        advance(&db, r.crash).unwrap();
+        let settled = crash_view(&db, Some(&r), 3, r.crash, false, 0).unwrap();
+        assert_eq!(settled["participants"][0]["cashout_multiplier"], 1.2);
+        assert_eq!(settled["participants"][0]["cashout_at_ms"], manual_at);
+        assert_eq!(settled["participants"][0]["cashout_elapsed_ms"], 1850);
+        assert_eq!(settled["participants"][1]["status"], "won");
+        assert_eq!(
+            settled["participants"][1]["cashout_at_ms"],
+            at_multiplier(r.start, 200)
+        );
+        assert_eq!(
+            settled["participants"][1]["cashout_elapsed_ms"],
+            at_multiplier(0, 200)
+        );
+        for index in [2, 3] {
+            assert_eq!(settled["participants"][index]["status"], "lost");
+            assert!(settled["participants"][index]["cashout_at_ms"].is_null());
+        }
+        let time = r.crash + INTERMISSION_MS + 1;
+        assert!(advance(&db, time).unwrap().is_none());
+        let paused = crash_view(&db, None, 3, time, false, 0).unwrap();
+        assert_eq!(paused["id"], r.id);
+        assert_eq!(paused["phase"], "crashed");
+        assert_eq!(paused["paused"], true);
+        assert_eq!(paused["participants"], settled["participants"]);
+        db.execute("UPDATE gambling_config SET paused=0", [])
+            .unwrap();
+        let next = advance(&db, time).unwrap().unwrap();
+        let fresh = crash_view(&db, Some(&next), 3, time, false, 0).unwrap();
+        assert_ne!(fresh["id"], r.id);
+        assert_eq!(fresh["participants"], json!([]));
+        assert_eq!(fresh["participant_count"], 0);
+        assert_eq!(
+            participant_view(&db, &r, 0).unwrap()["participants"],
+            settled["participants"]
+        );
+        assert_eq!(wallet(&db, 1).unwrap().0, 1020);
+        assert_eq!(wallet(&db, 2).unwrap().0, 1100);
+    }
+
+    #[tokio::test]
+    async fn crash_participant_pages_are_complete_bounded_and_pinned_to_current_round() {
+        let (_dir, app) = fixture();
+        let viewer = account(&app, "viewer", false);
+        let r = {
+            let mut db = app.db.lock().unwrap();
+            let tx = db.transaction().unwrap();
+            let r = round(&tx, milliseconds() + 60_000, 5000);
+            for index in 0..205 {
+                tx.execute("INSERT INTO users(username,password,verified,role) VALUES(?1,'fixture',1,'member')",[format!("participant-{index}")]).unwrap();
+                let id = tx.last_insert_rowid();
+                tx.execute(
+                    "INSERT INTO gambling_crash_bets(round_id,user_id,stake) VALUES(?1,?2,?3)",
+                    params![r.id, id, index + 1],
+                )
+                .unwrap();
+            }
+            tx.commit().unwrap();
+            r
+        };
+        let page_path = format!(
+            "/api/v1/gambling?crash_round_id={}&crash_after_user_id=0",
+            r.id
+        );
+        let page_only =
+            value(call(app.clone(), "GET", &page_path, Value::Null, Some(&viewer)).await).await;
+        assert_eq!(page_only.as_object().unwrap().len(), 2);
+        assert!(page_only["server_time_ms"].as_i64().is_some());
+        assert_eq!(page_only["crash"]["participant_count"], 205);
+        assert_eq!(
+            page_only["crash"]["participants"].as_array().unwrap().len(),
+            200
+        );
+        for omitted in [
+            "wallet",
+            "balance",
+            "blackjack",
+            "cosmetics",
+            "catalog",
+            "cases",
+        ] {
+            assert!(
+                page_only.get(omitted).is_none(),
+                "paging repeated {omitted}"
+            );
+        }
+        assert_eq!(
+            app.db
+                .lock()
+                .unwrap()
+                .query_row(
+                    "SELECT count(*) FROM bot_wallets WHERE user_id=1",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        let first = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/gambling",
+                Value::Null,
+                Some(&viewer),
+            )
+            .await,
+        )
+        .await;
+        assert!(first["wallet"].is_object());
+        assert!(first["cosmetics"]["catalog"].is_array());
+        assert!(first["cases"].is_array());
+        let first = &first["crash"];
+        assert_eq!(first["participant_count"], 205);
+        assert_eq!(first["participants"].as_array().unwrap().len(), 200);
+        assert_eq!(first["participant_has_more"], true);
+        let after = first["participant_next_after_user_id"].as_i64().unwrap();
+        let path = format!(
+            "/api/v1/gambling?crash_round_id={}&crash_after_user_id={after}",
+            r.id
+        );
+        let second = value(call(app.clone(), "GET", &path, Value::Null, Some(&viewer)).await).await;
+        assert_eq!(second.as_object().unwrap().len(), 2);
+        let second = &second["crash"];
+        assert_eq!(second["participant_count"], 205);
+        assert_eq!(second["participants"].as_array().unwrap().len(), 5);
+        assert_eq!(second["participant_has_more"], false);
+        assert!(second["participant_next_after_user_id"].is_null());
+        let ids = first["participants"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .chain(second["participants"].as_array().unwrap())
+            .map(|p| p["user_id"].as_i64().unwrap())
+            .collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids.len(), 205);
+        for path in [
+            "/api/v1/gambling?crash_after_user_id=1".to_owned(),
+            format!(
+                "/api/v1/gambling?crash_round_id={}&crash_after_user_id=-1",
+                r.id
+            ),
+        ] {
+            assert_eq!(
+                call(app.clone(), "GET", &path, Value::Null, Some(&viewer))
+                    .await
+                    .status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+        let stale = format!(
+            "/api/v1/gambling?crash_round_id={}&crash_after_user_id={after}",
+            r.id + 1
+        );
+        assert_eq!(
+            call(app.clone(), "GET", &stale, Value::Null, Some(&viewer))
+                .await
+                .status(),
+            StatusCode::CONFLICT
+        );
+    }
+
+    #[test]
+    fn crash_cashout_clock_migration_is_idempotent_without_fabricating_history() {
+        let (_dir, app) = fixture();
+        account(&app, "legacy-winner", false);
+        let db = app.db.lock().unwrap();
+        let r = round(&db, 100_000, 300);
+        db.execute_batch("DROP TABLE gambling_crash_bets; CREATE TABLE gambling_crash_bets(round_id INTEGER,user_id INTEGER,stake INTEGER,auto_multiplier INTEGER,status TEXT,payout INTEGER,cashout_multiplier INTEGER,PRIMARY KEY(round_id,user_id));").unwrap();
+        db.execute(
+            "INSERT INTO gambling_crash_bets VALUES(?1,1,100,NULL,'won',200,200)",
+            [r.id],
+        )
+        .unwrap();
+        initialize(&db).unwrap();
+        initialize(&db).unwrap();
+        let bet = bet_view(&db, r.id, 1).unwrap();
+        assert_eq!(bet["status"], "won");
+        assert_eq!(bet["cashout_multiplier"], 2.0);
+        assert!(bet["cashout_at_ms"].is_null());
+        let participants = participant_view(&db, &r, 0).unwrap();
+        assert!(participants["participants"][0]["cashout_at_ms"].is_null());
+        assert!(participants["participants"][0]["cashout_elapsed_ms"].is_null());
+    }
+
+    #[tokio::test]
+    async fn crash_cashout_transaction_rolls_back_wallet_and_participant_clock_together() {
+        let (_dir, app) = fixture();
+        let auth = account(&app, "atomic-cashout", false);
+        balance(&app, 1, 1000);
+        let r = {
+            let db = app.db.lock().unwrap();
+            let r = round(&db, milliseconds() - 3000, 1000);
+            debit(&db, 1, 100).unwrap();
+            db.execute(
+                "INSERT INTO gambling_crash_bets(round_id,user_id,stake) VALUES(?1,1,100)",
+                [r.id],
+            )
+            .unwrap();
+            db.execute_batch("CREATE TRIGGER fail_cashout BEFORE UPDATE ON gambling_crash_bets WHEN NEW.status='won' BEGIN SELECT RAISE(ABORT,'fixture cashout failure'); END;").unwrap();
+            r
+        };
+        let input = json!({"request_id":"atomic-cashout","round_id":r.id});
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/crash/cashout",
+                input.clone(),
+                Some(&auth)
+            )
+            .await
+            .status(),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
+        {
+            let db = app.db.lock().unwrap();
+            assert_eq!(wallet(&db, 1).unwrap().0, 900);
+            let bet = bet_view(&db, r.id, 1).unwrap();
+            assert_eq!(bet["status"], "pending");
+            assert!(bet["cashout_at_ms"].is_null());
+            assert_eq!(
+                db.query_row(
+                    "SELECT count(*) FROM gambling_requests WHERE request_id='atomic-cashout'",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                0
+            );
+            db.execute_batch("DROP TRIGGER fail_cashout;").unwrap();
+        }
+        let success = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/crash/cashout",
+                input.clone(),
+                Some(&auth),
+            )
+            .await,
+        )
+        .await;
+        let replay = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/crash/cashout",
+                input,
+                Some(&auth),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(success, replay);
+        assert_eq!(success["bet"]["status"], "won");
+        assert!(success["bet"]["cashout_at_ms"].as_i64().unwrap() >= r.start);
+        let db = app.db.lock().unwrap();
+        let row = &participant_view(&db, &r, 0).unwrap()["participants"][0];
+        assert_eq!(row["cashout_at_ms"], success["bet"]["cashout_at_ms"]);
+    }
+
+    #[tokio::test]
+    async fn crash_stale_cashouts_never_pay_or_join_the_new_round_participants() {
+        let (_dir, app) = fixture();
+        let auth = account(&app, "late-cashout", false);
+        balance(&app, 1, 1000);
+        let old = {
+            let db = app.db.lock().unwrap();
+            let r = round(&db, milliseconds() - 30_000, 200);
+            debit(&db, 1, 100).unwrap();
+            db.execute(
+                "INSERT INTO gambling_crash_bets(round_id,user_id,stake) VALUES(?1,1,100)",
+                [r.id],
+            )
+            .unwrap();
+            r
+        };
+        let state = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/gambling",
+                Value::Null,
+                Some(&auth),
+            )
+            .await,
+        )
+        .await;
+        let next = state["crash"]["id"].as_i64().unwrap();
+        assert_ne!(next, old.id);
+        assert_eq!(state["crash"]["participants"], json!([]));
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/crash/bet",
+                json!({"request_id":"new-round-bet","round_id":next,"stake":50}),
+                Some(&auth)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        let input = json!({"request_id":"stale-cashout","round_id":old.id});
+        let stale = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/crash/cashout",
+                input.clone(),
+                Some(&auth),
+            )
+            .await,
+        )
+        .await;
+        let replay = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/crash/cashout",
+                input,
+                Some(&auth),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(stale, replay);
+        assert_eq!(stale["bet"]["status"], "lost");
+        assert_eq!(stale["balance"], 850);
+        let state = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/gambling",
+                Value::Null,
+                Some(&auth),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(state["crash"]["id"], next);
+        assert_eq!(state["crash"]["participant_count"], 1);
+        assert_eq!(state["crash"]["participants"][0]["stake"], 50);
+        assert_eq!(state["crash"]["participants"][0]["status"], "pending");
+        assert!(state["crash"]["participants"][0]["cashout_at_ms"].is_null());
     }
 
     #[tokio::test]
@@ -1715,6 +2269,177 @@ mod tests {
             metadata[first["item"]["kind"].as_str().unwrap()]["id"],
             first["item"]["id"]
         );
+    }
+
+    #[test]
+    fn separate_crate_pools_never_cross_collections_and_show_exact_odds() {
+        let catalog = json!({"case":{"price":100},"items":[
+            {"id":"bo2-a","collection":"bo2","kind":"banner","weight":2},
+            {"id":"bo2-b","collection":"bo2","kind":"banner","weight":1},
+            {"id":"mw2-a","collection":"mw2","kind":"banner","weight":3},
+            {"id":"mw2-b","collection":"mw2","kind":"banner","weight":1},
+            {"id":"frame-a","collection":"frames","kind":"frame","weight":2},
+            {"id":"canna-a","collection":"canna","kind":"banner","weight":1},
+            {"id":"bo2-zero","collection":"bo2","kind":"banner","weight":0},
+            {"id":"wrong-kind","collection":"bo2","kind":"frame","weight":1}
+        ]});
+        let cases = cases_view(&catalog).unwrap();
+        assert_eq!(cases.as_array().unwrap().len(), 3);
+        for case in cases.as_array().unwrap() {
+            let id = case["id"].as_str().unwrap();
+            let (pool, sum) = case_pool(&catalog, id).unwrap();
+            assert_eq!(case["cost"], 100);
+            assert_eq!(case["available"], true);
+            assert_eq!(case["item_count"].as_u64().unwrap() as usize, pool.len());
+            let odds: f64 = case["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|i| i["odds_percent"].as_f64().unwrap())
+                .sum();
+            assert!((odds - 100.0).abs() < 0.000_001);
+            let mut counts = std::collections::HashMap::<String, u64>::new();
+            for roll in 0..sum {
+                let item = select_case_item(&catalog, id, roll).unwrap();
+                assert_eq!(item["collection"], case["collection"]);
+                assert_eq!(item["kind"], case["kind"]);
+                *counts
+                    .entry(item["id"].as_str().unwrap().to_owned())
+                    .or_default() += 1;
+            }
+            for item in pool {
+                assert_eq!(
+                    counts[item["id"].as_str().unwrap()],
+                    item["weight"].as_u64().unwrap()
+                );
+            }
+            assert!(select_case_item(&catalog, id, sum).is_err());
+        }
+        // The compatibility endpoint keeps its original mixed collection.
+        let (legacy, _) = case_pool(&catalog, "canna-case").unwrap();
+        assert!(legacy.iter().any(|i| i["collection"] == "canna"));
+        assert!(legacy.iter().any(|i| i["collection"] == "frames"));
+    }
+
+    #[test]
+    fn empty_unknown_or_invalid_crate_pools_fail_without_random_range_panics() {
+        let empty = json!({"case":{"price":100},"items":[{"id":"frame-only","collection":"frames","kind":"frame","weight":1}]});
+        let cases = cases_view(&empty).unwrap();
+        assert_eq!(cases[0]["available"], false);
+        assert_eq!(cases[0]["item_count"], 0);
+        assert_eq!(cases[0]["items"], json!([]));
+        assert!(select_case_item(&empty, "bo2-calling-cards", 0).is_err());
+        assert!(case_pool(&empty, "client-chosen-pool").is_err());
+        let excessive =
+            json!({"items":[{"id":"bad","collection":"frames","kind":"frame","weight":u64::MAX}]});
+        assert!(case_pool(&excessive, "avatar-frames").is_err());
+        let invalid =
+            json!({"items":[{"id":"bad","collection":"frames","kind":"frame","weight":-1}]});
+        assert!(case_pool(&invalid, "avatar-frames").is_err());
+    }
+
+    #[tokio::test]
+    async fn separate_crate_requests_are_server_selected_exactly_once_and_preserve_equipment() {
+        let (_dir, app) = fixture();
+        let auth = account(&app, "crate-collector", false);
+        balance(&app, 1, 1000);
+        {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "INSERT INTO gambling_cosmetics VALUES(1,'frame-mint-halo',1)",
+                [],
+            )
+            .unwrap();
+            db.execute(
+                "INSERT INTO gambling_equipped(user_id,frame) VALUES(1,'frame-mint-halo')",
+                [],
+            )
+            .unwrap();
+        }
+        for (index, (id, collection, kind)) in [
+            ("bo2-calling-cards", "bo2", "banner"),
+            ("mw2-calling-cards", "mw2", "banner"),
+            ("avatar-frames", "frames", "frame"),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let input = json!({"request_id":format!("crate-{index}"),"case_id":id});
+            let first = value(
+                call(
+                    app.clone(),
+                    "POST",
+                    "/api/v1/gambling/cases/open",
+                    input.clone(),
+                    Some(&auth),
+                )
+                .await,
+            )
+            .await;
+            let replay = value(
+                call(
+                    app.clone(),
+                    "POST",
+                    "/api/v1/gambling/cases/open",
+                    input,
+                    Some(&auth),
+                )
+                .await,
+            )
+            .await;
+            assert_eq!(first, replay);
+            assert_eq!(first["case_id"], id);
+            assert_eq!(first["item"]["collection"], collection);
+            assert_eq!(first["item"]["kind"], kind);
+            assert_eq!(first["balance"], 1000 - ((index + 1) * 100) as i64);
+            let db = app.db.lock().unwrap();
+            assert_eq!(equipped(&db, 1).unwrap()["frame"]["id"], "frame-mint-halo");
+            assert!(equipped(&db, 1).unwrap()["banner"].is_null());
+            assert_eq!(
+                db.query_row(
+                    "SELECT count FROM gambling_cosmetics WHERE user_id=1 AND item_id=?1",
+                    [first["item"]["id"].as_str().unwrap()],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+                first["count"].as_i64().unwrap()
+            );
+        }
+        for (input, expected) in [
+            (
+                json!({"request_id":"bad-case","case_id":"unknown"}),
+                StatusCode::BAD_REQUEST,
+            ),
+            (
+                json!({"request_id":"client-loot","case_id":"avatar-frames","item_id":"frame-canna-leaf"}),
+                StatusCode::UNPROCESSABLE_ENTITY,
+            ),
+        ] {
+            assert_eq!(
+                call(
+                    app.clone(),
+                    "POST",
+                    "/api/v1/gambling/cases/open",
+                    input,
+                    Some(&auth)
+                )
+                .await
+                .status(),
+                expected
+            );
+        }
+        let db = app.db.lock().unwrap();
+        assert_eq!(wallet(&db, 1).unwrap().0, 700);
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM gambling_requests WHERE user_id=1",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            3
+        );
+        assert_eq!(equipped(&db, 1).unwrap()["frame"]["id"], "frame-mint-halo");
     }
 
     #[tokio::test]
