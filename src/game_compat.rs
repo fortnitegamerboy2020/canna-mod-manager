@@ -9,13 +9,30 @@ fn public_requirement(item: &ModInfo) -> bool {
     item.enabled && item.provenance["required_game_branch"].as_str() == Some(PUBLIC_BRANCH)
 }
 
+fn ducttape_public_requirement(item: &ModInfo) -> bool {
+    item.enabled
+        && item.local_file.is_empty()
+        && item.provenance["provider"].as_str() == Some("thunderstore")
+        && item.provenance["id"].as_str() == Some("kieron_exe-DuctTape")
+        && matches!(
+            item.provenance["source_url"].as_str(),
+            Some("https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape")
+                | Some("https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape/")
+        )
+}
+
+fn legacy_library_requirement(item: &ModInfo) -> bool {
+    item.enabled
+        && matches!(
+            (item.name.as_str(), item.version.as_str()),
+            ("UnboundLib", "3.2.14") | ("MMHook", "1.0.0")
+        )
+}
+
 pub fn rounds_requirement(item: &ModInfo) -> bool {
     item.enabled
         && (item.provenance["required_game_branch"].as_str() == Some(ROUNDS_BRANCH)
-            || matches!(
-                (item.name.as_str(), item.version.as_str()),
-                ("UnboundLib", "3.2.14") | ("MMHook", "1.0.0")
-            )
+            || legacy_library_requirement(item)
             || (item.version == "1.8.0"
                 && item.provenance["source_url"].as_str().is_some_and(|url| {
                     url.trim_end_matches('/')
@@ -23,12 +40,27 @@ pub fn rounds_requirement(item: &ModInfo) -> bool {
                 })))
 }
 
+fn effective_rounds_requirement(item: &ModInfo, ducttape: bool) -> bool {
+    // DuctTape keeps these packages installed and replaces their libraries at
+    // launch. It does not establish compatibility for other legacy mods.
+    rounds_requirement(item)
+        && !(ducttape
+            && legacy_library_requirement(item)
+            && item.provenance["required_game_branch"].as_str() != Some(ROUNDS_BRANCH))
+}
+
 pub fn required_branch(pack: &Modpack) -> Option<&'static str> {
     if pack.game.app_id != 1557740 {
-        None
-    } else if pack.mods.iter().any(rounds_requirement) {
+        return None;
+    }
+    let ducttape = pack.mods.iter().any(ducttape_public_requirement);
+    if pack
+        .mods
+        .iter()
+        .any(|item| effective_rounds_requirement(item, ducttape))
+    {
         Some(ROUNDS_BRANCH)
-    } else if pack.mods.iter().any(public_requirement) {
+    } else if ducttape || pack.mods.iter().any(public_requirement) {
         Some(PUBLIC_BRANCH)
     } else {
         None
@@ -53,19 +85,18 @@ pub fn branch_status(required: &str, installed: Option<&steam::SteamVersion>) ->
 }
 
 pub fn check_pack(game: &InstalledGame, pack: &Modpack) -> Result<()> {
-    if pack.game.app_id == 1557740 && pack.mods.iter().any(public_requirement) {
-        if pack.mods.iter().any(rounds_requirement) {
+    let ducttape = pack.game.app_id == 1557740 && pack.mods.iter().any(ducttape_public_requirement);
+    if pack.game.app_id == 1557740 && (ducttape || pack.mods.iter().any(public_requirement)) {
+        if pack
+            .mods
+            .iter()
+            .any(|item| effective_rounds_requirement(item, ducttape))
+        {
             bail!(
-                "This pack mixes public ROUNDS and Old ROUNDS for mods requirements. Use a separate public-version pack for HollowPurple Fixed and disable original HollowPurple."
+                "This pack mixes public ROUNDS and Old ROUNDS for mods requirements. Disable the mod requiring Old ROUNDS for mods or use separate packs. DuctTape does not override an explicit legacy requirement or original HollowPurple's requirement."
             );
         }
-        if pack.mods.iter().any(|item| {
-            item.enabled
-                && matches!(
-                    (item.name.as_str(), item.version.as_str()),
-                    ("UnboundLib", "3.2.14") | ("MMHook", "1.0.0")
-                )
-        }) {
+        if !ducttape && pack.mods.iter().any(legacy_library_requirement) {
             bail!(
                 "HollowPurple Fixed's public port uses its own compatibility adapter. Remove legacy UnboundLib/MMHook from this pack; other mods that need those versions belong in a separate Old ROUNDS for mods pack."
             );
@@ -136,6 +167,211 @@ mod tests {
             },
             mods,
         )
+    }
+    fn ducttape() -> ModInfo {
+        serde_json::from_value(serde_json::json!({
+            "name":"DuctTape", "version":"1.0.0", "file":"Mods/ducttape.zip",
+            "provenance":{
+                "provider":"thunderstore", "id":"kieron_exe-DuctTape",
+                "source_url":"https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape/"
+            }
+        }))
+        .unwrap()
+    }
+    fn legacy_libraries() -> Vec<ModInfo> {
+        [("UnboundLib", "3.2.14"), ("MMHook", "1.0.0")]
+            .into_iter()
+            .map(|(name, version)| {
+                serde_json::from_value(serde_json::json!({
+                    "name":name,"version":version,"file":format!("Mods/{name}.zip")
+                }))
+                .unwrap()
+            })
+            .collect()
+    }
+    struct SteamFixture {
+        root: std::path::PathBuf,
+        game: InstalledGame,
+    }
+    impl SteamFixture {
+        fn new(branch: &str) -> Self {
+            let root = std::env::temp_dir().join(format!(
+                "canna-ducttape-{}-{}",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_nanos()
+            ));
+            let game = InstalledGame {
+                app_id: 1557740,
+                name: "ROUNDS".into(),
+                path: root.join("steamapps/common/ROUNDS"),
+                loader: String::new(),
+                plugins: 0,
+                icon: None,
+            };
+            std::fs::create_dir_all(&game.path).unwrap();
+            let fixture = Self { root, game };
+            fixture.set_branch(branch);
+            fixture
+        }
+        fn set_branch(&self, branch: &str) {
+            std::fs::write(
+                self.root.join("steamapps/appmanifest_1557740.acf"),
+                format!(
+                    r#""AppState" {{ "buildid" "21020021" "UserConfig" {{ "BetaKey" "{branch}" }} }}"#
+                ),
+            )
+            .unwrap();
+        }
+    }
+    impl Drop for SteamFixture {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.root);
+        }
+    }
+    #[test]
+    fn official_ducttape_selects_public_with_its_legacy_libraries() {
+        let mut selected = legacy_libraries();
+        assert_eq!(
+            required_branch(&pack(selected.clone())),
+            Some(ROUNDS_BRANCH)
+        );
+        selected.push(ducttape());
+        assert_eq!(
+            required_branch(&pack(selected.clone())),
+            Some(PUBLIC_BRANCH)
+        );
+        selected.reverse();
+        assert_eq!(required_branch(&pack(selected)), Some(PUBLIC_BRANCH));
+        let mut without_slash = ducttape();
+        without_slash.provenance["source_url"] =
+            "https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape".into();
+        assert_eq!(
+            required_branch(&pack(vec![without_slash])),
+            Some(PUBLIC_BRANCH)
+        );
+        let mut other_game = pack(vec![ducttape()]);
+        other_game.game.app_id = 1686940;
+        assert_eq!(required_branch(&other_game), None);
+    }
+    #[test]
+    fn disabled_local_and_mismatched_ducttape_cannot_override_legacy_libraries() {
+        let official = ducttape();
+        let mut disabled = official.clone();
+        disabled.enabled = false;
+        let mut local = official.clone();
+        local.local_file = "local-ducttape.zip".into();
+        let mut name_only = official.clone();
+        name_only.provenance = serde_json::Value::Null;
+        let mut invalid = vec![disabled, local, name_only];
+        for (field, value) in [
+            ("provider", "github"),
+            ("id", "another_author-DuctTape"),
+            (
+                "source_url",
+                "https://thunderstore.io/c/rounds/p/another_author/DuctTape/",
+            ),
+            (
+                "source_url",
+                "https://thunderstore.io/c/bopl-battle/p/kieron_exe/DuctTape/",
+            ),
+            (
+                "source_url",
+                "https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape/?official=true",
+            ),
+            (
+                "source_url",
+                "https://thunderstore.io.example.com/c/rounds/p/kieron_exe/DuctTape/",
+            ),
+        ] {
+            let mut item = official.clone();
+            item.provenance[field] = value.into();
+            invalid.push(item);
+        }
+        for item in invalid {
+            assert_eq!(required_branch(&pack(vec![item.clone()])), None);
+            let mut selected = legacy_libraries();
+            selected.push(item);
+            assert_eq!(required_branch(&pack(selected)), Some(ROUNDS_BRANCH));
+        }
+    }
+    #[test]
+    fn ducttape_keeps_explicit_legacy_and_original_hollowpurple_requirements() {
+        let fixture = SteamFixture::new(PUBLIC_BRANCH);
+        let mut explicit_library = legacy_libraries().remove(0);
+        explicit_library.provenance = serde_json::json!({"required_game_branch":ROUNDS_BRANCH});
+        let mut unrelated = explicit_library.clone();
+        unrelated.name = "Author-declared legacy mod".into();
+        unrelated.file = "Mods/declared.zip".into();
+        for item in [explicit_library, unrelated, hollow(true)] {
+            let selected = pack(vec![ducttape(), item]);
+            assert_eq!(required_branch(&selected), Some(ROUNDS_BRANCH));
+            assert!(
+                check_pack(&fixture.game, &selected)
+                    .unwrap_err()
+                    .to_string()
+                    .contains("mixes public ROUNDS")
+            );
+        }
+    }
+    #[test]
+    fn public_pack_with_ducttape_and_legacy_libraries_passes_both_guards() {
+        let fixture = SteamFixture::new(PUBLIC_BRANCH);
+        let mut mods = legacy_libraries();
+        mods.push(ducttape());
+        let mut selected = pack(mods);
+        assert!(check_pack(&fixture.game, &selected).is_ok());
+        let mut fixed = hollow(true);
+        fixed.name = "HollowPurple Fixed".into();
+        fixed.version = "1.8.2".into();
+        fixed.file = "Mods/fixed.zip".into();
+        fixed.provenance["required_game_branch"] = PUBLIC_BRANCH.into();
+        selected.mods.push(fixed);
+        assert!(check_pack(&fixture.game, &selected).is_ok());
+        selected
+            .mods
+            .iter_mut()
+            .find(|m| m.name == "DuctTape")
+            .unwrap()
+            .enabled = false;
+        assert!(
+            check_pack(&fixture.game, &selected)
+                .unwrap_err()
+                .to_string()
+                .contains("mixes public ROUNDS")
+        );
+        selected
+            .mods
+            .iter_mut()
+            .find(|m| m.name == "DuctTape")
+            .unwrap()
+            .enabled = true;
+        fixture.set_branch(ROUNDS_BRANCH);
+        assert!(
+            check_pack(&fixture.game, &selected)
+                .unwrap_err()
+                .to_string()
+                .contains("Betas → None")
+        );
+        assert!(!fixture.game.path.join("BepInEx").exists());
+    }
+    #[test]
+    fn ducttape_does_not_allow_duplicate_hollowpurple_plugins() {
+        let fixture = SteamFixture::new(PUBLIC_BRANCH);
+        let mut original = hollow(true);
+        original.version = "2.0.0".into();
+        let mut fixed = original.clone();
+        fixed.name = "HollowPurple Fixed".into();
+        fixed.file = "Mods/fixed.zip".into();
+        fixed.provenance["required_game_branch"] = PUBLIC_BRANCH.into();
+        assert!(
+            check_pack(&fixture.game, &pack(vec![ducttape(), original, fixed]))
+                .unwrap_err()
+                .to_string()
+                .contains("Disable or remove original HollowPurple")
+        );
     }
     #[test]
     fn requirements_apply_only_to_enabled_rounds_content_and_block_before_setup() {

@@ -124,29 +124,10 @@ impl Modpack {
             .iter()
             .position(|m| m.file == file)
             .context("Mod no longer exists")?;
-        let mut pending = vec![index];
-        let mut visited = BTreeSet::new();
-        while let Some(index) = pending.pop() {
-            if !visited.insert(index) {
-                continue;
-            }
-            if enabled {
-                for name in &self.mods[index].dependencies {
-                    pending.push(
-                        self.mods
-                            .iter()
-                            .position(|m| &m.name == name)
-                            .with_context(|| {
-                                format!("Required mod {name} is missing; add it through Discover")
-                            })?,
-                    );
-                }
-            }
-        }
         let mut changed = self.clone();
-        for index in visited {
-            changed.mods[index].enabled = enabled;
-        }
+        // Declared dependencies are metadata. A replacement package can supply
+        // them, so changing one selection must preserve the user's other choices.
+        changed.mods[index].enabled = enabled;
         changed.validate()?;
         *self = changed;
         Ok(())
@@ -252,17 +233,6 @@ impl Modpack {
                     .any(|name| name.is_empty() || name.len() > 200)
             {
                 bail!("Invalid dependency list for {}", item.name)
-            }
-            if item.enabled {
-                for dependency in &item.dependencies {
-                    if !self.mods.iter().any(|m| m.name == *dependency && m.enabled) {
-                        bail!(
-                            "{} requires {} enabled in this modpack",
-                            item.name,
-                            dependency
-                        )
-                    }
-                }
             }
             if !item.local_file.is_empty()
                 && (item.sha256.len() != 64
@@ -631,25 +601,77 @@ mod tests {
         )
     }
     #[test]
-    fn dependencies_enable_together_and_cannot_be_removed_while_used() {
+    fn dependency_overrides_survive_mod_enable_and_reenable() {
         let mut pack = fixture();
         let mut library = pack.mods[0].clone();
-        library.name = "Required library".into();
+        library.name = "UnboundLib".into();
         library.file = "Mods/library.zip".into();
         library.enabled = false;
         pack.mods[0].dependencies = vec![library.name.clone()];
         pack.mods[0].enabled = false;
         pack.mods.push(library);
+        let mut replacement = pack.mods[0].clone();
+        replacement.name = "DuctTape replacement fixture".into();
+        replacement.file = "Mods/replacement.zip".into();
+        replacement.enabled = true;
+        replacement.dependencies.clear();
+        pack.mods.push(replacement);
         assert!(pack.validate().is_ok());
         pack.set_mod_enabled("mods/fixture.zip", true).unwrap();
-        assert!(pack.mods.iter().all(|m| m.enabled));
-        assert!(pack.set_mod_enabled("Mods/library.zip", false).is_err());
-        assert!(pack.mods[1].enabled);
-        pack.set_mod_enabled("mods/fixture.zip", false).unwrap();
+        assert!(pack.mods[0].enabled);
+        assert!(!pack.mods[1].enabled);
+        assert!(pack.mods[2].enabled);
+        pack.set_mod_enabled("Mods/library.zip", true).unwrap();
         pack.set_mod_enabled("Mods/library.zip", false).unwrap();
-        pack.mods.pop();
-        assert!(pack.set_mod_enabled("mods/fixture.zip", true).is_err());
-        assert!(!pack.mods[0].enabled);
+        assert!(
+            pack.mods[0].enabled,
+            "Disabling a dependency must not disable its users"
+        );
+        pack.set_mod_enabled("mods/fixture.zip", false).unwrap();
+        pack.set_mod_enabled("mods/fixture.zip", true).unwrap();
+        assert!(
+            !pack.mods[1].enabled,
+            "Re-enabling a mod must preserve an overridden dependency"
+        );
+        assert!(pack.mods[2].enabled);
+        assert_eq!(pack.mods[0].dependencies, vec!["UnboundLib"]);
+        assert!(pack.set_mod_enabled("Mods/missing.zip", true).is_err());
+    }
+    #[test]
+    fn disabled_and_removed_dependencies_save_with_their_users_enabled() {
+        let folder = std::env::temp_dir().join(format!("canna-dependency-override-{}", new_id()));
+        let mut pack = fixture();
+        let mut library = pack.mods[0].clone();
+        library.name = "UnboundLib".into();
+        library.file = "Mods/library.zip".into();
+        pack.mods[0].dependencies = vec![library.name.clone()];
+        pack.mods.push(library);
+        pack.set_mod_enabled("Mods/library.zip", false).unwrap();
+        pack.save_in(&folder).unwrap();
+        let (saved, warnings) = load_from(&folder);
+        assert!(warnings.is_empty());
+        assert!(saved[0].mods[0].enabled);
+        assert!(!saved[0].mods[1].enabled);
+
+        pack.mods.retain(|item| item.file != "Mods/library.zip");
+        pack.save_in(&folder).unwrap();
+        let (mut saved, warnings) = load_from(&folder);
+        assert!(warnings.is_empty());
+        assert_eq!(saved.len(), 1);
+        let mut saved = saved.pop().unwrap();
+        assert_eq!(saved.mods.len(), 1);
+        assert!(saved.mods[0].enabled);
+        assert_eq!(saved.mods[0].dependencies, vec!["UnboundLib"]);
+        saved.set_mod_enabled("mods/fixture.zip", false).unwrap();
+        saved.set_mod_enabled("mods/fixture.zip", true).unwrap();
+        assert_eq!(
+            saved.mods.len(),
+            1,
+            "An absent dependency must not be restored"
+        );
+        assert!(saved.mods[0].enabled);
+        assert!(saved.validate().is_ok());
+        std::fs::remove_dir_all(folder).unwrap();
     }
     #[test]
     fn export_import_preserves_pins_and_does_not_overwrite() {
@@ -706,6 +728,15 @@ mod tests {
         assert!(invalid.validate().is_err());
         let mut invalid = pack.clone();
         invalid.repository.owner.clear();
+        assert!(invalid.validate().is_err());
+        let mut invalid = pack.clone();
+        invalid.mods[0].dependencies = vec![String::new()];
+        assert!(invalid.validate().is_err());
+        let mut invalid = pack.clone();
+        invalid.mods[0].dependencies = vec!["dependency".into(); 33];
+        assert!(invalid.validate().is_err());
+        let mut invalid = pack.clone();
+        invalid.mods[0].local_file = "../../outside.dll".into();
         assert!(invalid.validate().is_err());
         let mut invalid = pack;
         invalid.mods[0].sha256 = "wrong".into();

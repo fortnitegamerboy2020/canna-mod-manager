@@ -427,52 +427,8 @@ impl PackUi {
 
         item.local_file.clear();
 
-        let mut dependencies = vec![];
-
-        let mut visited = BTreeSet::new();
-
-        let mut pending = item.dependencies.clone();
-
-        while let Some(name) = pending.pop() {
-            anyhow::ensure!(
-                name != item.name,
-                "Dependency cycle involving {}",
-                item.name
-            );
-
-            if !visited.insert(name.clone()) {
-                continue;
-            }
-
-            let mut dependency = game
-                .mods
-                .iter()
-                .find(|m| m.name == name)
-                .cloned()
-                .ok_or_else(|| {
-                    anyhow::anyhow!("Required mod {name} is missing from the catalog")
-                })?;
-
-            pending.extend(dependency.dependencies.clone());
-
-            dependency.enabled = true;
-
-            dependency.local_file.clear();
-
-            dependencies.push(dependency);
-        }
-
-        for dependency in dependencies {
-            if let Some(old) = pack
-                .mods
-                .iter_mut()
-                .find(|m| m.local_file.is_empty() && m.name == dependency.name)
-            {
-                *old = dependency;
-            } else {
-                pack.mods.push(dependency);
-            }
-        }
+        // Add only the selected package. Declared dependency metadata must not
+        // restore removed libraries or replace the user's alternative packages.
 
         if let Some(old) = pack
             .mods
@@ -2505,6 +2461,142 @@ mod tests {
 
         std::fs::remove_file(crate::modpacks::directory().join(format!("{}.canna.json", first.id)))
             .unwrap();
+    }
+
+    #[test]
+    fn catalog_addition_preserves_disabled_libraries_and_replacement_packages() {
+        let root = std::env::temp_dir().join(format!(
+            "canna-catalog-overrides-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        crate::modpacks::with_test_root(root.clone(), || {
+            let mut game = crate::model::bopl();
+            let source = Source {
+                owner: "fixture".into(),
+                repository: "mods".into(),
+                branch: "main".into(),
+                catalog_folder: "games".into(),
+            };
+            let library = crate::model::ModInfo {
+                name: "UnboundLib".into(),
+                version: "pinned-library".into(),
+                enabled: false,
+                file: "Mods/legacy-library.zip".into(),
+                sha256: "a".repeat(64),
+                description: "Keep this disabled pin".into(),
+                provenance: serde_json::json!({"original_source":"legacy-fixture"}),
+                content_type: String::new(),
+                local_file: String::new(),
+                dependencies: vec!["MMHook".into()],
+            };
+            let mut replacement = library.clone();
+            replacement.name = "DuctTape replacement fixture".into();
+            replacement.file = "Mods/replacement.zip".into();
+            replacement.enabled = true;
+            replacement.dependencies.clear();
+            let original_choices = vec![library.clone(), replacement];
+            let pack = Modpack::create(
+                "Replacement fixture".into(),
+                String::new(),
+                &game,
+                source.clone(),
+                original_choices.clone(),
+            );
+            let mut catalog_library = library;
+            catalog_library.version = "new-catalog-library".into();
+            catalog_library.file = "Mods/new-library.zip".into();
+            catalog_library.enabled = true;
+            game.mods = vec![catalog_library];
+            let mut selected = game.mods[0].clone();
+            selected.name = "Selected old mod".into();
+            selected.file = "Mods/selected.zip".into();
+            selected.dependencies = vec!["UnboundLib".into(), "MMHook".into()];
+            let mut page = PackUi::new();
+            page.packs = vec![pack.clone()];
+            page.add_catalog_mod(&pack.id, &game, Some(&source), selected)
+                .unwrap();
+            assert_eq!(page.packs[0].mods.len(), 3);
+            assert_eq!(
+                serde_json::to_value(&page.packs[0].mods[..2]).unwrap(),
+                serde_json::to_value(&original_choices).unwrap(),
+                "Adding a mod must preserve every field of other chosen packages"
+            );
+            assert!(page.packs[0].mods[2].enabled);
+            assert_eq!(
+                page.packs[0].mods[2].dependencies,
+                vec!["UnboundLib", "MMHook"]
+            );
+            let saved: Modpack = serde_json::from_slice(
+                &std::fs::read(
+                    crate::modpacks::directory().join(format!("{}.canna.json", pack.id)),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            assert_eq!(
+                serde_json::to_value(&saved.mods).unwrap(),
+                serde_json::to_value(&page.packs[0].mods).unwrap()
+            );
+        });
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
+    fn catalog_addition_does_not_inject_absent_declared_dependencies() {
+        let root = std::env::temp_dir().join(format!(
+            "canna-catalog-no-auto-dependencies-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        crate::modpacks::with_test_root(root.clone(), || {
+            let mut game = crate::model::bopl();
+            let source = Source {
+                owner: "fixture".into(),
+                repository: "mods".into(),
+                branch: "main".into(),
+                catalog_folder: "games".into(),
+            };
+            let library = crate::model::ModInfo {
+                name: "UnboundLib".into(),
+                version: "library-fixture".into(),
+                enabled: true,
+                file: "Mods/library.zip".into(),
+                sha256: "a".repeat(64),
+                description: String::new(),
+                provenance: serde_json::Value::Null,
+                content_type: String::new(),
+                local_file: String::new(),
+                dependencies: vec![],
+            };
+            game.mods = vec![library.clone()];
+            let mut selected = library;
+            selected.name = "Selected old mod".into();
+            selected.file = "Mods/selected.zip".into();
+            selected.dependencies = vec!["UnboundLib".into(), "Unavailable legacy package".into()];
+            let pack = Modpack::create(
+                "Target-only addition fixture".into(),
+                String::new(),
+                &game,
+                source.clone(),
+                vec![],
+            );
+            let mut page = PackUi::new();
+            page.packs = vec![pack.clone()];
+            page.add_catalog_mod(&pack.id, &game, Some(&source), selected.clone())
+                .unwrap();
+            assert_eq!(page.packs[0].mods.len(), 1);
+            assert_eq!(page.packs[0].mods[0].name, selected.name);
+            assert_eq!(page.packs[0].mods[0].dependencies, selected.dependencies);
+            assert!(page.packs[0].mods[0].enabled);
+        });
+        std::fs::remove_dir_all(root).unwrap();
     }
 
     #[test]
