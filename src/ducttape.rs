@@ -386,10 +386,17 @@ pub(crate) fn current_configs(game: &InstalledGame) -> Result<Vec<(PathBuf, Vec<
     read_tree(&game.path.join("BepInEx/config"))
 }
 pub(crate) fn configuration_hashes(game: &InstalledGame) -> Result<Vec<(PathBuf, String)>> {
-    Ok(current_configs(game)?
+    configuration_fingerprint(&current_configs(game)?)
+}
+pub(crate) fn configuration_fingerprint(
+    files: &[(PathBuf, Vec<u8>)],
+) -> Result<Vec<(PathBuf, String)>> {
+    // The loader's own settings are outside the gameplay fingerprint, just as
+    // they are outside the compatibility manifest. Use this same scope/order
+    // for the prepared snapshot, current files and recovery config overrides.
+    Ok(file_hashes(files)?
         .into_iter()
         .filter(|(path, _)| !path.to_string_lossy().eq_ignore_ascii_case("BepInEx.cfg"))
-        .map(|(path, bytes)| (path, digest(&bytes)))
         .collect())
 }
 struct Workspace(PathBuf);
@@ -826,10 +833,7 @@ pub(crate) fn resolve(
     } else {
         current_configs(game)?
     };
-    let config_sha256 = existing
-        .iter()
-        .map(|(p, b)| (p.clone(), digest(b)))
-        .collect::<Vec<_>>();
+    let config_sha256 = configuration_fingerprint(&existing)?;
     let mut effective_configs = existing.into_iter().collect::<BTreeMap<_, _>>();
     let mut defaults = BTreeMap::new();
     for (path, bytes) in &files.configs {
@@ -935,6 +939,42 @@ pub(crate) fn resolve(
 mod tests {
     use super::*;
     const ID: &str = "LegacyGameplay, Version=1.0.0.0, Culture=neutral, PublicKeyToken=null";
+    #[test]
+    fn configuration_fingerprint_uses_one_validated_scope_and_order() {
+        let configs = vec![
+            ("z-last.cfg".into(), b"last gameplay setting".to_vec()),
+            ("BepInEx.cfg".into(), b"loader-only setting".to_vec()),
+            (
+                "nested/BepInEx.cfg".into(),
+                b"plugin-owned nested setting".to_vec(),
+            ),
+            ("a-first.cfg".into(), vec![]),
+        ];
+        let fingerprint = configuration_fingerprint(&configs).unwrap();
+        assert_eq!(fingerprint.len(), 3);
+        assert!(
+            fingerprint
+                .iter()
+                .any(|(path, hash)| path == Path::new("a-first.cfg") && hash == &digest(b""))
+        );
+        assert!(
+            fingerprint
+                .iter()
+                .any(|(path, _)| path == Path::new("nested/BepInEx.cfg"))
+        );
+        let mut reordered = configs.clone();
+        reordered.reverse();
+        assert_eq!(configuration_fingerprint(&reordered).unwrap(), fingerprint);
+        reordered
+            .iter_mut()
+            .find(|(path, _)| path == Path::new("BepInEx.cfg"))
+            .unwrap()
+            .1 = b"new loader-only setting".to_vec();
+        assert_eq!(configuration_fingerprint(&reordered).unwrap(), fingerprint);
+        reordered.push(("A-FIRST.cfg".into(), b"case collision".to_vec()));
+        assert!(configuration_fingerprint(&reordered).is_err());
+        assert!(configuration_fingerprint(&[("../outside.cfg".into(), vec![])]).is_err());
+    }
     type Files = Vec<(PathBuf, Vec<u8>)>;
     #[cfg(canna_ducttape_preview)]
     #[test]

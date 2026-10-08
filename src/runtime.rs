@@ -1205,6 +1205,124 @@ mod tests {
         }
     }
     #[test]
+    fn prepared_rounds_config_snapshot_ignores_loader_settings_but_guards_gameplay() {
+        let root = temporary_preparation_root("config-scope");
+        let (mut game, mut pack) = preparation_fixture(&root);
+        game.app_id = 1557740;
+        pack.game.app_id = 1557740;
+        fs::create_dir_all(root.join("ROUNDS_Data/Managed")).unwrap();
+        fs::write(
+            root.join("ROUNDS_Data/Managed/Assembly-CSharp.dll"),
+            b"unchanged game",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("BepInEx/config")).unwrap();
+        for (name, bytes) in [
+            ("BepInEx.cfg", b"loader logging = true".as_slice()),
+            ("cosmicrounds.cfg", b"Gameplay = chosen".as_slice()),
+            ("hollowpurple.cfg", b"Cards = configured".as_slice()),
+            ("UnboundLib.cfg", b"".as_slice()),
+        ] {
+            fs::write(root.join("BepInEx/config").join(name), bytes).unwrap();
+        }
+        let snapshot = crate::ducttape::current_configs(&game).unwrap();
+        let prepared = PreparedInstall {
+            pack,
+            files: Some(PluginEntries::default()),
+            history: vec![],
+            framework: None,
+            game_sha256: Some(crate::ducttape::game_hash(&game).unwrap()),
+            config_sha256: Some(crate::ducttape::configuration_fingerprint(&snapshot).unwrap()),
+            rebound_support_sha256: None,
+        };
+        // This is the setup failure's actual snapshot/verification sequence.
+        prepared.verify_inputs(&game).unwrap();
+        fs::write(
+            root.join("BepInEx/config/BepInEx.cfg"),
+            b"loader logging = false",
+        )
+        .unwrap();
+        prepared.verify_inputs(&game).unwrap();
+        let gameplay = root.join("BepInEx/config/cosmicrounds.cfg");
+        fs::write(&gameplay, b"Gameplay = changed externally").unwrap();
+        assert!(
+            prepared
+                .verify_inputs(&game)
+                .unwrap_err()
+                .to_string()
+                .contains("config changed")
+        );
+        fs::write(&gameplay, b"Gameplay = chosen").unwrap();
+        let added = root.join("BepInEx/config/new-gameplay.cfg");
+        fs::write(&added, b"new external setting").unwrap();
+        assert!(prepared.verify_inputs(&game).is_err());
+        fs::remove_file(added).unwrap();
+        fs::remove_file(root.join("BepInEx/config/UnboundLib.cfg")).unwrap();
+        assert!(prepared.verify_inputs(&game).is_err());
+        fs::write(root.join("BepInEx/config/UnboundLib.cfg"), b"").unwrap();
+        prepared.verify_inputs(&game).unwrap();
+        fs::write(
+            root.join("ROUNDS_Data/Managed/Assembly-CSharp.dll"),
+            b"changed game",
+        )
+        .unwrap();
+        assert!(
+            prepared
+                .verify_inputs(&game)
+                .unwrap_err()
+                .to_string()
+                .contains("ROUNDS changed")
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
+    fn prepared_rounds_recovery_override_matches_only_after_its_config_swap() {
+        let root = temporary_preparation_root("config-recovery-scope");
+        let (mut game, mut pack) = preparation_fixture(&root);
+        game.app_id = 1557740;
+        pack.game.app_id = 1557740;
+        let active = root.join("BepInEx/config");
+        fs::create_dir_all(active.join("nested")).unwrap();
+        fs::write(active.join("BepInEx.cfg"), b"current loader settings").unwrap();
+        fs::write(active.join("gameplay.cfg"), b"current gameplay settings").unwrap();
+        let recovered = vec![
+            (
+                PathBuf::from("nested/extra.json"),
+                b"{\"enabled\":true}".to_vec(),
+            ),
+            (
+                PathBuf::from("gameplay.cfg"),
+                b"snapshot gameplay settings".to_vec(),
+            ),
+            (
+                PathBuf::from("BepInEx.cfg"),
+                b"snapshot loader settings".to_vec(),
+            ),
+        ];
+        let prepared = PreparedInstall {
+            pack,
+            files: Some(PluginEntries::default()),
+            history: vec![],
+            framework: None,
+            game_sha256: None,
+            config_sha256: Some(crate::ducttape::configuration_fingerprint(&recovered).unwrap()),
+            rebound_support_sha256: None,
+        };
+        assert!(prepared.verify_inputs(&game).is_err());
+        // Recovery preflights the requested snapshot before replacing the active config tree.
+        fs::rename(&active, root.join("config.previous")).unwrap();
+        fs::create_dir_all(active.join("nested")).unwrap();
+        for (path, bytes) in &recovered {
+            fs::write(active.join(path), bytes).unwrap();
+        }
+        prepared.verify_inputs(&game).unwrap();
+        fs::write(active.join("BepInEx.cfg"), b"new logging option").unwrap();
+        prepared.verify_inputs(&game).unwrap();
+        fs::write(active.join("nested/extra.json"), b"{\"enabled\":false}").unwrap();
+        assert!(prepared.verify_inputs(&game).is_err());
+        fs::remove_dir_all(root).unwrap();
+    }
+    #[test]
     fn thunderstore_plugins_patchers_and_config_keep_their_routes() {
         use std::io::Write;
         let mut zip = zip::ZipWriter::new(Cursor::new(Vec::new()));
@@ -1534,7 +1652,39 @@ mod tests {
             pack.game.app_id = 1557740;
             pack.game.name = "ROUNDS".into();
             pack.game.folder = "rounds".into();
-            setup_with_framework(&game, &pack, "", Some(&framework)).unwrap();
+            fs::create_dir_all(root.join("ROUNDS_Data/Managed")).unwrap();
+            fs::write(
+                root.join("ROUNDS_Data/Managed/Assembly-CSharp.dll"),
+                b"fixture game assembly",
+            )
+            .unwrap();
+            fs::create_dir_all(root.join("BepInEx/config")).unwrap();
+            fs::write(
+                root.join("BepInEx/config/gameplay.cfg"),
+                b"saved gameplay settings",
+            )
+            .unwrap();
+            let prepared = |loader: Option<Vec<u8>>| PreparedInstall {
+                pack: pack.clone(),
+                files: Some(PluginEntries {
+                    plugins: vec![(
+                        "fixture-mod.dll".into(),
+                        b"fixture plugin, never executed".to_vec(),
+                    )],
+                    ..PluginEntries::default()
+                }),
+                history: vec![],
+                framework: loader,
+                game_sha256: Some(crate::ducttape::game_hash(&game).unwrap()),
+                config_sha256: Some(
+                    crate::ducttape::configuration_fingerprint(
+                        &crate::ducttape::current_configs(&game).unwrap(),
+                    )
+                    .unwrap(),
+                ),
+                rebound_support_sha256: None,
+            };
+            install_prepared(&game, prepared(Some(framework.clone())), "", &|_| {}).unwrap();
             assert!(
                 fs::read_to_string(root.join("doorstop_config.ini"))
                     .unwrap()
@@ -1546,7 +1696,7 @@ mod tests {
             )
             .unwrap();
             set_mode(&root, true).unwrap();
-            setup_with_framework(&game, &pack, "", Some(&framework)).unwrap();
+            install_prepared(&game, prepared(None), "", &|_| {}).unwrap();
             assert!(
                 fs::read_to_string(root.join("doorstop_config.ini"))
                     .unwrap()
@@ -1555,7 +1705,7 @@ mod tests {
             restore_vanilla(&game).unwrap();
             assert!(!root.join("winhttp.dll").exists());
             assert_eq!(fs::read(root.join("Rounds.exe")).unwrap(), pe);
-            setup_with_framework(&game, &pack, "", Some(&framework)).unwrap();
+            install_prepared(&game, prepared(None), "", &|_| {}).unwrap();
             assert!(root.join("winhttp.dll").is_file());
             assert!(
                 fs::read_to_string(root.join("doorstop_config.ini"))
@@ -1566,6 +1716,11 @@ mod tests {
                 fs::read(root.join("BepInEx/config/BepInEx.cfg")).unwrap(),
                 b"Value = user setting"
             );
+            assert_eq!(
+                fs::read(root.join("BepInEx/config/gameplay.cfg")).unwrap(),
+                b"saved gameplay settings"
+            );
+            assert!(root.join("BepInEx/plugins/Canna/fixture-mod.dll").is_file());
         });
         fs::remove_dir_all(root).unwrap();
     }
