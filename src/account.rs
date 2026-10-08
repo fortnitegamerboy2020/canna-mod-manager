@@ -182,6 +182,8 @@ impl Account {
                     .send()?,
             )?;
             data["kash"] = me["kash"].clone();
+            data["roles"] = me["roles"].clone();
+            data["can_rebound"] = me["can_rebound"].clone();
             Ok(Outcome::Profile { session, data })
         });
     }
@@ -281,6 +283,12 @@ impl Account {
                             );
                             ui.heading(name);
                             ui.label(p["role"].as_str().unwrap_or("member"));
+                            if p["roles"]
+                                .as_array()
+                                .is_some_and(|roles| roles.iter().any(|role| role == "beta"))
+                            {
+                                ui.label("Beta · Canna Rebound access");
+                            }
                             if let Some(status) = p["status"].as_str().filter(|s| !s.is_empty()) {
                                 ui.label(status);
                             }

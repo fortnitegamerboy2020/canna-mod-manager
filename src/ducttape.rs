@@ -12,6 +12,7 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[cfg(all(test, canna_ducttape_preview))]
 const SUPPORT: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/ducttape-support.zip"));
 const PROTOCOL: &str = "canna.ducttape++/1";
 const PROFILE: &str = "rounds-public-1.1.2";
@@ -742,6 +743,7 @@ pub(crate) fn resolve(
     game: &InstalledGame,
     pack: &Modpack,
     mut files: PluginEntries,
+    support: &[u8],
     framework: Option<&[u8]>,
     config_override: Option<&[(PathBuf, Vec<u8>)]>,
     progress: &dyn Fn(&str),
@@ -761,8 +763,8 @@ pub(crate) fn resolve(
         "Compatibility inputs exceed preview limits"
     );
     ensure!(
-        cfg!(canna_ducttape_preview) && !SUPPORT.is_empty(),
-        "Canna Rebound support is not included in this build"
+        !support.is_empty(),
+        "Authorized Canna Rebound support is missing"
     );
     ensure!(
         files.patchers.is_empty(),
@@ -801,7 +803,7 @@ pub(crate) fn resolve(
     }
     progress("Preparing Canna Rebound support (preview)…");
     let workspace = Workspace::new()?;
-    let bundle = crate::runtime::archive_files(SUPPORT)?;
+    let bundle = crate::runtime::archive_files(support)?;
     write_files(&workspace.0, &bundle)?;
     let helper = workspace.0.join(HELPER);
     let expected = bundle
@@ -1043,7 +1045,7 @@ mod tests {
             let enabled = crate::runtime::prepare_install_with_configs(
                 &game,
                 &pack,
-                "",
+                "private-rebound-fixture",
                 crate::runtime::InstallOptions {
                     rebound_enabled: true,
                 },
@@ -1086,6 +1088,7 @@ mod tests {
                     patchers: vec![],
                     configs: vec![],
                 },
+                SUPPORT,
                 None,
                 None,
                 &|_| {},
@@ -1127,8 +1130,16 @@ mod tests {
                 patchers: vec![],
                 configs: vec![],
             };
-            let restored =
-                resolve(&game, &prepared.pack, restore_files, None, None, &|_| {}).unwrap();
+            let restored = resolve(
+                &game,
+                &prepared.pack,
+                restore_files,
+                SUPPORT,
+                None,
+                None,
+                &|_| {},
+            )
+            .unwrap();
             assert_eq!(
                 restored
                     .files

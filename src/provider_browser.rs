@@ -9,6 +9,59 @@ use std::{
 };
 const API: &str = "https://cannamods.vip/api/v1/";
 const CATALOG_PAGE_SIZE: usize = 20;
+const MINECRAFT_VERSION_MANIFEST: &str =
+    "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+
+#[derive(Clone, Debug, PartialEq)]
+struct GameVersion {
+    id: String,
+    kind: String,
+}
+
+fn minecraft_versions(data: &Value) -> Result<Vec<GameVersion>> {
+    let rows = data["versions"]
+        .as_array()
+        .context("Official version list is missing")?;
+    ensure!(rows.len() <= 5000, "Official version list is oversized");
+    let mut seen = std::collections::HashSet::new();
+    let versions: Vec<_> = rows
+        .iter()
+        .filter_map(|row| {
+            let id = row["id"].as_str()?;
+            let kind = row["type"].as_str()?;
+            (id.len() <= 40
+                && !id.is_empty()
+                && id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_.+".contains(&b))
+                && matches!(kind, "release" | "snapshot" | "old_beta" | "old_alpha")
+                && seen.insert(id.to_owned()))
+            .then(|| GameVersion {
+                id: id.into(),
+                kind: kind.into(),
+            })
+        })
+        .collect();
+    ensure!(!versions.is_empty(), "Official version list is empty");
+    Ok(versions)
+}
+
+fn fetch_minecraft_versions() -> Result<Vec<GameVersion>> {
+    let response = reqwest::blocking::Client::builder()
+        .redirect(reqwest::redirect::Policy::none())
+        .timeout(Duration::from_secs(20))
+        .build()?
+        .get(MINECRAFT_VERSION_MANIFEST)
+        .send()?
+        .error_for_status()?;
+    let mut bytes = Vec::new();
+    response.take(2 * 1024 * 1024 + 1).read_to_end(&mut bytes)?;
+    ensure!(
+        bytes.len() <= 2 * 1024 * 1024,
+        "Official version list is oversized"
+    );
+    minecraft_versions(&serde_json::from_slice(&bytes)?)
+}
 #[derive(Clone, Debug, PartialEq)]
 struct Filters {
     provider: String,
@@ -190,6 +243,8 @@ struct Job {
     kind: Kind,
     rx: Receiver<Result<Value, String>>,
     session: String,
+    // A result belongs to the filters captured when the request started.
+    filters: Option<Filters>,
 }
 #[derive(Clone)]
 struct PendingDownload {
@@ -218,6 +273,12 @@ pub struct Browser {
     instance_target: String,
     world_target: String,
     game_search: String,
+    game_versions: Vec<GameVersion>,
+    versions_job: Option<Receiver<Result<Vec<GameVersion>, String>>>,
+    versions_attempted: bool,
+    versions_error: String,
+    version_search: String,
+    page_filters: Option<Filters>,
     provider_games: Option<Value>,
     games_attempted: bool,
     #[cfg(test)]
@@ -226,6 +287,10 @@ pub struct Browser {
     game_control: Option<(egui::Id, egui::Rect)>,
     #[cfg(test)]
     game_search_rect: Option<egui::Rect>,
+    #[cfg(test)]
+    version_control: Option<(egui::Id, egui::Rect)>,
+    #[cfg(test)]
+    version_search_rect: Option<egui::Rect>,
     imported_id: String,
     pending_pack: Option<String>,
     pending_downloads: std::collections::VecDeque<PendingDownload>,
@@ -260,6 +325,12 @@ impl Default for Browser {
             instance_target: String::new(),
             world_target: String::new(),
             game_search: String::new(),
+            game_versions: Vec::new(),
+            versions_job: None,
+            versions_attempted: cfg!(test),
+            versions_error: String::new(),
+            version_search: String::new(),
+            page_filters: None,
             provider_games: None,
             games_attempted: false,
             #[cfg(test)]
@@ -268,6 +339,10 @@ impl Default for Browser {
             game_control: None,
             #[cfg(test)]
             game_search_rect: None,
+            #[cfg(test)]
+            version_control: None,
+            #[cfg(test)]
+            version_search_rect: None,
             imported_id: String::new(),
             pending_pack: None,
             pending_downloads: Default::default(),
@@ -639,6 +714,12 @@ impl Browser {
     pub fn preview_fixture(&mut self) {
         self.account = "ui-fixture".into();
         self.loaded = true;
+        self.versions_attempted = true;
+        self.game_versions = vec![GameVersion {
+            id: "1.21.1".into(),
+            kind: "release".into(),
+        }];
+        self.page_filters = Some(self.filters.clone());
         self.page = json!({"items":[{"name":"Native browser fixture","description":"Metadata listings are browsable inside Canna. Select a release to retrieve its archive and subscribe.","authors":"Fixture author","source_url":"https://modrinth.com/mod/fixture","author_url":"https://modrinth.com/user/fixture","downloads":12345,"rating":120,"rating_label":"followers"}],"categories":[{"id":"performance","name":"Performance"}],"has_more":true});
     }
     pub fn busy(&self) -> bool {
@@ -673,6 +754,7 @@ impl Browser {
         self.filters.q.clear();
         self.filters.page = 1;
         self.loaded = false;
+        self.page_filters = None;
     }
     pub fn observe_installations(&mut self, games: &[crate::model::InstalledGame]) {
         if self.checked_game == self.filters.game
@@ -710,7 +792,12 @@ impl Browser {
             }
             .into();
         }
-        self.job = Some(Job { kind, rx, session });
+        self.job = Some(Job {
+            kind,
+            rx,
+            session,
+            filters: matches!(kind, Kind::Browse).then(|| self.filters.clone()),
+        });
         std::thread::spawn(move || {
             let result=(|| {
                 let request_id=body.as_ref().and_then(|b|b["id"].as_str()).unwrap_or_default().to_owned();
@@ -731,10 +818,25 @@ impl Browser {
         });
     }
     pub fn update(&mut self, ctx: &egui::Context, account: &str) -> bool {
+        if let Some(result) = self
+            .versions_job
+            .as_ref()
+            .and_then(|job| job.try_recv().ok())
+        {
+            self.versions_job = None;
+            match result {
+                Ok(versions) => {
+                    self.game_versions = versions;
+                    self.versions_error.clear();
+                }
+                Err(error) => self.versions_error = error,
+            }
+        }
         if account != self.account {
             self.account = account.to_owned();
             clear_artwork(ctx, &self.page);
             self.page = Value::Null;
+            self.page_filters = None;
             self.subscriptions = Value::Null;
             self.preview = None;
             self.imported_id.clear();
@@ -752,6 +854,19 @@ impl Browser {
         if let Some(result) = result {
             let job = self.job.take().unwrap();
             if job.session != self.account {
+                return false;
+            }
+            if matches!(job.kind, Kind::Browse)
+                && job
+                    .filters
+                    .as_ref()
+                    .is_some_and(|filters| filters != &self.filters)
+            {
+                self.loaded = false;
+                clear_artwork(ctx, &self.page);
+                self.page = Value::Null;
+                self.page_filters = None;
+                self.status.clear();
                 return false;
             }
             match result {
@@ -804,6 +919,7 @@ impl Browser {
                             };
                             clear_artwork(ctx, &self.page);
                             self.page = data;
+                            self.page_filters = Some(self.filters.clone());
                         }
                         Kind::Preview => {
                             self.release = data["versions"]
@@ -910,6 +1026,9 @@ impl Browser {
         if self.job.is_some() {
             ctx.request_repaint_after(Duration::from_millis(150));
         }
+        if self.versions_job.is_some() {
+            ctx.request_repaint_after(Duration::from_millis(150));
+        }
         std::mem::take(&mut self.changed)
     }
     fn browse(&mut self, ctx: &egui::Context) {
@@ -919,7 +1038,9 @@ impl Browser {
         self.loaded = true;
         clear_artwork(ctx, &self.page);
         self.page = Value::Null;
+        self.page_filters = None;
         if self.filters.provider == "canna" {
+            self.page_filters = Some(self.filters.clone());
             self.status.clear();
             return;
         }
@@ -927,6 +1048,96 @@ impl Browser {
             Ok(url) => self.start(ctx, Kind::Browse, reqwest::Method::GET, url, None),
             Err(e) => self.status = e.to_string(),
         }
+    }
+    fn load_game_versions(&mut self, ctx: &egui::Context) {
+        if self.versions_job.is_some() {
+            return;
+        }
+        self.versions_attempted = true;
+        self.versions_error.clear();
+        let (tx, rx) = mpsc::channel();
+        self.versions_job = Some(rx);
+        let ctx = ctx.clone();
+        std::thread::spawn(move || {
+            let result = fetch_minecraft_versions().map_err(|error| error.to_string());
+            let _ = tx.send(result);
+            ctx.request_repaint();
+        });
+    }
+    fn results_count(&self, catalog: &[crate::model::GameInfo]) -> String {
+        if self.page_filters.as_ref() != Some(&self.filters) {
+            return "Results: searching…".into();
+        }
+        let library = catalog_page(&self.filters, catalog);
+        let count = library.rows.len() + self.page["items"].as_array().map_or(0, Vec::len);
+        format!("{count} results on this page")
+    }
+    fn version_picker(&mut self, ui: &mut egui::Ui) {
+        let control = egui::ComboBox::from_id_salt("provider-game-version")
+            .width(170.0)
+            .height(360.0)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
+            .selected_text(if self.filters.version.is_empty() {
+                "All versions"
+            } else {
+                &self.filters.version
+            })
+            .show_ui(ui, |ui| {
+                ui.set_min_width(250.0);
+                let search = ui.add(
+                    egui::TextEdit::singleline(&mut self.version_search)
+                        .hint_text("Search versions…")
+                        .char_limit(40)
+                        .desired_width(250.0),
+                );
+                #[cfg(test)]
+                {
+                    self.version_search_rect = Some(search.rect);
+                }
+                #[cfg(not(test))]
+                let _ = search;
+                if ui
+                    .selectable_value(&mut self.filters.version, String::new(), "All versions")
+                    .clicked()
+                {
+                    ui.close();
+                }
+                let query = self.version_search.trim().to_lowercase();
+                let mut found = false;
+                for version in &self.game_versions {
+                    if !version.id.to_lowercase().contains(&query) {
+                        continue;
+                    }
+                    found = true;
+                    let label = if version.kind == "release" {
+                        version.id.clone()
+                    } else {
+                        format!("{} · {}", version.id, version.kind.replace('_', " "))
+                    };
+                    if ui
+                        .selectable_value(&mut self.filters.version, version.id.clone(), label)
+                        .clicked()
+                    {
+                        ui.close();
+                    }
+                }
+                if self.versions_job.is_some() {
+                    ui.label("Loading official versions…");
+                } else if !self.versions_error.is_empty() {
+                    ui.label("Official version list unavailable.");
+                    if ui.button("Retry version list").clicked() {
+                        self.load_game_versions(ui.ctx());
+                    }
+                } else if !found {
+                    ui.label("No matching versions");
+                }
+            });
+        #[cfg(test)]
+        {
+            self.version_control = Some((control.response.id, control.response.rect));
+        }
+        #[cfg(not(test))]
+        let _ = control;
     }
     fn subs(&mut self, ctx: &egui::Context) {
         self.subscriptions_loaded = true;
@@ -980,6 +1191,9 @@ impl Browser {
             return;
         }
         ui.heading("Browse mods");
+        if self.filters.game == "minecraft" && !self.versions_attempted {
+            self.load_game_versions(ui.ctx());
+        }
         if let Some(v) = &self.steam_version {
             ui.label(format!(
                 "Installed Steam branch: {} · Build: {}",
@@ -1185,12 +1399,9 @@ impl Browser {
                             ],
                         );
                         ui.label("Game version");
-                        let r = ui.add(
-                            egui::TextEdit::singleline(&mut self.filters.version)
-                                .desired_width(90.0)
-                                .char_limit(40),
-                        );
-                        search |= r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                        self.version_picker(ui);
+                        ui.label(self.results_count(catalog))
+                            .on_hover_text("Visible provider listings plus approved Canna archives on this page. Sources can list the same project separately.");
                     },
                 );
             }
@@ -1216,6 +1427,7 @@ impl Browser {
             || before.order != self.filters.order
             || before.category != self.filters.category
             || before.loader != self.filters.loader
+            || before.version != self.filters.version
             || before.content_type != self.filters.content_type;
         if (search || filter_changed || !self.loaded) && self.job.is_none() {
             self.filters.page = 1;
@@ -1522,6 +1734,7 @@ impl Browser {
             kind: Kind::Install,
             rx,
             session,
+            filters: None,
         });
         self.status = "Installing compatible Minecraft content and dependencies…".into();
         std::thread::spawn(move || {
@@ -2204,6 +2417,7 @@ mod tests {
                     kind: Kind::Download,
                     rx,
                     session: "fixture".into(),
+                    filters: None,
                 });
                 browser.update(&ctx, "fixture");
             };
@@ -2296,6 +2510,7 @@ mod tests {
             kind: Kind::Download,
             rx,
             session: "fixture".into(),
+            filters: None,
         });
         browser.update(&ctx, "fixture");
         assert!(browser.catalog_pins.is_empty());
@@ -2349,6 +2564,7 @@ mod tests {
             kind: Kind::Status,
             rx,
             session: session.clone(),
+            filters: None,
         });
         let ctx = egui::Context::default();
         browser.update(&ctx, &session);
@@ -2380,6 +2596,7 @@ mod tests {
                 kind,
                 rx,
                 session: "session".into(),
+                filters: None,
             });
             b.update(&ctx, "session");
         };
@@ -2707,6 +2924,7 @@ mod tests {
             kind: Kind::Subscriptions,
             rx,
             session: "ui-fixture".into(),
+            filters: None,
         });
         tx.send(Ok(json!({"items":[{"name":"Old account"}]})))
             .unwrap();
@@ -2715,5 +2933,146 @@ mod tests {
         assert!(b.subscriptions.is_null());
         assert!(b.job.is_none());
         assert!(!b.subscriptions_loaded);
+    }
+    #[test]
+    fn official_version_options_preserve_order_and_filter_invalid_metadata() {
+        let rows = minecraft_versions(&json!({"versions":[
+            {"id":"1.21.1","type":"release"},
+            {"id":"24w33a","type":"snapshot"},
+            {"id":"1.20.1","type":"release"},
+            {"id":"1.21.1","type":"release"},
+            {"id":"../unsafe","type":"release"},
+            {"id":"unknown","type":"future-type"}
+        ]}))
+        .unwrap();
+        assert_eq!(
+            rows.iter().map(|row| row.id.as_str()).collect::<Vec<_>>(),
+            ["1.21.1", "24w33a", "1.20.1"]
+        );
+        assert!(minecraft_versions(&json!({"versions":[]})).is_err());
+        assert!(minecraft_versions(&json!({})).is_err());
+    }
+    #[test]
+    fn changed_version_discards_stale_provider_results_and_count() {
+        let ctx = egui::Context::default();
+        let mut browser = Browser::default();
+        browser.preview_fixture();
+        let previous = browser.filters.clone();
+        let (tx, rx) = mpsc::channel();
+        browser.job = Some(Job {
+            kind: Kind::Browse,
+            rx,
+            session: "ui-fixture".into(),
+            filters: Some(previous),
+        });
+        browser.filters.version = "1.20.1".into();
+        tx.send(Ok(json!({"items":[{"name":"Wrong version"}],"total":900})))
+            .unwrap();
+        assert!(!browser.update(&ctx, "ui-fixture"));
+        assert!(browser.page.is_null());
+        assert!(!browser.loaded);
+        assert_eq!(browser.results_count(&[]), "Results: searching…");
+    }
+    #[test]
+    fn result_count_labels_visible_page_instead_of_inventing_provider_total() {
+        let mut browser = Browser::default();
+        browser.preview_fixture();
+        browser.filters.game = "rounds".into();
+        browser.page = json!({"items":[{"name":"A"},{"name":"B"}],"total":9000,"has_more":true});
+        browser.page_filters = Some(browser.filters.clone());
+        let catalog = vec![rounds_library(
+            (0..25).map(|id| library_item(id, "Card")).collect(),
+        )];
+        assert_eq!(browser.results_count(&catalog), "22 results on this page");
+        browser.filters.page = 2;
+        assert_eq!(browser.results_count(&catalog), "Results: searching…");
+        browser.page_filters = Some(browser.filters.clone());
+        assert_eq!(browser.results_count(&catalog), "7 results on this page");
+    }
+    #[test]
+    fn version_dropdown_search_keeps_menu_open_and_supports_selection_and_reset() {
+        let ctx = egui::Context::default();
+        let mut browser = Browser::default();
+        browser.preview_fixture();
+        browser.game_versions = minecraft_versions(&json!({"versions":[
+            {"id":"1.21.1","type":"release"},{"id":"1.20.1","type":"release"}
+        ]}))
+        .unwrap();
+        let input = |events| egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(900.0, 650.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let frame = |browser: &mut Browser, events| {
+            ctx.run(input(events), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    browser.version_picker(ui);
+                });
+            })
+        };
+        let click = |browser: &mut Browser, point: egui::Pos2| {
+            for pressed in [true, false] {
+                frame(
+                    browser,
+                    vec![
+                        egui::Event::PointerMoved(point),
+                        egui::Event::PointerButton {
+                            pos: point,
+                            button: egui::PointerButton::Primary,
+                            pressed,
+                            modifiers: Default::default(),
+                        },
+                    ],
+                );
+            }
+        };
+        for _ in 0..3 {
+            frame(&mut browser, vec![]);
+        }
+        let (id, rect) = browser.version_control.unwrap();
+        click(&mut browser, rect.center());
+        for _ in 0..3 {
+            frame(&mut browser, vec![]);
+        }
+        assert!(egui::ComboBox::is_open(&ctx, id));
+        let search_point = browser.version_search_rect.unwrap().center();
+        click(&mut browser, search_point);
+        frame(&mut browser, vec![egui::Event::Text("1.20".into())]);
+        assert_eq!(browser.version_search, "1.20");
+        assert!(egui::ComboBox::is_open(&ctx, id));
+        let output = frame(&mut browser, vec![]);
+        let version_point = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == "1.20.1" => {
+                    Some(text.pos + text.galley.size() * 0.5)
+                }
+                _ => None,
+            })
+            .unwrap();
+        click(&mut browser, version_point);
+        assert_eq!(browser.filters.version, "1.20.1");
+        click(&mut browser, rect.center());
+        for _ in 0..3 {
+            frame(&mut browser, vec![]);
+        }
+        let output = frame(&mut browser, vec![]);
+        let reset_point = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Text(text) if text.galley.text() == "All versions" => {
+                    Some(text.pos + text.galley.size() * 0.5)
+                }
+                _ => None,
+            })
+            .unwrap();
+        click(&mut browser, reset_point);
+        assert!(browser.filters.version.is_empty());
+        assert!(browser.job.is_none());
     }
 }

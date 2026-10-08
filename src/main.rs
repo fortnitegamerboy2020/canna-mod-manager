@@ -21,6 +21,7 @@ mod play_lab;
 mod play_manifest;
 mod play_metrics;
 mod provider_browser;
+mod rebound_support;
 mod repository;
 mod runtime;
 mod shared_packs;
@@ -41,13 +42,18 @@ use std::{
 
 const GREEN: Color32 = Color32::from_rgb(163, 220, 144);
 const MUTED: Color32 = Color32::from_rgb(143, 157, 149);
-fn rebound_settings(ui: &mut egui::Ui, enabled: &mut bool, busy: bool) -> egui::Response {
+fn rebound_settings(
+    ui: &mut egui::Ui,
+    enabled: &mut bool,
+    busy: bool,
+    authorized: bool,
+) -> egui::Response {
     ui.strong("ROUNDS COMPATIBILITY");
     let response = ui.add_enabled(
-        cfg!(canna_ducttape_preview) && !busy,
+        authorized && !busy,
         egui::Checkbox::new(enabled, "Canna Rebound for ROUNDS (preview)"),
     );
-    if cfg!(canna_ducttape_preview) {
+    if authorized {
         ui.label("Opt in for public ROUNDS 1.1.2. Apply, Setup and Launch modded check every enabled plugin and prepare supported dependency ports without changing saved selections. Disable the original DuctTape/preloader package first.");
         ui.label("Unsupported calls or dependencies block preparation. Read Console review warnings; preparation does not verify every gameplay path or full multiplayer matches.");
         ui.hyperlink_to(
@@ -55,7 +61,7 @@ fn rebound_settings(ui: &mut egui::Ui, enabled: &mut bool, busy: bool) -> egui::
             "https://cannamods.vip/help",
         );
     } else {
-        ui.label("This build does not include the Rebound preview. Ordinary mod installation is available.");
+        ui.label("Canna Rebound is a Beta feature. Sign in with a Beta account to enable it. Support is downloaded after the server verifies access.");
     }
     response
 }
@@ -77,6 +83,7 @@ enum Event {
 }
 struct Canna {
     account: account::Account,
+    rebound_access: rebound_support::Access,
     website: website::Website,
     skins: skins::Skins,
     minecraft: minecraft::Minecraft,
@@ -206,6 +213,7 @@ impl Canna {
         let configured = !settings.owner.is_empty();
         let mut app = Self {
             account: Default::default(),
+            rebound_access: Default::default(),
             website: website::Website::default(),
             skins: {
                 let mut skins = skins::Skins::default();
@@ -660,10 +668,19 @@ impl Canna {
                     self.repo_status = "Account disconnected".into();
                 }
                 ui.separator();
-                if rebound_settings(ui, &mut self.settings.rebound_enabled, self.runtime_busy).changed()
+                if self.rebound_access.needs_check() {
+                    self.rebound_access.refresh(ctx);
+                }
+                if rebound_settings(ui, &mut self.settings.rebound_enabled, self.runtime_busy, self.rebound_access.allowed).changed()
                     && let Err(error) = self.settings.save() {
                     self.settings.rebound_enabled = !self.settings.rebound_enabled;
                     self.runtime_status = format!("Could not save Rebound preference: {error}");
+                }
+                if !self.rebound_access.status.is_empty() {
+                    ui.label(&self.rebound_access.status);
+                }
+                if ui.add_enabled(!self.rebound_access.checking(), egui::Button::new("Recheck Beta access")).clicked() {
+                    self.rebound_access.refresh(ctx);
                 }
                 ui.separator();
                 ui.label("Steam location override (optional)");
@@ -1815,6 +1832,7 @@ impl eframe::App for Canna {
             self.token = website::session();
             self.sync(ctx);
         }
+        self.rebound_access.observe(ctx, &self.token);
         if self.provider_browser.update(ctx, &self.token) {
             self.website.refresh_downloads();
             self.sync(ctx);
@@ -1957,48 +1975,50 @@ fn main() -> eframe::Result {
 mod ui_tests {
     use super::*;
     #[test]
-    fn rebound_checkbox_requires_bundled_support_and_idle_state() {
-        for busy in [false, true] {
-            for size in [egui::vec2(1240.0, 820.0), egui::vec2(840.0, 650.0)] {
-                let ctx = egui::Context::default();
-                let mut enabled = false;
-                let rect = std::cell::Cell::new(egui::Rect::NOTHING);
-                let input = |events| egui::RawInput {
-                    screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
-                    events,
-                    ..Default::default()
-                };
-                let mut draw = |ctx: &egui::Context| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        let response = rebound_settings(ui, &mut enabled, busy);
-                        assert_eq!(response.enabled(), cfg!(canna_ducttape_preview) && !busy);
-                        rect.set(response.rect);
-                    });
-                };
-                let _ = ctx.run(input(vec![]), &mut draw);
-                let pos = rect.get().center();
-                let _ = ctx.run(
-                    input(vec![
-                        egui::Event::PointerMoved(pos),
-                        egui::Event::PointerButton {
+    fn rebound_checkbox_requires_verified_beta_and_idle_state() {
+        for authorized in [false, true] {
+            for busy in [false, true] {
+                for size in [egui::vec2(1240.0, 820.0), egui::vec2(840.0, 650.0)] {
+                    let ctx = egui::Context::default();
+                    let mut enabled = false;
+                    let rect = std::cell::Cell::new(egui::Rect::NOTHING);
+                    let input = |events| egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                        events,
+                        ..Default::default()
+                    };
+                    let mut draw = |ctx: &egui::Context| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            let response = rebound_settings(ui, &mut enabled, busy, authorized);
+                            assert_eq!(response.enabled(), authorized && !busy);
+                            rect.set(response.rect);
+                        });
+                    };
+                    let _ = ctx.run(input(vec![]), &mut draw);
+                    let pos = rect.get().center();
+                    let _ = ctx.run(
+                        input(vec![
+                            egui::Event::PointerMoved(pos),
+                            egui::Event::PointerButton {
+                                pos,
+                                button: egui::PointerButton::Primary,
+                                pressed: true,
+                                modifiers: egui::Modifiers::NONE,
+                            },
+                        ]),
+                        &mut draw,
+                    );
+                    let _ = ctx.run(
+                        input(vec![egui::Event::PointerButton {
                             pos,
                             button: egui::PointerButton::Primary,
-                            pressed: true,
+                            pressed: false,
                             modifiers: egui::Modifiers::NONE,
-                        },
-                    ]),
-                    &mut draw,
-                );
-                let _ = ctx.run(
-                    input(vec![egui::Event::PointerButton {
-                        pos,
-                        button: egui::PointerButton::Primary,
-                        pressed: false,
-                        modifiers: egui::Modifiers::NONE,
-                    }]),
-                    &mut draw,
-                );
-                assert_eq!(enabled, cfg!(canna_ducttape_preview) && !busy);
+                        }]),
+                        &mut draw,
+                    );
+                    assert_eq!(enabled, authorized && !busy);
+                }
             }
         }
     }

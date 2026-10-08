@@ -286,6 +286,7 @@ pub fn setup_with_options(
     }
     let prepared = prepare_install(game, pack, token, options, progress)?;
     prepared.verify_inputs(game)?;
+    prepared.verify_authorization(token)?;
     setup_with_framework(game, &prepared.pack, token, prepared.framework.as_deref())
 }
 fn setup_with_framework(
@@ -439,7 +440,6 @@ pub struct InstallOptions {
 impl InstallOptions {
     pub(crate) fn translate(self, game: &InstalledGame, pack: &Modpack) -> Result<bool> {
         let translate = self.rebound_enabled
-            && cfg!(canna_ducttape_preview)
             && game.app_id == 1557740
             && crate::steam::installed_version(game).is_some_and(|v| {
                 v.branch
@@ -467,6 +467,7 @@ pub struct PreparedInstall {
     framework: Option<Vec<u8>>,
     game_sha256: Option<String>,
     config_sha256: Option<Vec<(PathBuf, String)>>,
+    rebound_support_sha256: Option<String>,
 }
 impl PreparedInstall {
     pub fn effective_pack(&self) -> &Modpack {
@@ -478,6 +479,12 @@ impl PreparedInstall {
                 crate::ducttape::game_hash(game)? == *expected,
                 "ROUNDS changed after compatibility preflight; retry after Steam finishes updating"
             );
+        }
+        Ok(())
+    }
+    fn verify_authorization(&self, token: &str) -> Result<()> {
+        if let Some(expected) = &self.rebound_support_sha256 {
+            crate::rebound_support::verify_current(token, expected)?;
         }
         Ok(())
     }
@@ -521,6 +528,7 @@ pub(crate) fn prepare_install_with_configs(
             framework: None,
             game_sha256: None,
             config_sha256: None,
+            rebound_support_sha256: None,
         });
     }
     let translate = options.translate(game, pack)?;
@@ -528,6 +536,12 @@ pub(crate) fn prepare_install_with_configs(
         crate::game_compat::check_pack(game, pack)?;
     }
     ensure_closed(game)?;
+    let support = if translate {
+        progress("Verifying Canna Rebound Beta access…");
+        Some(crate::rebound_support::authorized_bundle(token)?)
+    } else {
+        None
+    };
     let api = client()?;
     let mut prepared = PreparedInstall {
         pack: pack.clone(),
@@ -536,6 +550,9 @@ pub(crate) fn prepare_install_with_configs(
         framework: None,
         game_sha256: None,
         config_sha256: None,
+        rebound_support_sha256: support
+            .as_ref()
+            .map(|bytes| format!("{:x}", Sha256::digest(bytes))),
     };
     {
         let files = prepared.files.as_mut().unwrap();
@@ -644,6 +661,7 @@ pub(crate) fn prepare_install_with_configs(
             game,
             &pinned_sources,
             prepared.files.take().unwrap(),
+            support.as_deref().unwrap(),
             prepared.framework.as_deref(),
             configs,
             progress,
@@ -671,6 +689,7 @@ pub fn install_prepared(
     pack.validate()?;
     ensure_closed(game)?;
     prepared.verify_inputs(game)?;
+    prepared.verify_authorization(token)?;
     progress("Checking BepInEx…");
     setup_with_framework(game, pack, token, prepared.framework.as_deref())?;
     let stage = game.path.join(format!(
@@ -703,6 +722,7 @@ pub fn install_prepared(
                 "ROUNDS config changed before compatibility activation; retry"
             );
         }
+        prepared.verify_authorization(token)?;
         progress("Activating selected pack…");
         activate_stage(&game.path, &stage, files.configs.clone())
     })();
@@ -964,30 +984,18 @@ mod tests {
             let enabled = InstallOptions {
                 rebound_enabled: true,
             };
+            assert!(enabled.translate(&game, &pack).unwrap());
+            let error = prepare_install(&game, &pack, "", enabled, &|_| {})
+                .err()
+                .unwrap();
+            assert!(error.to_string().contains("Beta account"));
+            assert!(setup_with_options(&game, &pack, "", enabled, &|_| {}).is_err());
+            assert!(!game_root.join("BepInEx/plugins").exists());
+            assert!(!game_root.join("winhttp.dll").exists());
             assert_eq!(
-                enabled.translate(&game, &pack).unwrap(),
-                cfg!(canna_ducttape_preview)
+                fs::read(game_root.join("BepInEx/core/BepInEx.dll")).unwrap(),
+                b"scratch references"
             );
-            if cfg!(canna_ducttape_preview) {
-                let error = prepare_install(&game, &pack, "", enabled, &|_| {})
-                    .err()
-                    .unwrap();
-                assert!(!error.to_string().is_empty());
-                assert!(setup_with_options(&game, &pack, "", enabled, &|_| {}).is_err());
-                assert!(!game_root.join("BepInEx/plugins").exists());
-                assert!(!game_root.join("winhttp.dll").exists());
-                assert_eq!(
-                    fs::read(game_root.join("BepInEx/core/BepInEx.dll")).unwrap(),
-                    b"scratch references"
-                );
-            } else {
-                assert!(
-                    prepare_install(&game, &pack, "", enabled, &|_| {})
-                        .unwrap()
-                        .game_sha256
-                        .is_none()
-                );
-            }
             game.app_id = 1686940;
             pack.game.app_id = 1686940;
             let other_game = prepare_install(&game, &pack, "", enabled, &|_| {}).unwrap();
@@ -1126,6 +1134,7 @@ mod tests {
                     crate::ducttape::game_hash(&game).unwrap()
                 }),
                 config_sha256: Some(vec![]),
+                rebound_support_sha256: None,
             };
             let error = install_prepared(&game, prepared, "", &|_| {}).unwrap_err();
             assert!(error.to_string().contains(if changed_game {

@@ -17,6 +17,14 @@ Internal paths and protocol names retain DuctTape++ for the existing preparation
 format; the user-facing feature is Canna Rebound. Upstream DuctTape/toolkit
 attribution remains part of the source and license notices.
 
+The current unpublished desktop source changes distribution: normal debug and
+release builds contain no support DLL bundle. The account must have the additional
+Beta role, verified by the server before support download/cache access and again
+before preparation or installation. Beta does not grant administration. The
+protected server endpoints and support artifact must be deployed before this
+workflow is usable. Previously distributed 0.2.41 executables retain their original
+bundle. Private test fixtures are excluded from ordinary runtime authorization.
+
 The current profile is `rounds-public-1.1.2`, protocol `canna.ducttape++/1`, with
 Assembly-CSharp SHA256
 `20451cc7090908cd1d125f75f06584645d25e898ec234de0a0c2f154e2900668`.

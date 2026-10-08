@@ -2,7 +2,7 @@
 
 A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and the private Canna server as the mod catalog. Uploads and external imports are managed on the website.
 
-Canna 0.2.40 uses a compact icon sidebar and a borderless window. The yellow
+Canna 0.2.42 uses a compact icon sidebar and a borderless window. The yellow
 button in the top right minimizes; green maximizes/restores; red closes Canna. Drag
 the header to move the window, or double-click it to maximize/restore. Hover
 sidebar icons for their names. Drag any window edge or corner to resize.
@@ -13,12 +13,24 @@ uses its game cover. Website Play Lab uses numbered expandable cards. Mod review
 show scan progress, dependency blockers, retries and queue totals; shared libraries
 scan first. Public Help / FAQ describes the current workflow and verification limits.
 
+Desktop 0.2.42 and Community 0.3.58 add server-verified Beta access for the
+Rebound runtime preview, searchable official Minecraft version choices and result
+counts. The website adds an Admin overview, invitation and registration pause
+controls, Crash, Blackjack and cosmetic cases, plus email-only Forgot password
+and Forgot username forms. Staff review now has an advisory overview, a full
+archive/source browser, source outlines, search and line navigation. New static-7
+analyses record reconstruction origins, tool results, safe partial output and
+coverage limits. These tools do not establish mod safety or full game/multiplayer
+compatibility; Minecraft account/launch API approval remains pending.
+
 ## Run
 
 Double-click `dist/Canna Mod Manager.exe` after building, or run:
 
 ```powershell
 cargo run
+# Optimized local development:
+cargo run --release
 ```
 
 Build a portable executable with `./build.ps1`. Rust and Windows C++ build tools must already be available. The portable edition needs no installer; the Inno Setup installer adds Start menu and uninstall entries. Settings are stored at `%APPDATA%/CannaModManager/settings.json`. The executable can be copied to a family member's Windows PC.
@@ -136,9 +148,19 @@ Each modpack's Content table has an **Enabled** checkbox; right-click a mod for 
 
 The enabled official [DuctTape package by kieron_exe](https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape/) requires the public ROUNDS branch (Steam → Properties → Betas → None). Canna recognizes its Thunderstore project identity `kieron_exe-DuctTape` and suppresses only the inferred old-branch requirement from UnboundLib 3.2.14 / MMHook 1.0.0. Explicit legacy branch requirements, the original HollowPurple requirement and the guard against enabling original HollowPurple together with HollowPurple Fixed remain. The author's guide says to retain UnboundLib, MMHook and RoundsWithFriends as installed packages; DuctTape substitutes their assemblies during launch. This branch-check change has fixture coverage; live DuctTape gameplay and multiplayer integration have not been verified by these checks.
 
-**Canna Rebound preview in desktop 0.2.41:** enable **Settings → Canna Rebound for
-ROUNDS (preview)** before applying or launching a public ROUNDS pack. It is off
-by default. Rebound prepares translations on temporary copies and scans compiled game
+**Desktop 0.2.42 with Community 0.3.58** requires server-verified Beta access and
+downloads protected Rebound support separately. Previously distributed desktop
+0.2.41 still contains its original opt-in support bundle; updating replaces that
+distribution model but cannot remove already distributed files retroactively.
+
+**Canna Rebound Beta workflow:** Beta is an additional
+account role alongside Member, VIP, Admin or Owner. Sign in with an account that
+has Beta access, then enable **Settings → Canna Rebound for ROUNDS (preview)**
+before applying or launching a public ROUNDS pack. It is off by default. The
+desktop checks the protected server manifest before downloading or reading cached
+support and rechecks authorization before installation. Logout or a denied access
+check clears the managed support cache. Cached files do not grant offline access.
+Rebound prepares translations on temporary copies and scans compiled game
 calls even when a mod declares no dependencies, supplies supported modern library
 ports, and refuses unresolved dependencies or translations that still require a
 manual port. Saved pack selections remain editable. Steam build IDs are not game
@@ -150,13 +172,26 @@ installation and the official DuctTape workflow. Build instructions and limits a
 [the preview guide](mods/DuctTapePlusPlus/README.md). Do not install or apply it
 while ROUNDS is running.
 
-The regular desktop keeps automatic updates enabled. The separate development
-**Canna Rebound Preview.exe** disables automatic desktop updates.
-Build it with `scripts/Build-DuctTapePlusPlus.ps1` followed by
-`scripts/Build-DuctTapePreview.ps1`. Use the public ROUNDS branch and disable the
-original DuctTape/preloader package in the selected pack before applying it.
-Enable the Rebound Settings checkbox in either build. To build the regular desktop
-with the support bundle, use `scripts/Build-ReboundRelease.ps1`.
+Normal `cargo run`, `cargo run --release`, `build.ps1` and
+`scripts/Build-ReboundRelease.ps1` produce a desktop with no embedded Rebound
+DLLs. They authenticate Beta access and download the protected support when a
+ROUNDS pack is prepared. A local support ZIP or the `CANNA_DUCTTAPE_SUPPORT`
+environment variable alone cannot enable Rebound. Automatic bundling is removed.
+The regular desktop keeps automatic updates enabled.
+
+The separate development **Canna Rebound Preview.exe** disables automatic desktop
+updates. Build it with `scripts/Build-DuctTapePreview.ps1`; this executable also
+requires server-verified Beta access and carries no embedded support. Use the
+public ROUNDS branch and disable the original DuctTape/preloader package in the
+selected pack before applying it.
+
+For private fixture tests only, explicitly set `CANNA_REBOUND_LOCAL_PREVIEW=1`
+and `CANNA_DUCTTAPE_SUPPORT` to a reviewed support ZIP before `cargo test`.
+Only test executables can read that fixture or use its private fixture token;
+ordinary application executables still require the protected server. Build the
+support artifact for server deployment or private tests with
+`scripts/Build-DuctTapePlusPlus.ps1 -Output target/ducttape-plus-plus-release`.
+
 The preview supplies only the reviewed dependency ports needed by enabled mods;
 unsupported calls, incompatible plugins or dependencies that cannot load block
 preparation before the installed game changes.

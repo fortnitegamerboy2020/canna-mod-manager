@@ -122,6 +122,7 @@ try {
     # Native integration only. Do not publish scanners, provider registries, unrelated mods or catalogs.
     $cannaFiles = @('Cargo.toml', 'Cargo.lock', 'build.rs',
         'src/main.rs', 'src/model.rs', 'src/runtime.rs', 'src/ducttape.rs', 'src/play_backup.rs', 'src/pack_ui.rs', 'src/play_lab.rs',
+        'src/account.rs', 'src/provider_browser.rs', 'src/rebound_support.rs',
         'README.md', 'server/web/help.html',
         'scripts/Build-DuctTapePlusPlus.ps1', 'scripts/Build-DuctTapePreview.ps1', 'scripts/Build-ReboundRelease.ps1',
         'scripts/Test-DuctTapePlusPlus.ps1', 'scripts/Publish-Rebound.ps1')
