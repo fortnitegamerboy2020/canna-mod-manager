@@ -66,7 +66,7 @@ async function openProfile(id) {
 function applyProfileCosmetics(profile){
  const card=$('profilecard');let banner=$('profilebanner');if(!banner){banner=document.createElement('div');banner.id='profilebanner';banner.className='profilebanner';card.prepend(banner);}
  const item=profile.cosmetics?.banner;banner.className='profilebanner';banner.replaceChildren();banner.hidden=!item;
- if(item){banner.setAttribute('aria-label',item.name+(item.animated?' animated':'')+' profile banner');banner.setAttribute('role','img');banner.title=item.name;const image=profileCosmeticImage(item);if(image)banner.append(image);else{if(/^[a-z0-9_-]{1,80}$/.test(item.style||item.id||''))banner.classList.add('cosmetic-'+(item.style||item.id));}}
+ if(item){banner.setAttribute('aria-label',item.name+(item.animated?' animated':'')+' profile banner');banner.setAttribute('role','img');banner.title=item.name;const image=profileCosmeticImage(item);if(image){if(item.collection==='mw2'){banner.classList.add('mw2-banner');const width=callingCardDisplayWidth(item);if(width)image.style.width=width+'px';}banner.append(image);}else{if(/^[a-z0-9_-]{1,80}$/.test(item.style||item.id||''))banner.classList.add('cosmetic-'+(item.style||item.id));}}
  const avatar=$('profileavatar');let portrait=$('profileportrait');if(!portrait){portrait=document.createElement('div');portrait.id='profileportrait';portrait.className='profileportrait';avatar.before(portrait);portrait.append(avatar);const initial=document.createElement('span');initial.id='profileinitial';portrait.append(initial);}
  $('profileinitial').textContent=profile.username.slice(0,1).toUpperCase();$('profileinitial').hidden=!!profile.avatar;
  let frame=$('profileframe');if(!frame){frame=document.createElement('div');frame.id='profileframe';portrait.append(frame);}frame.className='profileframe';frame.replaceChildren();frame.hidden=!profile.cosmetics?.frame;
@@ -104,6 +104,7 @@ function artworkMotionControl(){
  return control;
 }
 function profileCosmeticImage(item){const asset=cosmeticAssetUrl(item.asset,item.sha256);if(!asset)return null;const image=document.createElement('img');image.src=asset;image.alt='';image.decoding='async';bindCosmeticMotion(image,item);return image;}
+function callingCardDisplayWidth(item){return item.collection==='mw2'&&Number.isInteger(item.width)&&item.width>0&&item.width<=4096?item.width*2:0;}
 $('editprofile').addEventListener('submit',event => { event.preventDefault(); action(async () => {
   await json('profiles/me',{status:$('editstatus').value,bio:$('editbio').value}); await openProfile(currentUser.id); message('Profile saved.');
 }); });

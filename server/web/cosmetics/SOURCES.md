@@ -5,11 +5,29 @@ The 16 frames and three abstract banners are original Canna vector artwork.
 The classic MW2 collection contains 398 unique calling-card images from
 https://callofduty.fandom.com/wiki/Calling_Cards/Call_of_Duty:_Modern_Warfare_2.
 Lazy-loaded image URLs were resolved to their unscaled originals with
-`format=original`, preserving the source PNG/JPEG bytes. Native dimensions are
-188×40 (312 images), 240×48 (60), 358×72 (24), and 358×71 (2). This includes
-weapon and unused variants shown on that page, not a claim of every regional or
-hidden game variant. No generated upscale or HD-original claim is made. The
-weed-themed High Command, Joint Ops and Blunt Trauma remain native 188×40 art.
+`format=original`. The original inputs were 188×40 (312 images), 240×48 (60),
+358×72 (24), and 358×71 (2), including weapon and unused variants on that page.
+This is not a claim of every regional or hidden game variant.
+
+Community 0.3.64 cleans the baked screenshot surround in 260 of the 188×40
+JPEGs, including Stuck on You, High Command, Joint Ops and Blunt Trauma.
+Reviewed boundary-color masks preserve the central card body and the gray
+metal/lens bodies where applicable. Only alpha is changed; retained RGB values
+match the decoded source exactly. The three weed cards also remove isolated
+neutral matte debris outside their protected title region. Fully transparent
+padding is then cropped and the result stored as lossless PNG, without resizing.
+Each derivative records its original source SHA256/dimensions, exact crop box,
+mask class and protected body rectangle. Stuck on You becomes 181×38 after a
+transparent-only crop; 3,201 of its 7,520 source pixels become transparent.
+
+Fifty-two JPEGs with real or ambiguous gray smoke, sky, portrait or patterned
+artwork remain byte-for-byte unchanged, avoiding damaged art or invented cutouts.
+The 86 already transparent PNGs remain unchanged. Conservative cleanup can retain
+one-pixel JPEG fringes or similar gray shades in legitimate art; it does not claim
+to remove every gray pixel. Native detail remains limited by the source. No
+upscale, generated replacement, HD-original or native game-texture claim is made.
+MW2 artwork is displayed at at most twice its resulting pixel width and shrinks
+on narrow screens; BO2 animations and Canna banners retain their existing layout.
 
 All 296 previously issued MW2 cosmetic IDs remain unchanged. Their old import
 provenance is retained under `legacy_source`: the pinned
@@ -17,7 +35,8 @@ https://github.com/IcyStarFrost/mw2-callcards-remastered commit
 204c7705bccf6bedefaf2b72690b5f80ffb260d9, original Git blob and previous SHA256.
 Twenty-seven former 192-pixel thumbnails now use larger true source originals.
 Each current catalog item records its original source URL, downloaded asset URL,
-native dimensions and local SHA256. Three superseded PNG source files are retained
+current dimensions and output SHA256; cleaned derivatives additionally record the
+original source SHA256 and dimensions. Three superseded PNG source files are retained
 locally without an asset route; their replacement JPEGs use the same cosmetic IDs.
 
 The BO2 collection comes from the user-supplied `bo2_calling_cards.rar`, containing

@@ -272,6 +272,11 @@ async fn browser_preview_fixture() {
                 [id],
             )
             .unwrap();
+            db.execute(
+                "INSERT INTO gambling_cosmetics VALUES(?1,'mw2-stuck-on-you-eb93d5b1',1)",
+                [id],
+            )
+            .unwrap();
             for item in [animated, frame, mw2] {
                 db.execute(
                     "INSERT OR IGNORE INTO gambling_cosmetics VALUES(?1,?2,1)",

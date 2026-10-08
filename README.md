@@ -13,7 +13,7 @@ uses its game cover. Website Play Lab uses numbered expandable cards. Mod review
 show scan progress, dependency blockers, retries and queue totals; shared libraries
 scan first. Public Help / FAQ describes the current workflow and verification limits.
 
-Desktop 0.2.45 and Community 0.3.63 offer server-verified Beta access for the
+Desktop 0.2.45 and Community 0.3.64 offer server-verified Beta access for the
 Rebound runtime preview, searchable official Minecraft version choices and result
 counts. The website adds an Admin overview, invitation and registration pause
 controls, signup invitation links alongside manual codes, Crash, Blackjack and separate BO2/MW2/avatar-frame crates, plus email-only Forgot password
@@ -29,6 +29,8 @@ pack. Its 13 animated WebP cards retain native frame pixels; reduced motion
 uses static posters. Timing uses a documented 100ms per source frame because
 the supplied sheets contain no timing metadata. Crash lists round participants,
 stakes and green cashouts with server times, retaining rows until the next round.
+Community 0.3.64 cleans the baked surround from 260 MW2 screenshots and limits their display to twice their source width, keeping full shapes, equipment IDs and original retained colors. Stuck on You uses a transparent, lossless PNG instead of the gray-backed JPEG. Gray scene artwork and already transparent sources are preserved. This corrects presentation without claiming HD detail from tiny source images.
+
 Community 0.3.63 keeps compiled cosmetic metadata in a versioned process cache
 and sends compact state polls after the client loads that catalog. Every request
 still verifies current membership; account balances, ownership and equipment

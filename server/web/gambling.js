@@ -262,7 +262,7 @@ function setupCases(){const root=$('gambling-cases');root.append(gameNode('h3','
 function cosmeticPreview(item,large=false){
  const preview=gameNode('div',null,'cosmeticpreview '+(large?'large ':'')+(item.kind==='banner'?'bannerpreview':'framepreview'));const style=String(item.style||item.id||'');if(/^[a-z0-9_-]{1,80}$/.test(style))preview.classList.add('cosmetic-'+style);
  if(item.kind==='frame')preview.append(gameNode('span',currentUser?.username?.slice(0,1).toUpperCase()||'C','cosmeticinitial'));else preview.append(gameNode('span','CANNA','cosmeticbannertext'));
- if(item.kind==='banner'&&['mw2','bo2'].includes(cosmeticCollection(item))){preview.classList.add('calling-card');preview.title=item.name;}
+ if(item.kind==='banner'&&['mw2','bo2'].includes(cosmeticCollection(item))){preview.classList.add('calling-card');preview.title=item.name;const width=typeof callingCardDisplayWidth==='function'?callingCardDisplayWidth(item):0;if(width)preview.style.maxWidth=width+'px';}
  const asset=item.animated&&typeof window.matchMedia==='function'&&window.matchMedia('(prefers-reduced-motion: reduce)').matches&&item.poster_asset?item.poster_asset:item.asset;
  if(typeof asset==='string'&&/^\/api\/v1\/cosmetics\/assets\/[a-zA-Z0-9_-]+$/.test(asset)){const img=gameNode('img');const hash=asset===item.poster_asset?item.poster_sha256:item.sha256;img.src=asset+(/^[a-f0-9]{64}$/.test(hash||'')?'?v='+hash:'');if(typeof bindCosmeticMotion==='function')bindCosmeticMotion(img,item);img.alt='';img.loading='lazy';img.decoding='async';img.className='cosmeticasset';preview.append(img);}
  preview.dataset.rarity=item.rarity||'common';preview.setAttribute('aria-label',item.name+' '+item.kind+' preview');return preview;

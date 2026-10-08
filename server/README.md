@@ -4,7 +4,9 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.63
+## Current release: Community 0.3.64
+
+MW2 banner correction cleans the baked screenshot matte in 260 tiny source images, including Stuck on You, with audited alpha masks, transparent-only crops and lossless PNG output. Retained RGB pixels, all 654 cosmetic IDs, crate odds and equipment routes remain unchanged. Fifty-two ambiguous/full-art JPEGs and 86 existing transparent MW2 PNGs are kept intact. MW2 profile and crate previews cap artwork at twice its source width and shrink on small screens. This is a source-matte and excessive-stretch correction, not an HD replacement; isolated one-pixel JPEG fringes may remain. Reloading obtains changed checksum URLs without re-equipping.
 
 Invite generation now produces signup links and manual codes for the same single-use invitations. Active Owner history entries have Copy invite link. Links use a fragment so the code is not in the HTTP URL, prefill the existing public registration form and clear the address after reading. Opening a link does not redeem or validate it; signup retains expiration, revocation, registration pause and email verification checks. Query-form links are accepted too for compatibility. No new public invitation lookup endpoint is exposed.
 
@@ -49,7 +51,7 @@ remain server-authoritative. The current-round list shows bettors, stakes and
 green cashouts with server times, retains them until the next round and pages
 without blocking cashouts. Collection opens to owned frames and banners, with
 drop equip buttons and profile links. Profiles display complete calling cards
-in responsive banner headers. The requested wiki originals expand MW2 to 398
+in responsive banner headers; MW2 uses source-bounded sizing. The requested wiki originals expand MW2 to 398
 entries, retaining all existing IDs and upgrading 27 thumbnails to genuinely
 larger originals. The supplied Volkz BO2 replacement pack adds 237 cards,
 including 13 lossless native-frame animations with authenticated still posters.
@@ -59,7 +61,7 @@ Cosmetic assets and member profiles remain authenticated. Official Minecraft ver
 choices and the current-page result count are available on the website and
 matching desktop; Minecraft account/launch API approval remains pending.
 
-The pending update caches validated compiled cosmetic metadata once per process.
+Community 0.3.63 caches validated compiled cosmetic metadata once per process.
 The authenticated `/api/v1/gambling/cosmetics/catalog` endpoint returns its
 fingerprint, artwork choices and crate definitions without creating a wallet or
 advancing Crash. Updated clients reuse this catalog and send its fingerprint
