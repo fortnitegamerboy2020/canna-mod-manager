@@ -66,6 +66,8 @@ impl Console {
         let mut refresh = false;
         ui.horizontal_wrapped(|ui| {
             egui::ComboBox::from_id_salt("console_game")
+                .height(340.0)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                 .selected_text(
                     games
                         .iter()
@@ -74,14 +76,13 @@ impl Console {
                         .unwrap_or("Choose a game"),
                 )
                 .show_ui(ui, |ui| {
-                    for game in games {
-                        if ui
-                            .selectable_value(&mut self.game_id, game.app_id, &game.name)
-                            .changed()
-                        {
-                            refresh = true;
-                        }
-                    }
+                    let previous = self.game_id;
+                    let choices = games
+                        .iter()
+                        .map(|g| (g.app_id, g.name.clone()))
+                        .collect::<Vec<_>>();
+                    crate::ui_helpers::searchable_options(ui, &mut self.game_id, &choices);
+                    refresh |= previous != self.game_id;
                 });
             if ui.button("Refresh").clicked() {
                 refresh = true;

@@ -5,6 +5,7 @@ After=network.target
 User=canna-review
 Group=canna-review
 ExecStart=/usr/bin/python3 /opt/canna-review/review-worker.py
+Environment=CANNA_REVIEW_WORKERS=1
 Environment=CANNA_REVIEW_JOBS=/var/lib/canna-review/jobs
 Environment=DOTNET_GCHeapHardLimit=18000000
 Environment=DOTNET_CLI_HOME=/var/lib/canna-review

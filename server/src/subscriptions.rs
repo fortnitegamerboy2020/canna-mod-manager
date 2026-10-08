@@ -75,7 +75,7 @@ pub async fn list(
         }
     }
     let more = rows.len() > 24;
-    let items=rows.into_iter().take(24).map(|(source,id,name,provider,url,version,details)|{let approved=id.as_deref().is_some_and(|id|security::approved(&db,id).is_ok());json!({"source":source,"id":id,"name":name,"provider":provider,"source_url":url,"version":version,"approved":approved,"details":serde_json::from_str::<Value>(&details).unwrap_or_default()})}).collect::<Vec<_>>();
+    let items=rows.into_iter().take(24).map(|(source,id,name,provider,url,version,details)|{let approved=id.as_deref().is_some_and(|id|security::approved(&db,id).is_ok());json!({"source":source,"id":id,"name":name,"provider":provider,"source_url":url,"version":version,"approved":approved,"download_status":id.as_deref().and_then(|id|scans::download_state(&db,id).ok()),"details":serde_json::from_str::<Value>(&details).unwrap_or_default()})}).collect::<Vec<_>>();
     Ok(axum::Json(
         json!({"items":items,"page":page,"has_more":more}),
     ))

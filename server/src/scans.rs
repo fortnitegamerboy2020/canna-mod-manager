@@ -3,6 +3,8 @@ use tokio::io::AsyncWriteExt;
 const REPORT_LIMIT: u64 = 16 * 1024 * 1024;
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS mod_scans(mod_id TEXT PRIMARY KEY REFERENCES mods(id) ON DELETE CASCADE,hash TEXT NOT NULL,status TEXT NOT NULL,report TEXT NOT NULL,started INTEGER NOT NULL);
+ CREATE TABLE IF NOT EXISTS mod_scan_decisions(mod_id TEXT NOT NULL REFERENCES mods(id) ON DELETE CASCADE,hash TEXT NOT NULL,finding_id TEXT NOT NULL,decision TEXT NOT NULL,PRIMARY KEY(mod_id,hash,finding_id));
+ INSERT OR IGNORE INTO mod_scan_decisions SELECT s.mod_id,s.hash,json_extract(f.value,'$.id'),f.value FROM mod_scans s JOIN json_each(s.report,'$.findings') f WHERE json_type(f.value,'$.id')='text' AND json_type(f.value,'$.reviewer')='integer' AND json_type(f.value,'$.reviewed')='integer';
  DELETE FROM mod_scans WHERE status='queued';")
 }
 fn staff(app: &App, headers: &HeaderMap) -> ApiResult<i64> {
@@ -14,6 +16,94 @@ fn staff(app: &App, headers: &HeaderMap) -> ApiResult<i64> {
         ));
     }
     Ok(actor)
+}
+pub fn download_state(db: &Connection, id: &str) -> ApiResult<Value> {
+    let name: String = db
+        .query_row("SELECT name FROM mods WHERE id=?1", [id], |r| r.get(0))
+        .optional()?
+        .ok_or(ApiError(StatusCode::NOT_FOUND, "Mod no longer available"))?;
+    if security::approved(db, id).is_ok() {
+        return Ok(json!({"id":id,"name":name,"state":"ready","message":"Ready to download"}));
+    }
+    let mut todo = vec![id.to_owned()];
+    let mut seen = std::collections::BTreeSet::new();
+    let (mut waiting, mut review, mut failed, mut denied) = (0, 0, 0, 0);
+    while let Some(next) = todo.pop() {
+        if !seen.insert(next.clone()) {
+            continue;
+        }
+        if seen.len() > 128 {
+            return Err(bad("Dependency graph exceeds limits"));
+        }
+        let scan: Option<(String, String)> = db
+            .query_row(
+                "SELECT status,report FROM mod_scans WHERE mod_id=?1",
+                [&next],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        match scan {
+            None => waiting += 1,
+            Some((state, report)) => match state.as_str() {
+                "queued" => waiting += 1,
+                "failed" => failed += 1,
+                "rejected" => denied += 1,
+                "complete" => {
+                    let data: Value = serde_json::from_str(&report).unwrap_or(Value::Null);
+                    let allowed:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM mods m WHERE m.id=?1 AND NOT EXISTS(SELECT 1 FROM mod_reviews r WHERE r.mod_id=m.id AND r.approved=0))",[&next],|r|r.get(0))?;
+                    if !allowed
+                        || data["findings"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .any(|f| f["accepted"] != true)
+                    {
+                        review += 1;
+                    }
+                }
+                _ => waiting += 1,
+            },
+        }
+        let details = external::details(db, &next)?;
+        todo.extend(
+            details["dependency_ids"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(Value::as_str)
+                .map(str::to_owned),
+        );
+    }
+    let (state, message) = if denied > 0 {
+        ("denied", "A mod or dependency was denied by review policy.")
+    } else if failed > 0 {
+        (
+            "failed",
+            "A mod or dependency scan failed. Staff can retry it.",
+        )
+    } else if review > 0 {
+        (
+            "needs_review",
+            "Analysis found items requiring staff review, or manual approval is required.",
+        )
+    } else {
+        (
+            "waiting",
+            "Waiting for mod or dependency analysis. This download will continue when approved.",
+        )
+    };
+    Ok(
+        json!({"id":id,"name":name,"state":state,"message":message,"waiting":waiting,"needs_review":review,"failed":failed}),
+    )
+}
+pub async fn status(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<axum::Json<Value>> {
+    app.auth(&headers)?;
+    Uuid::parse_str(&id).map_err(|_| bad("Invalid mod ID"))?;
+    Ok(axum::Json(download_state(&app.db.lock().unwrap(), &id)?))
 }
 fn manual_upload(db: &Connection, id: &str) -> ApiResult<bool> {
     Ok(db.query_row("SELECT NOT EXISTS(SELECT 1 FROM mod_details WHERE mod_id=?1 AND COALESCE(json_extract(data,'$.provider'),'uploaded')!='uploaded')",[id],|r|r.get(0))?)
@@ -132,7 +222,7 @@ async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<(
                 return Err(bad("Source analysis report exceeds limits"));
             }
             let text = tokio::fs::read_to_string(&result).await?;
-            let report: Value =
+            let mut report: Value =
                 serde_json::from_str(&text).map_err(|_| bad("Invalid worker report"))?;
             if report["status"] != "complete" {
                 return Err(bad("Source analysis failed; run again"));
@@ -145,9 +235,36 @@ async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<(
             if stored.as_deref() != Some(&hash) {
                 return Err(bad("Mod changed or was removed during analysis"));
             }
+            let previous: Option<(String, String)> = tx
+                .query_row(
+                    "SELECT hash,report FROM mod_scans WHERE mod_id=?1",
+                    [&id],
+                    |r| Ok((r.get(0)?, r.get(1)?)),
+                )
+                .optional()?;
+            let mut decisions: Vec<Value> = tx
+                .prepare("SELECT decision FROM mod_scan_decisions WHERE mod_id=?1 AND hash=?2")?
+                .query_map(params![id, hash], |r| r.get::<_, String>(0))?
+                .filter_map(|r| r.ok().and_then(|r| serde_json::from_str(&r).ok()))
+                .collect();
+            if let Some((previous_hash, previous)) = previous
+                && previous_hash == hash
+            {
+                let previous: Value = serde_json::from_str(&previous).unwrap_or(Value::Null);
+                decisions.extend(
+                    previous["findings"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter(|f| !decisions.iter().any(|d| d["id"] == f["id"]))
+                        .cloned()
+                        .collect::<Vec<_>>(),
+                );
+            }
+            preserve_decisions(&mut report, &json!({"findings":decisions}), true);
             tx.execute(
                 "UPDATE mod_scans SET status='complete',report=?1 WHERE mod_id=?2 AND hash=?3",
-                params![text, id, hash],
+                params![report.to_string(), id, hash],
             )?;
             apply_policy(&tx, &id, &report)?;
             let approved: bool = tx.query_row(
@@ -204,14 +321,48 @@ pub fn requeue_uncertain_denials(db: &mut Connection) -> anyhow::Result<usize> {
     tx.commit()?;
     Ok(count)
 }
+fn preserve_decisions(report: &mut Value, previous: &Value, same_hash: bool) {
+    for finding in report["findings"].as_array_mut().into_iter().flatten() {
+        if !finding.is_object() {
+            continue;
+        }
+        for field in ["accepted", "reason", "reviewer", "reviewed"] {
+            finding.as_object_mut().unwrap().remove(field);
+        }
+        if !same_hash {
+            continue;
+        }
+        if let Some(old) = previous["findings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .find(|old| {
+                old["reviewer"].is_number()
+                    && old["reviewed"].is_number()
+                    && [
+                        "id", "rule", "file", "line", "evidence", "severity", "title",
+                    ]
+                    .into_iter()
+                    .all(|field| old[field] == finding[field])
+            })
+        {
+            for field in ["accepted", "reason", "reviewer", "reviewed"] {
+                finding[field] = old[field].clone();
+            }
+        }
+    }
+}
 fn apply_policy(db: &Connection, id: &str, report: &Value) -> ApiResult<()> {
     let (actor, name): (i64, String) =
         db.query_row("SELECT user_id,name FROM mods WHERE id=?1", [id], |r| {
             Ok((r.get(0)?, r.get(1)?))
         })?;
-    let findings = report["findings"]
+    let findings: Vec<_> = report["findings"]
         .as_array()
-        .ok_or(bad("Invalid findings"))?;
+        .ok_or(bad("Invalid findings"))?
+        .iter()
+        .filter(|f| f["accepted"] != true)
+        .collect();
     let blocked: Vec<_> = findings
         .iter()
         .filter(|f| {
@@ -334,10 +485,11 @@ async fn queue(app: Shared, id: String, force: bool) -> ApiResult<()> {
                 "Analysis queue is full; try shortly",
             ));
         }
-        db.execute("INSERT INTO mod_scans VALUES(?1,?2,'queued','{}',?3) ON CONFLICT(mod_id) DO UPDATE SET hash=excluded.hash,status='queued',report='{}',started=excluded.started",params![id,hash,now()])?;
+        db.execute("INSERT INTO mod_scans VALUES(?1,?2,'queued','{}',?3) ON CONFLICT(mod_id) DO UPDATE SET report=CASE WHEN mod_scans.hash=excluded.hash THEN mod_scans.report ELSE '{}' END,hash=excluded.hash,status='queued',started=excluded.started",params![id,hash,now()])?;
         db.execute("INSERT INTO audit(actor,action,target,created) SELECT user_id,'scan-started',?1,?2 FROM mods WHERE id=?3",params![json!({"mod":id,"automatic":true}).to_string(),now(),id])?;
         hash
     };
+    app.live.hint("library");
     let job = PathBuf::from(root).join(Uuid::new_v4().to_string());
     tokio::spawn(async move {
         if run(app.clone(), id.clone(), hash, job.clone())
@@ -347,9 +499,15 @@ async fn queue(app: Shared, id: String, force: bool) -> ApiResult<()> {
             let _=app.db.lock().unwrap().execute("UPDATE mod_scans SET status='failed',report=?1 WHERE mod_id=?2",params![json!({"status":"failed","error":"Analysis unavailable, interrupted or over limits. Run again; it has not passed inspection.","files":[],"findings":[]}).to_string(),id]);
             let _=app.db.lock().unwrap().execute("INSERT INTO audit(actor,action,target,created) SELECT user_id,'scan-failed',?1,?2 FROM mods WHERE id=?3",params![json!({"mod":id,"reason":"Analysis unavailable, interrupted or over limits","automatic":true}).to_string(),now(),id]);
         }
+        app.live.hint("library");
         let _ = tokio::fs::remove_dir_all(job).await;
+        app.review_wake.notify_one();
     });
     Ok(())
+}
+fn next_waiting_scan(db: &Connection) -> rusqlite::Result<Option<String>> {
+    // Scan shared dependencies first, then FIFO so newer imports cannot starve older ones.
+    db.query_row("SELECT m.id FROM mods m WHERE NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id) ORDER BY EXISTS(SELECT 1 FROM mod_details d JOIN json_each(d.data,'$.dependency_ids') dep WHERE dep.value=m.id) DESC,m.rowid ASC LIMIT 1",[],|r|r.get(0)).optional()
 }
 pub fn start(app: Shared) {
     if std::env::var_os("CANNA_REVIEW_JOBS").is_none() {
@@ -358,16 +516,40 @@ pub fn start(app: Shared) {
     tokio::spawn(async move {
         let mut interval = tokio::time::interval(std::time::Duration::from_secs(5));
         loop {
-            interval.tick().await;
-            let id: Option<String> = {
-                let db = app.db.lock().unwrap();
-                db.query_row("SELECT id FROM mods WHERE NOT EXISTS(SELECT 1 FROM mod_scans WHERE mod_id=mods.id) ORDER BY rowid DESC LIMIT 1",[],|r|r.get(0)).optional().unwrap_or(None)
-            };
-            if let Some(id) = id {
-                let _ = queue(app.clone(), id, false).await;
+            tokio::select! {
+                _ = interval.tick() => {},
+                _ = app.review_wake.notified() => {},
+            }
+            // Fill the bounded spool immediately; finishing a scan wakes us again.
+            for _ in 0..2 {
+                let id = {
+                    let db = app.db.lock().unwrap();
+                    next_waiting_scan(&db).unwrap_or(None)
+                };
+                let Some(id) = id else { break };
+                if let Err(error) = queue(app.clone(), id.clone(), false).await {
+                    if error.0 == StatusCode::TOO_MANY_REQUESTS {
+                        break;
+                    }
+                    // An unavailable archive must not stall every later import.
+                    let db = app.db.lock().unwrap();
+                    let _ = mark_unavailable(&db, &id);
+                    app.live.hint("library");
+                }
             }
         }
     });
+}
+fn mark_unavailable(db: &Connection, id: &str) -> rusqlite::Result<()> {
+    let report = json!({"status":"failed","error":"Could not prepare the archive for analysis. Retry analysis after checking its source and server logs.","files":[],"findings":[]});
+    if db.execute(
+        "INSERT OR IGNORE INTO mod_scans SELECT id,sha256,'failed',?1,?2 FROM mods WHERE id=?3",
+        params![report.to_string(), now(), id],
+    )? > 0
+    {
+        db.execute("INSERT INTO audit(actor,action,target,created) SELECT user_id,'scan-prepare-failed',?1,?2 FROM mods WHERE id=?3",params![json!({"mod":id,"automatic":true,"reason":"Archive unavailable for analysis"}).to_string(),now(),id])?;
+    }
+    Ok(())
 }
 pub async fn report(
     State(app): State<Shared>,
@@ -461,6 +643,7 @@ pub async fn decision(
     finding["reason"] = json!(input.reason.trim());
     finding["reviewer"] = json!(actor);
     finding["reviewed"] = json!(now());
+    tx.execute("INSERT INTO mod_scan_decisions VALUES(?1,?2,?3,?4) ON CONFLICT(mod_id,hash,finding_id) DO UPDATE SET decision=excluded.decision",params![id,hash,fid,finding.to_string()])?;
     tx.execute(
         "UPDATE mod_scans SET report=?1 WHERE mod_id=?2",
         params![report.to_string(), id],
@@ -485,6 +668,144 @@ pub async fn decision(
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[test]
+    fn rescan_preserves_only_identical_exact_hash_review_decisions() {
+        let finding = json!({"id":"one","rule":"packing-review","file":"plugin.dll","line":null,"evidence":"Generic","severity":"high","title":"Heuristic"});
+        let mut old = finding.clone();
+        old["accepted"] = json!(true);
+        old["reason"] = json!("Reviewed false positive");
+        old["reviewer"] = json!(1);
+        old["reviewed"] = json!(10);
+        let previous = json!({"findings":[old]});
+        let mut report = json!({"findings":[finding.clone()]});
+        preserve_decisions(&mut report, &previous, true);
+        assert_eq!(report["findings"][0]["accepted"], true);
+        preserve_decisions(&mut report, &previous, false);
+        assert!(report["findings"][0]["accepted"].is_null());
+        report["findings"][0]["evidence"] = json!("Different detection");
+        preserve_decisions(&mut report, &previous, true);
+        assert!(report["findings"][0]["accepted"].is_null());
+    }
+    #[tokio::test]
+    async fn interrupted_rescan_keeps_hash_bound_decisions_for_the_retry() {
+        let (_dir, app) = fixture();
+        account(&app, "decision-owner", true);
+        let id = external::store(
+            &app,
+            1,
+            1557740,
+            "Decision fixture",
+            "1",
+            "",
+            "decision-test",
+            &json!({}),
+            b"PK\x05\x06test",
+        )
+        .await
+        .unwrap();
+        let db = app.db.lock().unwrap();
+        let report = json!({"findings":[{"id":"finding","accepted":true,"reviewer":1,"reviewed":10,"reason":"Exact false positive"}]});
+        db.execute(
+            "INSERT INTO mod_scans VALUES(?1,'unchanged-hash','queued',?2,0)",
+            params![id, report.to_string()],
+        )
+        .unwrap();
+        initialize(&db).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM mod_scans WHERE mod_id=?1",
+                [&id],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM mod_scan_decisions WHERE mod_id=?1 AND hash='unchanged-hash'",
+                [&id],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+        initialize(&db).unwrap();
+        assert_eq!(
+            db.query_row("SELECT COUNT(*) FROM mod_scan_decisions", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            1
+        );
+    }
+    #[tokio::test]
+    async fn member_download_status_distinguishes_analysis_review_failure_and_ready() {
+        let (_dir, app) = fixture();
+        let member = account(&app, "status-member", false);
+        let id = external::store(
+            &app,
+            1,
+            1557740,
+            "Status fixture",
+            "1",
+            "",
+            "status-test",
+            &json!({"provider":"thunderstore"}),
+            b"PK\x05\x06test",
+        )
+        .await
+        .unwrap();
+        let path = format!("/api/v1/mods/{id}/status");
+        assert_eq!(
+            call(app.clone(), "GET", &path, Value::Null, None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert_eq!(
+            value(call(app.clone(), "GET", &path, Value::Null, Some(&member)).await).await["state"],
+            "waiting"
+        );
+        {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "INSERT INTO mod_scans VALUES(?1,'hash','complete',?2,0)",
+                params![
+                    id,
+                    json!({"findings":[{"evidence":"private code","accepted":false}]}).to_string()
+                ],
+            )
+            .unwrap();
+        }
+        let status = value(call(app.clone(), "GET", &path, Value::Null, Some(&member)).await).await;
+        assert_eq!(status["state"], "needs_review");
+        assert!(!status.to_string().contains("private code"));
+        {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "UPDATE mod_scans SET status='failed' WHERE mod_id=?1",
+                [&id],
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            value(call(app.clone(), "GET", &path, Value::Null, Some(&member)).await).await["state"],
+            "failed"
+        );
+        {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "UPDATE mod_scans SET status='complete',report='{\"findings\":[]}' WHERE mod_id=?1",
+                [&id],
+            )
+            .unwrap();
+            db.execute("UPDATE mod_reviews SET approved=1 WHERE mod_id=?1", [&id])
+                .unwrap();
+        }
+        assert_eq!(
+            value(call(app, "GET", &path, Value::Null, Some(&member)).await).await["state"],
+            "ready"
+        );
+    }
     #[test]
     fn corrected_scanner_requeues_only_automatic_uncertain_denials() {
         let (_dir, app) = fixture();
@@ -618,6 +939,89 @@ mod tests {
             db.query_row(
                 "SELECT status FROM mod_scans WHERE mod_id='reviewed'",
                 [],
+                |r| r.get::<_, String>(0)
+            )
+            .unwrap(),
+            "complete"
+        );
+    }
+    #[test]
+    fn queue_scans_dependencies_first_then_oldest_imports() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch("CREATE TABLE mods(id TEXT PRIMARY KEY); CREATE TABLE mod_details(mod_id TEXT,data TEXT); INSERT INTO mods VALUES('old-parent'),('shared-dependency'),('new-import'); INSERT INTO mod_details VALUES('old-parent','{\"dependency_ids\":[\"shared-dependency\"]}');").unwrap();
+        initialize(&db).unwrap();
+        assert_eq!(
+            next_waiting_scan(&db).unwrap().as_deref(),
+            Some("shared-dependency")
+        );
+        db.execute_batch(
+            "INSERT INTO mod_scans VALUES('shared-dependency','hash','complete','{}',0);",
+        )
+        .unwrap();
+        assert_eq!(
+            next_waiting_scan(&db).unwrap().as_deref(),
+            Some("old-parent")
+        );
+        db.execute_batch("INSERT INTO mod_scans VALUES('old-parent','hash','queued','{}',0);")
+            .unwrap();
+        assert_eq!(
+            next_waiting_scan(&db).unwrap().as_deref(),
+            Some("new-import")
+        );
+    }
+    #[tokio::test]
+    async fn unavailable_archive_does_not_starve_later_imports_or_erase_reviews() {
+        let (_dir, app) = fixture();
+        account(&app, "queue-owner", true);
+        let first = external::store(
+            &app,
+            1,
+            1557740,
+            "Missing",
+            "1",
+            "",
+            "queue-missing",
+            &json!({}),
+            b"PK\x05\x06missing",
+        )
+        .await
+        .unwrap();
+        let second = external::store(
+            &app,
+            1,
+            1557740,
+            "Next",
+            "1",
+            "",
+            "queue-next",
+            &json!({}),
+            b"PK\x05\x06next",
+        )
+        .await
+        .unwrap();
+        let db = app.db.lock().unwrap();
+        mark_unavailable(&db, &first).unwrap();
+        mark_unavailable(&db, &first).unwrap();
+        assert_eq!(next_waiting_scan(&db).unwrap(), Some(second.clone()));
+        assert_eq!(
+            db.query_row(
+                "SELECT COUNT(*) FROM audit WHERE action='scan-prepare-failed'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+        db.execute(
+            "INSERT INTO mod_scans VALUES(?1,'hash','complete','{}',0)",
+            [&second],
+        )
+        .unwrap();
+        mark_unavailable(&db, &second).unwrap();
+        assert_eq!(
+            db.query_row(
+                "SELECT status FROM mod_scans WHERE mod_id=?1",
+                [second],
                 |r| r.get::<_, String>(0)
             )
             .unwrap(),

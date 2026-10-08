@@ -697,8 +697,8 @@ impl Website {
                         let row_key = format!("{}:{}", item.app_id, item.sha256);
                         let mut chosen = selected.map(|p| p.id.clone()).or_else(|| self.destinations.get(&row_key).cloned()).unwrap_or_default();
                         ui.horizontal(|ui| {
-                            egui::ComboBox::from_id_salt((&item.sha256, item.app_id)).selected_text(packs.iter().find(|p| p.id == chosen).map(|p| p.name.as_str()).unwrap_or("Choose modpack")).show_ui(ui, |ui| {
-                                for p in packs.iter().filter(|p| p.game.app_id == item.app_id) { ui.selectable_value(&mut chosen, p.id.clone(), &p.name); }
+                            egui::ComboBox::from_id_salt((&item.sha256, item.app_id)).height(340.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).selected_text(packs.iter().find(|p| p.id == chosen).map(|p| p.name.as_str()).unwrap_or("Choose modpack")).show_ui(ui, |ui| {
+                                let choices=packs.iter().filter(|p|p.game.app_id==item.app_id).map(|p|(p.id.clone(),p.name.clone())).collect::<Vec<_>>();crate::ui_helpers::searchable_options(ui,&mut chosen,&choices);
                             });
                             // Preserve the row selection between frames separately from the active tab.
                             if !chosen.is_empty() { self.destinations.insert(format!("{}:{}", item.app_id, item.sha256), chosen.clone()); }

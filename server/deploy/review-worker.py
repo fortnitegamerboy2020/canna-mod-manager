@@ -2,6 +2,7 @@
 """Static analysis only. Run under the isolated canna-review systemd service."""
 import hashlib,json,os,re,shutil,signal,stat,subprocess,time,zipfile,struct,math
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
 VERSION='canna-static-5'
@@ -225,14 +226,29 @@ def once(job):
  tmp=job/'result.tmp';tmp.write_text(json.dumps(report),encoding='utf-8');os.chmod(tmp,0o660);tmp.rename(job/'result.json')
  (job/'input.zip').unlink(missing_ok=True);(job/'ready').unlink(missing_ok=True)
 
+def ready_jobs(root):
+ # UUID names are random. Use arrival time so a newer job cannot jump the queue.
+ jobs=[]
+ for ready in root.glob('*/ready'):
+  try:
+   if ready.parent.is_symlink() or not re.fullmatch('[0-9a-f-]{36}',ready.parent.name):continue
+   jobs.append((ready.stat().st_mtime_ns,str(ready.parent),ready.parent))
+  except FileNotFoundError:continue
+ return [job for _,_,job in sorted(jobs)]
+
 def main():
  os.umask(0o007)
- while True:
-  for result in ROOT.glob('*/result.json'):
-   if time.time()-result.stat().st_mtime>7200:shutil.rmtree(result.parent,ignore_errors=True)
-  for ready in sorted(ROOT.glob('*/ready')):
-   job=ready.parent
-   if job.is_symlink() or not re.fullmatch('[0-9a-f-]{36}',job.name):continue
-   once(job)
-  time.sleep(1)
+ workers=max(1,min(2,int(os.environ.get('CANNA_REVIEW_WORKERS','1'))))
+ with ProcessPoolExecutor(max_workers=workers) as pool:
+  active={}
+  while True:
+   for job,future in list(active.items()):
+    if future.done():
+     future.result();del active[job]
+   for result in ROOT.glob('*/result.json'):
+    if time.time()-result.stat().st_mtime>7200:shutil.rmtree(result.parent,ignore_errors=True)
+   for job in ready_jobs(ROOT):
+    if len(active)>=workers:break
+    if job not in active:active[job]=pool.submit(once,job)
+   time.sleep(0.25)
 if __name__=='__main__':main()

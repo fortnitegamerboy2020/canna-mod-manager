@@ -245,16 +245,21 @@ impl Skins {
                         .desired_width(330.0),
                 );
                 egui::ComboBox::from_id_salt("skin-source")
+                    .height(340.0)
+                    .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                     .selected_text(if self.source.is_empty() {
                         "All sources"
                     } else {
                         &self.source
                     })
                     .show_ui(ui, |ui| {
-                        ui.selectable_value(&mut self.source, String::new(), "All sources");
-                        for source in ["MinecraftSkins.net", "SkinsMC", "Skindex"] {
-                            ui.selectable_value(&mut self.source, source.into(), source);
-                        }
+                        let mut choices = vec![(String::new(), "All sources".into())];
+                        choices.extend(
+                            ["MinecraftSkins.net", "SkinsMC", "Skindex"]
+                                .iter()
+                                .map(|name| (name.to_string(), name.to_string())),
+                        );
+                        crate::ui_helpers::searchable_options(ui, &mut self.source, &choices);
                     });
                 if ui
                     .add_enabled(

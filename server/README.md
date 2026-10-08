@@ -248,3 +248,14 @@ copied to the primary disk because Droplet backups do not cover the separate Vol
 
 See `../scripts/WORKFLOW-TESTS.md` for coverage and live-check limitations. This
 release adds shared profiles/tools, not a verified live session in every game.
+
+## Analysis queue (0.3.54)
+
+The scheduler fills two bounded spool slots. The isolated worker defaults to one archive
+at a time under its existing memory and timeout limits; production uses two analyzer processes with a 2800M service cap on the upgraded 4 GiB host. Set CANNA_REVIEW_WORKERS=2 only with adequate memory. Shared dependencies receive priority, then imports are FIFO.
+The worker uses ready-file arrival timestamps instead of random UUID order. A
+completed or failed job wakes the scheduler; the periodic tick remains a fallback.
+Archive preparation failures are audited and exposed for staff retry rather than
+blocking every later import. Completed findings and exact-hash review decisions
+survive restarts; interrupted jobs are requeued. Administrator pages show queue
+totals, scan state and unresolved dependency links. Approval checks remain enforced.

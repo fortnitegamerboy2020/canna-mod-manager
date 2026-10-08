@@ -140,7 +140,7 @@ window.addEventListener('pageshow',event=>{if(event.persisted)location.reload();
 
 // Only the displayed page is rendered; searches run across the server's full list.
 const listPages=new Map();
-async function pagedList(path,id,reload,searchId) {
+async function pagedList(path,id,reload,searchId,onPage) {
  let state=listPages.get(id);
  if(!state){
   state={page:1,serial:0};listPages.set(id,state);
@@ -157,6 +157,7 @@ async function pagedList(path,id,reload,searchId) {
  const serial=++state.serial;
  const result=await(await api(path+'?'+new URLSearchParams({page:state.page,search:state.search.value||''}))).json();
  if(serial!==state.serial)throw new Error('List changed. Loading the latest search…');
+ if(onPage)onPage(result);
  const rows=Array.isArray(result)?result:result.items;
  const total=Array.isArray(result)?rows.length:result.total;
  state.previous.disabled=state.page<=1;state.next.disabled=state.page*50>=total;

@@ -656,6 +656,15 @@ pub fn update_profile(d: &Value) -> (String, String) {
     (loader, version)
 }
 pub async fn import_background(app: &App, user: i64, input: Link) -> ApiResult<Value> {
+    let (project, release) = selection(&input).await?;
+    let origin = format!("{}:{}:{}", project.provider, project.id, release.id);
+    if let Some(id) = existing(app, &origin)? {
+        let db = app.db.lock().unwrap();
+        provider_cache::track(&db, &id)?;
+        return Ok(
+            json!({"id":id,"existing":true,"approved":security::approved(&db,&id).is_ok(),"dependencies_added":0,"dependency_count":details(&db,&id)?["dependency_ids"].as_array().map(Vec::len).unwrap_or(0)}),
+        );
+    }
     let (root, nodes, edges, order) = dependency_graph(input).await?;
     let mut ids = std::collections::BTreeMap::<String, String>::new();
     let mut imported = 0;
@@ -791,7 +800,7 @@ async fn import_one(
     if let Some(id) = existing(app, &origin)? {
         let db = app.db.lock().unwrap();
         let mut data = details(&db, &id)?;
-        data["dependency_ids"] = json!(deps);
+        // Reusing a release must retain the exact dependency graph already reviewed.
         if project.provider == "thunderstore"
             && let Some(loader) = game_profiles::loader(&project.id)
         {
@@ -1445,6 +1454,54 @@ mod tests {
             loader: String::new(),
             include_optional: false,
         }
+    }
+    #[tokio::test]
+    async fn repeated_release_keeps_reviewed_dependency_pins_and_scan_decisions() {
+        let (_dir, app) = crate::tests::fixture();
+        crate::tests::account(&app, "repeat-owner", true);
+        let input = graph_input("Repeated");
+        let (project, release) = graph_fixture(&input, "1.0.0", json!([]), false);
+        let id = store(
+            &app,
+            1,
+            1557740,
+            "Repeated",
+            "1.0.0",
+            "",
+            "thunderstore:Test-Repeated:1.0.0",
+            &json!({"provider":"thunderstore","dependency_ids":["reviewed-old-pin"]}),
+            b"PK\x05\x06test",
+        )
+        .await
+        .unwrap();
+        {
+            let db = app.db.lock().unwrap();
+            db.execute("INSERT INTO mod_scans VALUES(?1,'hash','complete','{\"findings\":[{\"accepted\":true}]}',0)",[&id]).unwrap();
+        }
+        let (same, reused) = import_one(
+            &app,
+            1,
+            &input,
+            &project,
+            &release,
+            &["new-unreviewed-pin".into()],
+        )
+        .await
+        .unwrap();
+        assert!(reused);
+        assert_eq!(same, id);
+        let db = app.db.lock().unwrap();
+        assert_eq!(
+            details(&db, &id).unwrap()["dependency_ids"],
+            json!(["reviewed-old-pin"])
+        );
+        assert!(
+            db.query_row("SELECT report FROM mod_scans WHERE mod_id=?1", [id], |r| {
+                r.get::<_, String>(0)
+            })
+            .unwrap()
+            .contains("true")
+        );
     }
     #[tokio::test]
     async fn rounds_reported_mods_resolve_recursive_latest_dependencies_once() {

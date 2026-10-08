@@ -141,6 +141,7 @@ fn library_rows(
             ));
         }
     }
+    rows.sort_by_key(|row| (!row.2, row.1.to_lowercase()));
     rows
 }
 impl Canna {
@@ -818,7 +819,7 @@ impl Canna {
                     },
                 );
             }
-            games.sort_by_key(|g| g.app_id != u32::MAX);
+            games.sort_by_key(|g| g.name.to_lowercase());
             egui::ScrollArea::vertical().show(ui, |ui| {
                 let columns = ((ui.available_width() / 220.0) as usize).max(1);
                 egui::Grid::new("discover_game_grid")

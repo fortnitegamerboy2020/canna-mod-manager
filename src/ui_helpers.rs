@@ -3,6 +3,50 @@ use eframe::egui;
 pub const CONTROL_RADIUS: u8 = 10;
 pub const SURFACE_RADIUS: u8 = 16;
 
+pub fn filter_options<T: Clone + PartialEq>(
+    ui: &mut egui::Ui,
+    value: &mut T,
+    query: &mut String,
+    choices: &[(T, String)],
+) -> egui::Response {
+    ui.set_min_width(230.0);
+    let search = ui.add(
+        egui::TextEdit::singleline(query)
+            .hint_text("Search options…")
+            .desired_width(230.0)
+            .char_limit(80),
+    );
+    let query = query.trim().to_lowercase();
+    let mut sorted: Vec<_> = choices
+        .iter()
+        .filter(|(_, name)| name.to_lowercase().contains(&query))
+        .collect();
+    sorted.sort_by_key(|(_, name)| name.to_lowercase());
+    if sorted.is_empty() {
+        ui.label("No matching options");
+    }
+    for (option, name) in sorted {
+        if ui.selectable_value(value, option.clone(), name).clicked() {
+            ui.close();
+        }
+    }
+    search
+}
+
+pub fn searchable_options<T: Clone + PartialEq>(
+    ui: &mut egui::Ui,
+    value: &mut T,
+    choices: &[(T, String)],
+) {
+    let id = ui.id().with("option-search");
+    let mut query = ui
+        .ctx()
+        .data_mut(|d| d.get_temp::<String>(id))
+        .unwrap_or_default();
+    filter_options(ui, value, &mut query, choices);
+    ui.ctx().data_mut(|d| d.insert_temp(id, query));
+}
+
 /// Keep form controls reachable when headers consume a compact viewport.
 pub fn responsive_page<R>(
     ui: &mut egui::Ui,
@@ -133,6 +177,84 @@ pub fn context_menu(response: &egui::Response, contents: impl FnOnce(&mut egui::
 #[cfg(test)]
 mod page_scroll_tests {
     use super::*;
+    #[test]
+    fn option_search_sorts_labels_without_changing_selection() {
+        let ctx = egui::Context::default();
+        let choices = vec![
+            ("z".to_owned(), "Zulu".to_owned()),
+            ("a".into(), "alpha".into()),
+            ("b".into(), "Beta".into()),
+        ];
+        let mut selected = "b".to_owned();
+        let mut query = String::new();
+        let mut search_rect = egui::Rect::NOTHING;
+        let input = |events| egui::RawInput {
+            screen_rect: Some(egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(640.0, 480.0),
+            )),
+            events,
+            ..Default::default()
+        };
+        let mut frame = |events| {
+            ctx.run(input(events), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    search_rect = filter_options(ui, &mut selected, &mut query, &choices).rect;
+                });
+            })
+        };
+        frame(vec![]);
+        let output = frame(vec![]);
+        let labels: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) if choices.iter().any(|(_, name)| name == t.galley.text()) => {
+                    Some(t.galley.text().to_owned())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(labels, vec!["alpha", "Beta", "Zulu"]);
+        drop(frame);
+        let point = search_rect.center();
+        for pressed in [true, false] {
+            let _ = ctx.run(
+                input(vec![
+                    egui::Event::PointerMoved(point),
+                    egui::Event::PointerButton {
+                        pos: point,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Default::default(),
+                    },
+                ]),
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        filter_options(ui, &mut selected, &mut query, &choices);
+                    });
+                },
+            );
+        }
+        let output = ctx.run(input(vec![egui::Event::Text("ALPHA".into())]), |ctx| {
+            egui::CentralPanel::default().show(ctx, |ui| {
+                filter_options(ui, &mut selected, &mut query, &choices);
+            });
+        });
+        assert_eq!(query, "ALPHA");
+        assert_eq!(selected, "b", "Typing must not change the chosen filter");
+        let labels: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|s| match &s.shape {
+                egui::Shape::Text(t) if choices.iter().any(|(_, name)| name == t.galley.text()) => {
+                    Some(t.galley.text().to_owned())
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(labels, vec!["alpha"]);
+    }
     #[test]
     fn compact_page_scrolls_controls_that_would_be_below_the_window() {
         let ctx = egui::Context::default();

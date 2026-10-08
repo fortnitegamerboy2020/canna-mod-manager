@@ -76,6 +76,8 @@ pub fn content_target_ui(
 ) -> Option<(Instance, String)> {
     let all = instances();
     egui::ComboBox::from_id_salt("provider-minecraft-instance")
+        .height(340.0)
+        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
         .selected_text(
             all.iter()
                 .find(|i| i.id == *selected)
@@ -83,15 +85,17 @@ pub fn content_target_ui(
                 .unwrap_or("Choose a Minecraft instance"),
         )
         .show_ui(ui, |ui| {
-            for i in &all {
-                if content_compatible(i, item) {
-                    ui.selectable_value(
-                        selected,
+            let choices = all
+                .iter()
+                .filter(|i| content_compatible(i, item))
+                .map(|i| {
+                    (
                         i.id.clone(),
                         format!("{} · {} · {}", i.name, i.version, i.loader),
-                    );
-                }
-            }
+                    )
+                })
+                .collect::<Vec<_>>();
+            crate::ui_helpers::searchable_options(ui, selected, &choices);
         });
     let instance = all
         .iter()
@@ -105,15 +109,19 @@ pub fn content_target_ui(
             .filter_map(|e| e.file_name().into_string().ok())
             .collect::<Vec<_>>();
         egui::ComboBox::from_id_salt("provider-minecraft-world")
+            .height(340.0)
+            .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
             .selected_text(if world.is_empty() {
                 "Choose a world"
             } else {
                 world.as_str()
             })
             .show_ui(ui, |ui| {
-                for name in &worlds {
-                    ui.selectable_value(world, name.clone(), name);
-                }
+                let choices = worlds
+                    .iter()
+                    .map(|name| (name.clone(), name.clone()))
+                    .collect::<Vec<_>>();
+                crate::ui_helpers::searchable_options(ui, world, &choices);
             });
         if !worlds.contains(world) {
             return None;
@@ -1143,11 +1151,20 @@ impl Minecraft {
                 ui.horizontal(|ui| {
                     ui.label("Minecraft version");
                     egui::ComboBox::from_id_salt("minecraft-version")
+                        .height(340.0)
+                        .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                         .selected_text(&self.draft.version)
                         .show_ui(ui, |ui| {
-                            for v in &self.versions {
-                                ui.selectable_value(&mut self.draft.version, v.clone(), v);
-                            }
+                            let choices = self
+                                .versions
+                                .iter()
+                                .map(|v| (v.clone(), v.clone()))
+                                .collect::<Vec<_>>();
+                            crate::ui_helpers::searchable_options(
+                                ui,
+                                &mut self.draft.version,
+                                &choices,
+                            );
                         });
                     ui.text_edit_singleline(&mut self.draft.version);
                     if ui

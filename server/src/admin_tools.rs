@@ -4,6 +4,107 @@ mod wallet_tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
     #[tokio::test]
+    async fn review_cards_include_analysis_progress_and_unresolved_counts() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "review-owner", true);
+        let member = account(&app, "review-member", false);
+        let mut ids = std::collections::HashMap::new();
+        for (name, status) in [
+            ("Waiting", "pending"),
+            ("Working", "queued"),
+            ("Flagged", "complete"),
+            ("Failed", "failed"),
+        ] {
+            let id = external::store(
+                &app,
+                1,
+                1557740,
+                name,
+                "1",
+                "",
+                &format!("test-progress-{name}"),
+                &json!({"provider":"thunderstore"}),
+                format!("PK\x05\x06{name}").as_bytes(),
+            )
+            .await
+            .unwrap();
+            ids.insert(name, id.clone());
+            let db = app.db.lock().unwrap();
+            db.execute("UPDATE mod_reviews SET approved=0 WHERE mod_id=?1", [&id])
+                .unwrap();
+            if status != "pending" {
+                let report = if status == "complete" {
+                    json!({"findings":[{"title":"Generic heuristic","accepted":false},{"title":"Reviewed finding","accepted":true}]})
+                } else {
+                    json!({"error":"Retry this scan"})
+                };
+                db.execute(
+                    "INSERT INTO mod_scans VALUES(?1,'hash',?2,?3,10)",
+                    params![id, status, report.to_string()],
+                )
+                .unwrap();
+            }
+        }
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE mod_details SET data=?1 WHERE mod_id=?2",
+                params![
+                    json!({"provider":"thunderstore","dependency_ids":[ids["Waiting"]]})
+                        .to_string(),
+                    ids["Flagged"]
+                ],
+            )
+            .unwrap();
+        assert_eq!(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/admin/mod-reviews",
+                Value::Null,
+                Some(&member)
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        let result = value(
+            call(
+                app,
+                "GET",
+                "/api/v1/admin/mod-reviews?page=1",
+                Value::Null,
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(
+            result["queue"],
+            json!({"waiting":1,"scheduled":1,"failed":1})
+        );
+        let items = result["items"].as_array().unwrap();
+        for (name, status) in [
+            ("Waiting", "pending"),
+            ("Working", "queued"),
+            ("Flagged", "complete"),
+            ("Failed", "failed"),
+        ] {
+            let item = items.iter().find(|m| m["name"] == name).unwrap();
+            assert_eq!(item["analysis_status"], status);
+            assert_eq!(
+                item["unresolved_findings"],
+                if name == "Flagged" { 1 } else { 0 }
+            );
+            if name == "Flagged" {
+                assert_eq!(item["analysis_reason"], "Generic heuristic");
+                assert_eq!(item["dependency_blockers"][0]["name"], "Waiting");
+                assert_eq!(item["dependency_blockers"][0]["status"], "pending");
+            }
+        }
+    }
+    #[tokio::test]
     async fn only_owner_can_change_kash_with_a_logged_reason() {
         let (_dir, app) = fixture();
         let owner = account(&app, "owner", true);
@@ -174,8 +275,85 @@ pub async fn reviews(
     let db = app.db.lock().unwrap();
     let total:i64=db.query_row("SELECT COUNT(*) FROM mods m JOIN mod_reviews r ON r.mod_id=m.id JOIN users u ON u.id=m.user_id WHERE r.approved=0 AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') AND instr(lower(m.name || u.username),lower(?1))>0",[page.term()],|r|r.get(0))?;
     let mut statement=db.prepare("SELECT m.id,m.name,m.version,m.app_id,m.size,u.username FROM mods m JOIN mod_reviews r ON r.mod_id=m.id JOIN users u ON u.id=m.user_id WHERE r.approved=0 AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') AND instr(lower(m.name || u.username),lower(?1))>0 ORDER BY m.rowid DESC LIMIT ?2 OFFSET ?3")?;
-    let values=statement.query_map(params![page.term(),page.limit(200),page.offset()],|r|Ok(json!({"id":r.get::<_,String>(0)?,"name":r.get::<_,String>(1)?,"version":r.get::<_,String>(2)?,"app_id":r.get::<_,i64>(3)?,"size":r.get::<_,i64>(4)?,"author":r.get::<_,String>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
-    Ok(axum::Json(page.response(values, total)))
+    let mut values=statement.query_map(params![page.term(),page.limit(200),page.offset()],|r|Ok(json!({"id":r.get::<_,String>(0)?,"name":r.get::<_,String>(1)?,"version":r.get::<_,String>(2)?,"app_id":r.get::<_,i64>(3)?,"size":r.get::<_,i64>(4)?,"author":r.get::<_,String>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
+    for item in &mut values {
+        let id = item["id"].as_str().unwrap();
+        let scan: Option<(String, String, i64)> = db
+            .query_row(
+                "SELECT status,report,started FROM mod_scans WHERE mod_id=?1",
+                [id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+            )
+            .optional()?;
+        let (status, report, started) = scan.unwrap_or_else(|| ("pending".into(), "{}".into(), 0));
+        let report: Value = serde_json::from_str(&report).unwrap_or(Value::Null);
+        let findings: Vec<_> = report["findings"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|f| f["accepted"] != true)
+            .collect();
+        item["analysis_status"] = json!(status);
+        item["analysis_started"] = json!(started);
+        item["unresolved_findings"] = json!(findings.len());
+        item["analysis_reason"] = json!(if status == "failed" {
+            report["error"]
+                .as_str()
+                .unwrap_or("Analysis failed; retry the scan")
+                .to_owned()
+        } else {
+            findings
+                .iter()
+                .take(3)
+                .filter_map(|f| f["title"].as_str())
+                .collect::<Vec<_>>()
+                .join("; ")
+        });
+        let dependencies = db.prepare("WITH RECURSIVE deps(id) AS (SELECT dep.value FROM mod_details d JOIN json_each(d.data,'$.dependency_ids') dep WHERE d.mod_id=?1 UNION SELECT dep.value FROM deps JOIN mod_details d ON d.mod_id=deps.id JOIN json_each(d.data,'$.dependency_ids') dep) SELECT deps.id,COALESCE(m.name,'Missing dependency'),s.status,s.report FROM deps LEFT JOIN mods m ON m.id=deps.id LEFT JOIN mod_scans s ON s.mod_id=deps.id LIMIT 129")?.query_map([item["id"].as_str().unwrap()],|r|Ok((r.get::<_,String>(0)?,r.get::<_,String>(1)?,r.get::<_,Option<String>>(2)?,r.get::<_,Option<String>>(3)?)))?.collect::<Result<Vec<_>,_>>()?;
+        let blockers: Vec<_> = dependencies
+            .into_iter()
+            .filter_map(|(id, name, status, report)| {
+                let report: Value = report
+                    .and_then(|r| serde_json::from_str(&r).ok())
+                    .unwrap_or(Value::Null);
+                let unresolved = report["findings"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|f| f["accepted"] != true)
+                    .count();
+                let status = status.unwrap_or_else(|| "pending".into());
+                (status != "complete" || unresolved > 0)
+                    .then(|| json!({"id":id,"name":name,"status":status,"unresolved":unresolved}))
+            })
+            .collect();
+        item["dependency_blockers"] = json!(blockers);
+        item["review_reason"] = json!(
+            db.query_row(
+                "SELECT reason FROM mod_submissions WHERE id=?1",
+                [item["id"].as_str().unwrap()],
+                |r| r.get::<_, String>(0)
+            )
+            .optional()?
+            .unwrap_or_default()
+        );
+    }
+    let mut response = page.response(values, total);
+    if response.is_object() {
+        let waiting:i64=db.query_row("SELECT COUNT(*) FROM mods m WHERE NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id)",[],|r|r.get(0))?;
+        let scheduled: i64 = db.query_row(
+            "SELECT COUNT(*) FROM mod_scans WHERE status='queued'",
+            [],
+            |r| r.get(0),
+        )?;
+        let failed: i64 = db.query_row(
+            "SELECT COUNT(*) FROM mod_scans WHERE status='failed'",
+            [],
+            |r| r.get(0),
+        )?;
+        response["queue"] = json!({"waiting":waiting,"scheduled":scheduled,"failed":failed});
+    }
+    Ok(axum::Json(response))
 }
 pub async fn revoke_sessions(
     State(app): State<Shared>,

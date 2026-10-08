@@ -2,10 +2,16 @@
 
 A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and the private Canna server as the mod catalog. Uploads and external imports are managed on the website.
 
-Canna 0.2.31 uses a compact icon sidebar and a borderless window. The yellow
-button in the top right minimizes; the red button beside it closes Canna. Drag
+Canna 0.2.36 uses a compact icon sidebar and a borderless window. The yellow
+button in the top right minimizes; green maximizes/restores; red closes Canna. Drag
 the header to move the window, or double-click it to maximize/restore. Hover
 sidebar icons for their names. Drag any window edge or corner to resize.
+
+Filter menus and pack selectors have search boxes and alphabetical options. Installed
+games appear alphabetically before supported games that are not installed. ROUNDS
+uses its game cover. Website Play Lab uses numbered expandable cards. Mod reviews
+show scan progress, dependency blockers, retries and queue totals; shared libraries
+scan first. Public Help / FAQ describes the current workflow and verification limits.
 
 ## Run
 

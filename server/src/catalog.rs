@@ -60,7 +60,7 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
         (550, "Left 4 Dead 2", "left-4-dead-2", "source-vpk"),
         (500, "Left 4 Dead", "left-4-dead", "source-vpk"),
     ] {
-        games.insert(id, json!({"app_id":id,"name":name,"folder":folder,"framework":framework,"icon":if id==1686940 || id==1557740 {"icon.png"} else {""},"description":if framework=="source-vpk" {"VPK addon packs; modded launches use -insecure practice mode"} else {"Unity modpacks with BepInEx"},"mods":[],"mod_folder_status":"Server library ready"}));
+        games.insert(id, json!({"app_id":id,"name":name,"folder":folder,"framework":framework,"icon":match id {1686940=>"icon.png",1557740=>"game.jpg",_=>""},"description":if framework=="source-vpk" {"VPK addon packs; modded launches use -insecure practice mode"} else {"Unity modpacks with BepInEx"},"mods":[],"mod_folder_status":"Server library ready"}));
     }
     for profile in game_profiles::games() {
         games.entry(profile.app_id).or_insert_with(||json!({"app_id":profile.app_id,"name":profile.name,"folder":profile.folder,"framework":"bepinex","icon":"","description":"Thunderstore BepInEx profile - preview; requires a compatible reviewed loader","mods":[],"mod_folder_status":"Game profile available"}));

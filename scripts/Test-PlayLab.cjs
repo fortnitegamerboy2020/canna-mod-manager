@@ -43,6 +43,7 @@ const {chromium}=require(process.env.CANNA_PLAYWRIGHT_MODULE||'playwright');
   await page.waitForFunction(()=>requests.some(x=>x.includes('page=2')));
   assert.deepEqual(errors,[]);assert.deepEqual(await page.evaluate(()=>errors),[]);
   assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth+1),`horizontal overflow at ${width}`);
+  await page.screenshot({path:`target/play-lab-${width}.png`});
   await page.close();
  }
  console.log('Play Lab desktop/mobile workflow and privacy checks passed');

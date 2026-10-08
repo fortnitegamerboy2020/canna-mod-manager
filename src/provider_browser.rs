@@ -59,6 +59,7 @@ enum Kind {
     Preview,
     Subscriptions,
     Import,
+    Status,
     Download,
     Remove,
     Install,
@@ -67,6 +68,12 @@ struct Job {
     kind: Kind,
     rx: Receiver<Result<Value, String>>,
     session: String,
+}
+#[derive(Clone)]
+struct PendingDownload {
+    id: String,
+    pack: Option<String>,
+    paused: bool,
 }
 pub struct Browser {
     pub mode: u8,
@@ -99,6 +106,9 @@ pub struct Browser {
     game_search_rect: Option<egui::Rect>,
     imported_id: String,
     pending_pack: Option<String>,
+    pending_downloads: std::collections::VecDeque<PendingDownload>,
+    last_pending_poll: std::time::Instant,
+    status_id: String,
     queued_pack_additions: Vec<(String, String)>,
     steam_version: Option<crate::steam::SteamVersion>,
     checked_game: String,
@@ -137,6 +147,9 @@ impl Default for Browser {
             game_search_rect: None,
             imported_id: String::new(),
             pending_pack: None,
+            pending_downloads: Default::default(),
+            last_pending_poll: std::time::Instant::now(),
+            status_id: String::new(),
             queued_pack_additions: Vec::new(),
             steam_version: None,
             checked_game: String::new(),
@@ -446,6 +459,7 @@ fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, choices: &[(&str, &str
             egui::ComboBox::from_id_salt(id)
                 .width(190.0)
                 .height(340.0)
+                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                 .truncate()
                 .selected_text(
                     choices
@@ -457,9 +471,11 @@ fn combo(ui: &mut egui::Ui, id: &str, value: &mut String, choices: &[(&str, &str
                 .show_ui(ui, |ui| {
                     ui.vertical(|ui| {
                         ui.set_min_width(230.0);
-                        for (v, name) in choices {
-                            ui.selectable_value(value, (*v).into(), *name);
-                        }
+                        let choices = choices
+                            .iter()
+                            .map(|(v, name)| ((*v).to_owned(), (*name).to_owned()))
+                            .collect::<Vec<_>>();
+                        crate::ui_helpers::searchable_options(ui, value, &choices);
                     });
                 });
         },
@@ -559,24 +575,27 @@ impl Browser {
         let session = token.clone();
         let (tx, rx) = mpsc::channel();
         let ctx = ctx.clone();
-        self.status = match kind {
-            Kind::Import => "Retrieving archive and dependencies; running server review…",
-            Kind::Download => "Downloading verified archive…",
-            _ => "Loading…",
+        if !matches!(kind, Kind::Status) {
+            self.status = match kind {
+                Kind::Import => "Retrieving archive and dependencies; running server review…",
+                Kind::Download => "Downloading verified archive…",
+                _ => "Loading…",
+            }
+            .into();
         }
-        .into();
         self.job = Some(Job { kind, rx, session });
         std::thread::spawn(move || {
             let result=(|| {
+                let request_id=body.as_ref().and_then(|b|b["id"].as_str()).unwrap_or_default().to_owned();
                 let client=client()?;
                 let mut data=if matches!(kind,Kind::Browse) {browse_metadata(&client,&token,&url)?}else{request(&client,&token,method,url,body)?};
                 if matches!(kind,Kind::Browse) { thumbnails(&mut data); }
                 if matches!(kind,Kind::Import) && data["approved"]==true {
                     let ticket=request(&client,&token,reqwest::Method::POST,api("download-tickets"),Some(json!({"kind":"mods","id":data["id"]})))?;
                     // Import and subscription succeeded even if the local transfer fails.
-                    match crate::website::receive_ticket(text(&ticket,"ticket")) {Ok(message)=>data["download_message"]=json!(message),Err(e)=>data["download_message"]=json!(format!("Subscribed, but local download failed: {e}. Retry in Subscriptions."))}
+                    match crate::website::receive_ticket(text(&ticket,"ticket")) {Ok(message)=>{data["download_message"]=json!(message);data["downloaded"]=json!(true);},Err(e)=>data["download_message"]=json!(format!("Subscribed, but local download failed: {e}. Retry in Subscriptions."))}
                 } else if matches!(kind,Kind::Download) {
-                    let message=crate::website::receive_ticket(text(&data,"ticket"))?;data["download_message"]=json!(message);
+                    let message=crate::website::receive_ticket(text(&data,"ticket"))?;data["download_message"]=json!(message);data["id"]=json!(request_id);
                 }
                 Ok(data)
             })().map_err(|e:anyhow::Error|e.to_string());
@@ -593,6 +612,7 @@ impl Browser {
             self.preview = None;
             self.imported_id.clear();
             self.pending_pack = None;
+            self.pending_downloads.clear();
             self.queued_pack_additions.clear();
             self.loaded = false;
             self.provider_games = None;
@@ -610,6 +630,16 @@ impl Browser {
                 Err(e) => {
                     if matches!(job.kind, Kind::Import) {
                         self.pending_pack = None;
+                    }
+                    if matches!(job.kind, Kind::Download) {
+                        for waiting in &mut self.pending_downloads {
+                            if waiting.id == self.imported_id {
+                                waiting.paused = true;
+                            }
+                        }
+                    }
+                    if matches!(job.kind, Kind::Status) && e.contains("Mod no longer available") {
+                        self.pending_downloads.retain(|p| p.id != self.status_id);
                     }
                     self.status = e;
                 }
@@ -658,20 +688,61 @@ impl Browser {
                         Kind::Subscriptions => self.subscriptions = data,
                         Kind::Import => {
                             self.imported_id = text(&data, "id").into();
-                            if let Some(pack) = self.pending_pack.take() {
-                                self.queued_pack_additions
-                                    .push((pack, self.imported_id.clone()));
+                            let pack = self.pending_pack.take();
+                            if data["downloaded"] == true {
+                                if let Some(pack) = pack {
+                                    self.queued_pack_additions
+                                        .push((pack, self.imported_id.clone()));
+                                }
+                            } else {
+                                self.pending_downloads.retain(|p| p.id != self.imported_id);
+                                self.pending_downloads.push_back(PendingDownload {
+                                    id: self.imported_id.clone(),
+                                    pack,
+                                    paused: data["approved"] == true,
+                                });
                             }
                             self.subscriptions_loaded = false;
                             self.changed = true;
                             self.status = if data["approved"] == true {
                                 text(&data, "download_message").into()
                             } else {
-                                "Subscribed. The mod is awaiting server analysis or moderator review. Refresh Subscriptions to check its status.".into()
+                                "Waiting for server analysis. The download will continue when approved; keep Canna open.".into()
                             };
                         }
+                        Kind::Status => {
+                            let id = text(&data, "id").to_owned();
+                            self.status =
+                                format!("{}: {}", text(&data, "name"), text(&data, "message"));
+                            if data["state"] == "ready"
+                                && self
+                                    .pending_downloads
+                                    .iter()
+                                    .any(|p| p.id == id && !p.paused)
+                            {
+                                self.imported_id = id.clone();
+                                self.start(
+                                    ctx,
+                                    Kind::Download,
+                                    reqwest::Method::POST,
+                                    api("download-tickets"),
+                                    Some(json!({"kind":"mods","id":id})),
+                                );
+                            } else if data["state"] == "denied" {
+                                self.pending_downloads.retain(|p| p.id != id);
+                            }
+                        }
                         Kind::Download => {
+                            let id = text(&data, "id");
+                            if let Some(index) =
+                                self.pending_downloads.iter().position(|p| p.id == id)
+                                && let Some(pack) =
+                                    self.pending_downloads.remove(index).and_then(|p| p.pack)
+                            {
+                                self.queued_pack_additions.push((pack, id.to_owned()));
+                            }
                             self.changed = true;
+                            self.subscriptions_loaded = false;
                             self.status = text(&data, "download_message").into();
                         }
                         Kind::Install => self.status = text(&data, "message").into(),
@@ -681,6 +752,26 @@ impl Browser {
                         }
                     }
                 }
+            }
+        }
+        if self.pending_downloads.iter().any(|p| !p.paused) {
+            ctx.request_repaint_after(Duration::from_secs(1));
+            if self.job.is_none()
+                && self.last_pending_poll.elapsed() >= Duration::from_secs(3)
+                && let Some(index) = self.pending_downloads.iter().position(|p| !p.paused)
+            {
+                let pending = self.pending_downloads.remove(index).unwrap();
+                let id = pending.id.clone();
+                self.pending_downloads.push_back(pending);
+                self.last_pending_poll = std::time::Instant::now();
+                self.status_id = id.clone();
+                self.start(
+                    ctx,
+                    Kind::Status,
+                    reqwest::Method::GET,
+                    api(&format!("mods/{id}/status")),
+                    None,
+                );
             }
         }
         if self.job.is_some() {
@@ -825,11 +916,27 @@ impl Browser {
                                 .show_ui(ui, |ui| {
                                     ui.vertical(|ui| {
                                         ui.set_min_width(300.0);
-                                        let search = ui.add(
-                                            egui::TextEdit::singleline(&mut self.game_search)
-                                                .hint_text("Find a game…")
-                                                .desired_width(280.0)
-                                                .char_limit(80),
+                                        let mut choices = Vec::new();
+                                        if self.filters.provider != "thunderstore" {
+                                            choices.push(("minecraft".into(), "Minecraft".into()));
+                                        }
+                                        if self.filters.provider != "modrinth" {
+                                            choices.extend(
+                                                crate::game_profiles::games()
+                                                    .iter()
+                                                    .filter(|g| {
+                                                        self.filters.provider != "curseforge"
+                                                            || self
+                                                                .curseforge_supports(&g.community)
+                                                    })
+                                                    .map(|g| (g.community.clone(), g.name.clone())),
+                                            );
+                                        }
+                                        let search = crate::ui_helpers::filter_options(
+                                            ui,
+                                            &mut self.filters.game,
+                                            &mut self.game_search,
+                                            &choices,
                                         );
                                         #[cfg(test)]
                                         {
@@ -837,42 +944,6 @@ impl Browser {
                                         }
                                         #[cfg(not(test))]
                                         let _ = search;
-                                        let query = self.game_search.to_lowercase();
-                                        if self.filters.provider != "thunderstore"
-                                            && "minecraft".contains(&query)
-                                            && ui
-                                                .selectable_value(
-                                                    &mut self.filters.game,
-                                                    "minecraft".into(),
-                                                    "Minecraft",
-                                                )
-                                                .clicked()
-                                        {
-                                            ui.close();
-                                        }
-                                        if self.filters.provider != "modrinth" {
-                                            for g in crate::game_profiles::games()
-                                                .iter()
-                                                .filter(|g| {
-                                                    g.name.to_lowercase().contains(&query)
-                                                        && (self.filters.provider != "curseforge"
-                                                            || self
-                                                                .curseforge_supports(&g.community))
-                                                })
-                                                .collect::<Vec<_>>()
-                                            {
-                                                if ui
-                                                    .selectable_value(
-                                                        &mut self.filters.game,
-                                                        g.community.clone(),
-                                                        &g.name,
-                                                    )
-                                                    .clicked()
-                                                {
-                                                    ui.close();
-                                                }
-                                            }
-                                        }
                                     });
                                 });
                             #[cfg(test)]
@@ -902,6 +973,7 @@ impl Browser {
                             egui::ComboBox::from_id_salt("provider-category")
                                 .width(210.0)
                                 .height(340.0)
+                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                                 .truncate()
                                 .selected_text(if self.filters.category.is_empty() {
                                     "All categories"
@@ -911,24 +983,28 @@ impl Browser {
                                 .show_ui(ui, |ui| {
                                     ui.vertical(|ui| {
                                         ui.set_min_width(280.0);
-                                        ui.selectable_value(
-                                            &mut self.filters.category,
-                                            String::new(),
-                                            "All categories",
+                                        let mut choices =
+                                            vec![(String::new(), "All categories".into())];
+                                        choices.extend(
+                                            self.page["categories"]
+                                                .as_array()
+                                                .into_iter()
+                                                .flatten()
+                                                .map(|c| {
+                                                    (
+                                                        c["id"]
+                                                            .as_str()
+                                                            .map(str::to_owned)
+                                                            .unwrap_or_else(|| c["id"].to_string()),
+                                                        text(c, "name").to_owned(),
+                                                    )
+                                                }),
                                         );
-                                        for c in
-                                            self.page["categories"].as_array().into_iter().flatten()
-                                        {
-                                            let id = c["id"]
-                                                .as_str()
-                                                .map(str::to_owned)
-                                                .unwrap_or_else(|| c["id"].to_string());
-                                            ui.selectable_value(
-                                                &mut self.filters.category,
-                                                id,
-                                                text(c, "name"),
-                                            );
-                                        }
+                                        crate::ui_helpers::searchable_options(
+                                            ui,
+                                            &mut self.filters.category,
+                                            &choices,
+                                        );
                                     });
                                 });
                         },
@@ -1326,7 +1402,9 @@ impl Browser {
                             ui.label(if item["approved"] == true {
                                 "Ready to download"
                             } else {
-                                "Awaiting analysis or review"
+                                item["download_status"]["message"]
+                                    .as_str()
+                                    .unwrap_or("Awaiting analysis or review")
                             });
                             ui.horizontal(|ui| {
                                 if ui
@@ -1350,6 +1428,7 @@ impl Browser {
                                     )
                                     .clicked()
                                 {
+                                    self.pending_downloads.retain(|p| p.id != text(item, "id"));
                                     action = Some((
                                         Kind::Remove,
                                         reqwest::Method::DELETE,
@@ -1404,6 +1483,9 @@ impl Browser {
                             });
                         ui.add_enabled_ui(self.job.is_none(), |ui| {
                             egui::ComboBox::from_id_salt("provider-release")
+                                .width(300.0)
+                                .height(340.0)
+                                .close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside)
                                 .selected_text(
                                     project["versions"]
                                         .as_array()
@@ -1414,28 +1496,34 @@ impl Browser {
                                         .unwrap_or("No compatible release"),
                                 )
                                 .show_ui(ui, |ui| {
-                                    for v in
-                                        project["versions"].as_array().into_iter().flatten().filter(
-                                            |v| {
-                                                compatible(
-                                                    v,
-                                                    &self.filters.loader,
-                                                    &self.filters.version,
-                                                )
-                                            },
-                                        )
-                                    {
-                                        ui.selectable_value(
-                                            &mut self.release,
-                                            text(v, "id").into(),
-                                            format!(
-                                                "{} · {} · {}",
-                                                text(v, "name"),
-                                                v["game_versions"],
-                                                v["loaders"]
-                                            ),
-                                        );
-                                    }
+                                    let choices = project["versions"]
+                                        .as_array()
+                                        .into_iter()
+                                        .flatten()
+                                        .filter(|v| {
+                                            compatible(
+                                                v,
+                                                &self.filters.loader,
+                                                &self.filters.version,
+                                            )
+                                        })
+                                        .map(|v| {
+                                            (
+                                                text(v, "id").to_owned(),
+                                                format!(
+                                                    "{} · {} · {}",
+                                                    text(v, "name"),
+                                                    v["game_versions"],
+                                                    v["loaders"]
+                                                ),
+                                            )
+                                        })
+                                        .collect::<Vec<_>>();
+                                    crate::ui_helpers::searchable_options(
+                                        ui,
+                                        &mut self.release,
+                                        &choices,
+                                    );
                                 });
                             if let Some(v) = project["versions"]
                                 .as_array()
@@ -1578,6 +1666,115 @@ pub fn live_check() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    #[ignore = "Uses the signed-in account and downloads one already-approved small archive; no installation"]
+    fn live_pending_download_resumes_after_ready_status() {
+        let session = crate::website::session();
+        assert!(!session.is_empty(), "Sign in first");
+        let client = client().unwrap();
+        let mods = request(&client, &session, reqwest::Method::GET, api("mods"), None).unwrap();
+        let item = mods
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|m| {
+                m["review_status"] == "approved"
+                    && m["size"].as_u64().unwrap_or(u64::MAX) < 1024 * 1024
+            })
+            .min_by_key(|m| m["size"].as_u64().unwrap_or(u64::MAX))
+            .expect("No small approved archive");
+        let id = text(item, "id");
+        let status = request(
+            &client,
+            &session,
+            reqwest::Method::GET,
+            api(&format!("mods/{id}/status")),
+            None,
+        )
+        .unwrap();
+        assert_eq!(status["state"], "ready");
+        let mut browser = Browser {
+            account: session.clone(),
+            ..Default::default()
+        };
+        browser.pending_downloads.push_back(PendingDownload {
+            id: id.into(),
+            pack: None,
+            paused: false,
+        });
+        let (tx, rx) = mpsc::channel();
+        tx.send(Ok(status)).unwrap();
+        browser.job = Some(Job {
+            kind: Kind::Status,
+            rx,
+            session: session.clone(),
+        });
+        let ctx = egui::Context::default();
+        browser.update(&ctx, &session);
+        let start = std::time::Instant::now();
+        while browser.job.is_some() && start.elapsed() < Duration::from_secs(90) {
+            std::thread::sleep(Duration::from_millis(50));
+            browser.update(&ctx, &session);
+        }
+        assert!(browser.job.is_none(), "Download timed out");
+        assert!(browser.pending_downloads.is_empty(), "{}", browser.status);
+        assert!(
+            browser.status.starts_with("Downloaded "),
+            "{}",
+            browser.status
+        );
+    }
+    #[test]
+    fn waiting_import_retains_pack_until_actual_download_and_logout_clears_it() {
+        let ctx = egui::Context::default();
+        let mut b = Browser {
+            account: "session".into(),
+            pending_pack: Some("chosen-pack".into()),
+            ..Default::default()
+        };
+        let deliver = |b: &mut Browser, kind, data| {
+            let (tx, rx) = mpsc::channel();
+            tx.send(Ok(data)).unwrap();
+            b.job = Some(Job {
+                kind,
+                rx,
+                session: "session".into(),
+            });
+            b.update(&ctx, "session");
+        };
+        deliver(
+            &mut b,
+            Kind::Import,
+            json!({"id":"waiting-mod","approved":false}),
+        );
+        assert!(b.queued_pack_additions.is_empty());
+        assert_eq!(b.pending_downloads.len(), 1);
+        deliver(
+            &mut b,
+            Kind::Status,
+            json!({"id":"waiting-mod","name":"Mod","state":"needs_review","message":"Staff review required"}),
+        );
+        assert!(b.status.contains("Staff review"));
+        assert_eq!(b.pending_downloads.len(), 1);
+        deliver(
+            &mut b,
+            Kind::Download,
+            json!({"id":"waiting-mod","download_message":"Downloaded"}),
+        );
+        assert_eq!(
+            b.queued_pack_additions,
+            vec![("chosen-pack".into(), "waiting-mod".into())]
+        );
+        assert!(b.pending_downloads.is_empty());
+        b.pending_downloads.push_back(PendingDownload {
+            id: "other".into(),
+            pack: None,
+            paused: false,
+        });
+        b.update(&ctx, "");
+        assert!(b.pending_downloads.is_empty());
+        assert!(b.queued_pack_additions.is_empty());
+    }
     #[test]
     fn declared_steam_branches_and_builds_must_match_but_unknowns_remain_unknown() {
         let v = crate::steam::SteamVersion {

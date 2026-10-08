@@ -68,6 +68,7 @@ struct App {
     mail: email::Mailer,
     dummy_hash: String,
     live: live::Live,
+    review_wake: tokio::sync::Notify,
 }
 #[derive(Debug)]
 struct ApiError(StatusCode, &'static str);
@@ -193,6 +194,7 @@ impl App {
         Ok(Self {
             db: Mutex::new(db),
             live: live::Live::new(),
+            review_wake: tokio::sync::Notify::new(),
             files,
             auth_gate: Arc::new(Semaphore::new(2)),
             upload_gate: Semaphore::new(1),
@@ -906,6 +908,10 @@ async fn live_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/live.js")))
 }
+async fn filter_menus_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
+    app.auth(&headers)?;
+    Ok(asset(include_str!("../web/filter-menus.js")))
+}
 async fn provider_browser_script(
     State(app): State<Shared>,
     headers: HeaderMap,
@@ -995,6 +1001,7 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/announcement", get(lounge::announcement))
         .route("/api/v1/admin/announcement", post(lounge::announce))
         .route("/library.js", get(library_script))
+        .route("/filter-menus.js", get(filter_menus_script))
         .route("/provider-browser.js", get(provider_browser_script))
         .route("/api/v1/events", get(live::events))
         .route("/api/v1/admin/overview", get(admin_tools::overview))
@@ -1003,6 +1010,7 @@ fn router(app: Shared) -> Router {
         .route("/admin.js", get(admin_script))
         .route("/review/mods/{id}", get(scans::page))
         .route("/review.js", get(review_script))
+        .route("/api/v1/mods/{id}/status", get(scans::status))
         .route("/api/v1/mods/{id}/analysis", get(scans::report).post(scans::analyze))
         .route("/api/v1/mods/updates/check", post(mod_updates::request))
         .route("/api/v1/mods/updates/status", get(mod_updates::status))
@@ -1474,6 +1482,7 @@ mod tests {
                 "id=\"upload\"",
                 "/community.js",
                 "/app.js",
+                "/filter-menus.js",
             ] {
                 assert!(!text.contains(private), "Anonymous page contains {private}");
             }
@@ -1493,6 +1502,7 @@ mod tests {
         assert!(!connected.contains("forumview"));
         for path in [
             "/app.js",
+            "/filter-menus.js",
             "/community.js",
             "/profiles.js",
             "/play-lab.js",

@@ -18,6 +18,13 @@ if(/\.(js|css)$/.test(path))return route.fulfill({contentType:path.endsWith('.js
 if(path.endsWith('.png'))return route.fulfill({contentType:'image/png',body:Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==','base64')});
 return route.fulfill({contentType:'text/html',body:fs.readFileSync('server/web/index.html','utf8')});});
 await page.goto('https://canna.test/mods');await page.locator('#bootstatus').waitFor({state:'hidden'});await page.getByRole('heading',{name:'External Fixture'}).waitFor();
+const source=page.locator('#providerbrowser select[aria-label="Source"]');const before=await source.inputValue();const searches=requests.filter(p=>p.startsWith('/api/v1/providers/search')).length;
+await page.getByRole('button',{name:'Choose Source',exact:true}).click();const menu=page.getByRole('dialog',{name:'Search filter options'});await menu.waitFor({state:'visible'});
+const labels=await menu.getByRole('option').allTextContents();assert.deepEqual(labels,[...labels].sort((a,b)=>a.localeCompare(b,undefined,{sensitivity:'base',numeric:true})));
+await menu.getByRole('searchbox').fill('thunder');assert.deepEqual(await menu.getByRole('option').allTextContents(),['Thunderstore']);assert.equal(await source.inputValue(),before);assert.equal(requests.filter(p=>p.startsWith('/api/v1/providers/search')).length,searches);
+await menu.getByRole('searchbox').press('Escape');assert(!await menu.isVisible());assert.equal(await source.inputValue(),before);
+await page.getByRole('button',{name:'Choose Source',exact:true}).click();await menu.getByRole('searchbox').fill('modrinth');await menu.getByRole('searchbox').press('Enter');await page.waitForFunction(()=>location.search.includes('provider=modrinth'));assert.equal(await source.inputValue(),'modrinth');
+await page.getByRole('button',{name:'Choose Source',exact:true}).click();await page.screenshot({path:`target/filter-search-${width}.png`});const bounds=await menu.boundingBox();assert(bounds.x>=0&&bounds.x+bounds.width<=width);await page.getByRole('heading',{name:'Browse mods',exact:true}).click();assert(!await menu.isVisible());
 assert(await page.locator('#browseview').isVisible());assert(!await page.locator('#libraryview').isVisible());assert(!requests.includes('/api/v1/mods'));assert(!requests.some(p=>p.includes('/external/import')));
 await page.getByRole('button',{name:'Next',exact:true}).click();await page.getByText('Page 2',{exact:true}).waitFor();
 await page.locator('#providerbrowser').getByLabel('Loader',{exact:true}).selectOption('fabric');await page.waitForFunction(()=>location.search.includes('loader=fabric'));
