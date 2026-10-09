@@ -14,7 +14,7 @@ READS = {'ReadAllBytes', 'ReadAllText', 'ReadAllLines', 'ReadLines', 'OpenRead',
 ENUMERATE = {'GetFiles', 'GetDirectories', 'EnumerateFiles', 'EnumerateDirectories', 'EnumerateFileSystemEntries'}
 OPERATIONS = re.compile(r'\b(?P<name>(?:(?:global::)?System\.IO\.)?(?:File|Directory)\s*\.\s*(?:Read\w*|Write\w*|Append\w*|Delete|Move|Copy|Replace|Create\w*|Open\w*|GetFiles|GetDirectories|Enumerate\w*)|(?:(?:global::)?System\.IO\.)?FileStream)\s*\(')
 PRIMARY = re.compile(r'\b(?:class|record)\s+(\w+)\s*\(([^{};]*)\)\s*(?:\{|;)')
-SHADOW = re.compile(r'\b(?:class|struct|record|interface|enum)\s+(?:Paths|Path|File|Directory|FileStream|FileMode|FileAccess)\b|\busing\s+(?:Paths|Path|File|Directory|FileStream|FileMode|FileAccess)\s*=|\bnamespace\s+(?:BepInEx|System\.IO)\b|\b(?:var|object|dynamic|\w+)\s+(?:Paths|Path|File|Directory|FileStream|FileMode|FileAccess)\s*[=;,)]')
+SHADOW = re.compile(r'\b(?:class|struct|record|interface|enum)\s+(?:Paths|Path|File|Directory|FileStream)\b|\busing\s+(?:Paths|Path|File|Directory|FileStream)\s*=|\bnamespace\s+(?:BepInEx|System\.IO)\b|\b(?:var|object|dynamic|\w+)\s+(?:Paths|Path|File|Directory|FileStream)\s*[=;,)]')
 
 
 def split_args(expression, views, trace):
@@ -32,7 +32,7 @@ class Paths:
         self.files = [(f['name'], *views(f['text'], '.cs')) for f in files if f.get('language') == 'csharp' or f['name'].endswith('.cs')]
         # Unrelated DTO members named File/Path in another namespace do not
         # shadow System.IO in this source. Loader/type redefinitions do.
-        self.disabled = any(re.search(r'\b(?:class|struct|record|interface|enum)\s+(?:Paths|Path|File|Directory|FileStream|FileMode|FileAccess)\b|\bnamespace\s+(?:BepInEx|System\.IO)\b', code) for _, _, code in self.files)
+        self.disabled = any(re.search(r'\b(?:class|struct|record|interface|enum)\s+(?:Paths|Path|File|Directory|FileStream)\b|\bnamespace\s+(?:BepInEx|System\.IO)\b', code) for _, _, code in self.files)
         self.primary = {}
         self.generated_records = set()
         for name, content, code in self.files:
@@ -45,6 +45,27 @@ class Paths:
 
     def file(self, name):
         return next((f for f in self.files if f[0] == name), None)
+
+    def mode_shadowed(self, name):
+        source = self.file(name)
+        if source is None:
+            return True
+        code = source[2]
+        if re.search(r'\busing\s+(?:FileMode|FileAccess)\s*=|\b(?:var|object|dynamic|\w+)\s+(?:FileMode|FileAccess)\s*[=;,)]', code):
+            return True
+        namespaces = set(re.findall(r'\bnamespace\s+([\w.]+)', code))
+        imports = set(re.findall(r'\busing\s+([\w.]+)\s*;', code))
+        for _, _, other in self.files:
+            # Inherited or externally initialized members can substitute mode
+            # values. Their absence needs scoped binding before lowering reads.
+            if any(m[1] not in {'class','struct','record','interface','enum','return','throw','new'} for m in re.finditer(r'\b(\w+)\s+(?:FileMode|FileAccess)\s*[=;,){]', other)):
+                return True
+            if not re.search(r'\b(?:class|struct|record|interface|enum)\s+(?:FileMode|FileAccess)\b', other):
+                continue
+            owners = set(re.findall(r'\bnamespace\s+([\w.]+)', other))
+            if len(owners) != 1 or owners.intersection(namespaces | imports):
+                return True
+        return False
 
     def resolve(self, expression, name, depth=0, seen=()):
         expression = expression.strip()
@@ -179,7 +200,7 @@ def classify(report, context):
             operation = api.split('.')[-1]
             readonly = operation in READS or api.startswith('Directory.') and operation in ENUMERATE
             if operation in {'FileStream', 'Open'}:
-                readonly = len(args) == 3 and args[1].strip() == 'FileMode.Open' and args[2].strip() == 'FileAccess.Read'
+                readonly = len(args) == 3 and args[1].strip() == 'FileMode.Open' and args[2].strip() == 'FileAccess.Read' and not paths.mode_shadowed(name)
             destinations = args[:2] if operation in {'Copy', 'Move', 'Replace'} else args[:1]
             resolved = [paths.resolve(arg, name) for arg in destinations]
             line = code.count('\n',0,match.start())+1

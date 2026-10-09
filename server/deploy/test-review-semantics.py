@@ -85,6 +85,15 @@ class SemanticsTests(unittest.TestCase):
     def test_no_mod_name_or_cache_word_allowlist(self):
         r=analyze('public class DuctTape { public void Go() { Directory.CreateDirectory(cache); File.ReadAllBytes(assemblyCSharp); } }')
         self.assertEqual(len(r['findings']),2)
+    def test_unrelated_library_modes_do_not_disable_loader_roots(self):
+        unrelated='namespace Octokit; public class FileMode { }'
+        self.assertFalse(analyze(OWNER,FIX,unrelated)['findings'])
+        read='new FileStream(Paths.ManagedPath,FileMode.Open,FileAccess.Read);'
+        self.assertFalse(analyze('using BepInEx; using System.IO; class Mod { void Run() { '+read+' } }',unrelated)['findings'])
+        for consumer in ['using Evil; namespace Modding;','namespace Evil;']:
+            self.assertTrue(analyze('using BepInEx; '+consumer+' class Mod { void Run() { '+read+' } }','namespace Evil; enum FileAccess { Read }')['findings'])
+        self.assertTrue(analyze('using BepInEx; class Mod : Evil.Base { void Run() { '+read+' } }','namespace Evil; class Base { public Holder FileAccess { get; } }')['findings'])
+        self.assertTrue(analyze('using BepInEx; namespace Evil.Nested; class Mod { void Run() { '+read+' } }','namespace Evil { namespace Nested { enum FileAccess { Read } } }')['findings'])
     def test_ordinary_info_does_not_remove_process_network_load_findings(self):
         r=analyze('using BepInEx; class Mod { public void Go() { Directory.CreateDirectory(Path.Combine(Paths.CachePath,"repair")); Process.Start(exe); Assembly.Load(payload); new HttpClient(); } }')
         self.assertEqual({f['rule'] for f in r['findings']},{'commands','dynamic','network'})
