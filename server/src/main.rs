@@ -420,7 +420,7 @@ async fn me(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<axum::Js
         .unwrap_or(0);
     let db = app.db.lock().unwrap();
     Ok(axum::Json(
-        json!({"id":id,"username":name,"kash":kash,"admin":admin,"role":role,"roles":admin_settings::roles(&db,id)?,"can_rebound":admin_settings::has_rebound(&db,id)?,"invites_remaining":remaining,"can_invite":role!="admin" && (role=="owner" || remaining>0) && admin_settings::check_invites(&db).is_ok(),"can_publish_guides":role!="member"}),
+        json!({"id":id,"username":name,"cosmetics":gambling::equipped(&db,id)?,"kash":kash,"admin":admin,"role":role,"roles":admin_settings::roles(&db,id)?,"can_rebound":admin_settings::has_rebound(&db,id)?,"invites_remaining":remaining,"can_invite":role!="admin" && (role=="owner" || remaining>0) && admin_settings::check_invites(&db).is_ok(),"can_publish_guides":role!="member"}),
     ))
 }
 #[derive(Deserialize, Default)]
@@ -1757,8 +1757,8 @@ mod tests {
         let catalog: Value =
             serde_json::from_str(include_str!("../web/cosmetics/catalog.json")).unwrap();
         let items = catalog["items"].as_array().unwrap();
-        assert_eq!(items.len(), 654);
-        for (collection, count) in [("mw2", 398), ("bo2", 237), ("frames", 16), ("canna", 3)] {
+        assert_eq!(items.len(), 988);
+        for (collection, count) in [("mw2", 398), ("bo2", 237), ("frames", 16), ("canna", 3), ("mw2-emblems", 205), ("cod-ranks", 123), ("username-effects", 6)] {
             assert_eq!(
                 items
                     .iter()
@@ -1770,7 +1770,7 @@ mod tests {
         }
         let animated = items
             .iter()
-            .filter(|item| item["animated"] == true)
+            .filter(|item| item["animated"] == true && item["kind"] == "banner")
             .collect::<Vec<_>>();
         assert_eq!(animated.len(), 13);
         for item in &animated {

@@ -2677,6 +2677,1498 @@ pub fn find(id: &str) -> Option<(&'static str, &'static [u8])> {
             "image/png",
             include_bytes!("../web/cosmetics/bo2-volkz-flag-zimbabwe-c9304575.png"),
         )),
+        "emblem-mw2-mw2-1222296607-preview-command-sergeant-major-emb-f297afb5" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-1222296607-preview-command-sergeant-major-emb-f297afb5.png"
+            ),
+        )),
+        "emblem-mw2-mw2-1st-lieutenant-emblem-mw2-aa4db746" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-1st-lieutenant-emblem-mw2-aa4db746.png"
+            ),
+        )),
+        "emblem-mw2-mw2-2nd-lieutenant-emblem-mw2-0e587ef2" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-2nd-lieutenant-emblem-mw2-0e587ef2.png"
+            ),
+        )),
+        "emblem-mw2-mw2-50-caliber-bullets-emblem-mw2-65c4e4b2" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-50-caliber-bullets-emblem-mw2-65c4e4b2.png"
+            ),
+        )),
+        "emblem-mw2-mw2-8-bit-price-emblem-mw2-e826ec43" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-8-bit-price-emblem-mw2-e826ec43.png"),
+        )),
+        "emblem-mw2-mw2-8-ball-emblem-mw2-ee86c22b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-8-ball-emblem-mw2-ee86c22b.png"),
+        )),
+        "emblem-mw2-mw2-ac-130-angel-flares-emblem-mw2-277bb626" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-ac-130-angel-flares-emblem-mw2-277bb626.png"
+            ),
+        )),
+        "emblem-mw2-mw2-abduction-emblem-mw2-aaeaa518" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-abduction-emblem-mw2-aaeaa518.png"),
+        )),
+        "emblem-mw2-mw2-aircraft-emblem-mw2-780d8670" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-aircraft-emblem-mw2-780d8670.png"),
+        )),
+        "emblem-mw2-mw2-armypro1-9a4b902f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-armypro1-9a4b902f.png"),
+        )),
+        "emblem-mw2-mw2-assad-emblem-mw2-10af2253" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-assad-emblem-mw2-10af2253.png"),
+        )),
+        "emblem-mw2-mw2-award-jets-emblem-mw2-13acd9d4" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-award-jets-emblem-mw2-13acd9d4.png"),
+        )),
+        "emblem-mw2-mw2-b2-emblem-mw2-0a5ecf73" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-b2-emblem-mw2-0a5ecf73.png"),
+        )),
+        "emblem-mw2-mw2-bear-emblem-mw2-4e9381fc" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-bear-emblem-mw2-4e9381fc.png"),
+        )),
+        "emblem-mw2-mw2-binoculars-emblem-mw2-95e7412a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-binoculars-emblem-mw2-95e7412a.png"),
+        )),
+        "emblem-mw2-mw2-biohazard-emblem-mw2-0130dd41" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-biohazard-emblem-mw2-0130dd41.png"),
+        )),
+        "emblem-mw2-mw2-bird-brain-emblem-mw2-97e52245" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-bird-brain-emblem-mw2-97e52245.png"),
+        )),
+        "emblem-mw2-mw2-blast-shield-emblem-mw2-31244b73" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-blast-shield-emblem-mw2-31244b73.png"),
+        )),
+        "emblem-mw2-mw2-bling-pro-perk-mw2-2fc2592e" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-bling-pro-perk-mw2-2fc2592e.png"),
+        )),
+        "emblem-mw2-mw2-boonie-hat-emblem-mw2-27cbd5c5" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-boonie-hat-emblem-mw2-27cbd5c5.png"),
+        )),
+        "emblem-mw2-mw2-boot-emblem-mw2-41383551" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-boot-emblem-mw2-41383551.png"),
+        )),
+        "emblem-mw2-mw2-boots-1-emblem-mw2-ee26b480" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-boots-1-emblem-mw2-ee26b480.png"),
+        )),
+        "emblem-mw2-mw2-boots-2-emblem-mw2-776317fb" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-boots-2-emblem-mw2-776317fb.png"),
+        )),
+        "emblem-mw2-mw2-brass-knuckles-emblem-mw2-7bf7b543" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-brass-knuckles-emblem-mw2-7bf7b543.png"
+            ),
+        )),
+        "emblem-mw2-mw2-brigadier-general-emblem-mw2-b8a9e93d" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-brigadier-general-emblem-mw2-b8a9e93d.png"
+            ),
+        )),
+        "emblem-mw2-mw2-bulb-emblem-mw2-2a816136" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-bulb-emblem-mw2-2a816136.png"),
+        )),
+        "emblem-mw2-mw2-bullet-case-emblem-mw2-bd8f55e0" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-bullet-case-emblem-mw2-bd8f55e0.png"),
+        )),
+        "emblem-mw2-mw2-burger-town-emblem-mw2-07b37e9b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-burger-town-emblem-mw2-07b37e9b.png"),
+        )),
+        "emblem-mw2-mw2-c4-emblem-mw2-bfe2a1cd" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-c4-emblem-mw2-bfe2a1cd.png"),
+        )),
+        "emblem-mw2-mw2-call-of-duty-4-emblem-mw2-2d0dcbb9" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-call-of-duty-4-emblem-mw2-2d0dcbb9.png"
+            ),
+        )),
+        "emblem-mw2-mw2-captain-emblem-mw2-3ea22c60" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-captain-emblem-mw2-3ea22c60.png"),
+        )),
+        "emblem-mw2-mw2-car-emblem-mw2-fa3aefe4" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-car-emblem-mw2-fa3aefe4.png"),
+        )),
+        "emblem-mw2-mw2-chicken-emblem-mw2-f5214c1a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-chicken-emblem-mw2-f5214c1a.png"),
+        )),
+        "emblem-mw2-mw2-claw-emblem-mw2-9bb8449f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-claw-emblem-mw2-9bb8449f.png"),
+        )),
+        "emblem-mw2-mw2-cod4-prestige-01-emblem-mw2-8975e8d9" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-cod4-prestige-01-emblem-mw2-8975e8d9.png"
+            ),
+        )),
+        "emblem-mw2-mw2-cod4-prestige-02-emblem-mw2-238af5a5" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-cod4-prestige-02-emblem-mw2-238af5a5.png"
+            ),
+        )),
+        "emblem-mw2-mw2-cod4-prestige-03-emblem-mw2-68ad9e21" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-cod4-prestige-03-emblem-mw2-68ad9e21.png"
+            ),
+        )),
+        "emblem-mw2-mw2-cod4-prestige-04-emblem-mw2-353ef8b6" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-cod4-prestige-04-emblem-mw2-353ef8b6.png"
+            ),
+        )),
+        "emblem-mw2-mw2-cod4-prestige-05-emblem-mw2-bc123cee" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-cod4-prestige-05-emblem-mw2-bc123cee.png"
+            ),
+        )),
+        "emblem-mw2-mw2-cod4-prestige-06-emblem-mw2-b803338c" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-cod4-prestige-06-emblem-mw2-b803338c.png"
+            ),
+        )),
+        "emblem-mw2-mw2-cod4-prestige-07-emblem-mw2-c5b9d0cf" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-cod4-prestige-07-emblem-mw2-c5b9d0cf.png"
+            ),
+        )),
+        "emblem-mw2-mw2-cod4-prestige-08-emblem-mw2-00b2ed82" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-cod4-prestige-08-emblem-mw2-00b2ed82.png"
+            ),
+        )),
+        "emblem-mw2-mw2-cod4-prestige-09-emblem-mw2-f9e94b6a" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-cod4-prestige-09-emblem-mw2-f9e94b6a.png"
+            ),
+        )),
+        "emblem-mw2-mw2-coldbloodpro-079acdab" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-coldbloodpro-079acdab.png"),
+        )),
+        "emblem-mw2-mw2-colonel-emblem-mw2-76585b02" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-colonel-emblem-mw2-76585b02.png"),
+        )),
+        "emblem-mw2-mw2-comic-price-emblem-mw2-4365b5be" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-comic-price-emblem-mw2-4365b5be.png"),
+        )),
+        "emblem-mw2-mw2-comic-shepherd-emblem-mw2-04a7a1ef" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-comic-shepherd-emblem-mw2-04a7a1ef.png"
+            ),
+        )),
+        "emblem-mw2-mw2-command-sergeant-major-emblem-mw2-dbb98a6a" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-command-sergeant-major-emblem-mw2-dbb98a6a.png"
+            ),
+        )),
+        "emblem-mw2-mw2-commander-emblem-mw2-50e84515" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-commander-emblem-mw2-50e84515.png"),
+        )),
+        "emblem-mw2-mw2-commandopro1-adc4bec0" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-commandopro1-adc4bec0.png"),
+        )),
+        "emblem-mw2-mw2-compass-emblem-mw2-ae62c437" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-compass-emblem-mw2-ae62c437.png"),
+        )),
+        "emblem-mw2-mw2-copycat-emblem-mw2-5592611a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-copycat-emblem-mw2-5592611a.png"),
+        )),
+        "emblem-mw2-mw2-corporal-emblem-mw2-9f184638" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-corporal-emblem-mw2-9f184638.png"),
+        )),
+        "emblem-mw2-mw2-dangerpro1-02e63f05" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-dangerpro1-02e63f05.png"),
+        )),
+        "emblem-mw2-mw2-devil-finger-emblem-mw2-dd895f05" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-devil-finger-emblem-mw2-dd895f05.png"),
+        )),
+        "emblem-mw2-mw2-dogtags-emblem-mw2-88ea2d3f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-dogtags-emblem-mw2-88ea2d3f.png"),
+        )),
+        "emblem-mw2-mw2-eagle-emblem-mw2-2641f15b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-eagle-emblem-mw2-2641f15b.png"),
+        )),
+        "emblem-mw2-mw2-f15-emblem-mw2-423ce0c1" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-f15-emblem-mw2-423ce0c1.png"),
+        )),
+        "emblem-mw2-mw2-fmj-emblem-mw2-3de81f82" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-fmj-emblem-mw2-3de81f82.png"),
+        )),
+        "emblem-mw2-mw2-final-stand-emblem-mw2-fbd2f2a7" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-final-stand-emblem-mw2-fbd2f2a7.png"),
+        )),
+        "emblem-mw2-mw2-first-sergeant-emblem-mw2-412a5aab" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-first-sergeant-emblem-mw2-412a5aab.png"
+            ),
+        )),
+        "emblem-mw2-mw2-frag-grenade-emblem-mw2-394700aa" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-frag-grenade-emblem-mw2-394700aa.png"),
+        )),
+        "emblem-mw2-mw2-gas-mask-emblem-mw2-bf6fd44a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-gas-mask-emblem-mw2-bf6fd44a.png"),
+        )),
+        "emblem-mw2-mw2-gears-emblem-mw2-4b1d9da2" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-gears-emblem-mw2-4b1d9da2.png"),
+        )),
+        "emblem-mw2-mw2-general-emblem-mw2-514898ba" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-general-emblem-mw2-514898ba.png"),
+        )),
+        "emblem-mw2-mw2-ghillie-emblem-mw2-db729977" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-ghillie-emblem-mw2-db729977.png"),
+        )),
+        "emblem-mw2-mw2-ghost-bust-emblem-mw2-0ff40e5e" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-ghost-bust-emblem-mw2-0ff40e5e.png"),
+        )),
+        "emblem-mw2-mw2-ghost-mic-emblem-mw2-1c226476" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-ghost-mic-emblem-mw2-1c226476.png"),
+        )),
+        "emblem-mw2-mw2-ghost-emblem-mw2-73d2eb7c" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-ghost-emblem-mw2-73d2eb7c.png"),
+        )),
+        "emblem-mw2-mw2-girlskull-emblem-mw2-81872b6d" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-girlskull-emblem-mw2-81872b6d.png"),
+        )),
+        "emblem-mw2-mw2-gloss-grenade-emblem-mw2-1bc9013c" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-gloss-grenade-emblem-mw2-1bc9013c.png"),
+        )),
+        "emblem-mw2-mw2-gold-emblem-mw2-2030007f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-gold-emblem-mw2-2030007f.png"),
+        )),
+        "emblem-mw2-mw2-grigsby-emblem-mw2-1df4c340" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-grigsby-emblem-mw2-1df4c340.png"),
+        )),
+        "emblem-mw2-mw2-gumby-emblem-mw2-f5e80586" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-gumby-emblem-mw2-f5e80586.png"),
+        )),
+        "emblem-mw2-mw2-hardlinepro1-a3b72c21" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-hardlinepro1-a3b72c21.png"),
+        )),
+        "emblem-mw2-mw2-harrier-emblem-mw2-2d81d32b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-harrier-emblem-mw2-2d81d32b.png"),
+        )),
+        "emblem-mw2-mw2-hat-n-knife-emblem-mw2-ff1fbf17" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-hat-n-knife-emblem-mw2-ff1fbf17.png"),
+        )),
+        "emblem-mw2-mw2-headshot-emblem-mw2-488f0f29" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-headshot-emblem-mw2-488f0f29.png"),
+        )),
+        "emblem-mw2-mw2-heartbeat-sensor-emblem-mw2-1d806eae" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-heartbeat-sensor-emblem-mw2-1d806eae.png"
+            ),
+        )),
+        "emblem-mw2-mw2-helmet-army-emblem-mw2-44eafe5b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-helmet-army-emblem-mw2-44eafe5b.png"),
+        )),
+        "emblem-mw2-mw2-helmet-brit-ww2-emblem-mw2-32435168" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-helmet-brit-ww2-emblem-mw2-32435168.png"
+            ),
+        )),
+        "emblem-mw2-mw2-helmet-medic-emblem-mw2-64f3b7df" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-helmet-medic-emblem-mw2-64f3b7df.png"),
+        )),
+        "emblem-mw2-mw2-helmet-pilot-emblem-mw2-8614fce6" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-helmet-pilot-emblem-mw2-8614fce6.png"),
+        )),
+        "emblem-mw2-mw2-helmet-ranger-emblem-mw2-d47c198e" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-helmet-ranger-emblem-mw2-d47c198e.png"),
+        )),
+        "emblem-mw2-mw2-helmet-samurai-emblem-mw2-c380090e" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-helmet-samurai-emblem-mw2-c380090e.png"
+            ),
+        )),
+        "emblem-mw2-mw2-hipflask-emblem-mw2-0e79dee8" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-hipflask-emblem-mw2-0e79dee8.png"),
+        )),
+        "emblem-mw2-mw2-honeybadger-emblem-mw2-b6e15a2b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-honeybadger-emblem-mw2-b6e15a2b.png"),
+        )),
+        "emblem-mw2-mw2-humantrophy-emblem-mw2-28cd5588" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-humantrophy-emblem-mw2-28cd5588.png"),
+        )),
+        "emblem-mw2-mw2-hummer-emblem-mw2-3d0e4fc7" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-hummer-emblem-mw2-3d0e4fc7.png"),
+        )),
+        "emblem-mw2-mw2-hyena-emblem-mw2-6746c49e" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-hyena-emblem-mw2-6746c49e.png"),
+        )),
+        "emblem-mw2-mw2-iss-emblem-mw2-b65186dc" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-iss-emblem-mw2-b65186dc.png"),
+        )),
+        "emblem-mw2-mw2-illuminati-emblem-mw2-6c39e368" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-illuminati-emblem-mw2-6c39e368.png"),
+        )),
+        "emblem-mw2-mw2-infinity-ward-emblem-mw2-3072df69" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-infinity-ward-emblem-mw2-3072df69.png"),
+        )),
+        "emblem-mw2-mw2-joystick-emblem-mw2-707e0090" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-joystick-emblem-mw2-707e0090.png"),
+        )),
+        "emblem-mw2-mw2-juggernaut-1-emblem-mw2-3478a17f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-juggernaut-1-emblem-mw2-3478a17f.png"),
+        )),
+        "emblem-mw2-mw2-juggernaut-2-emblem-mw2-2cbd201c" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-juggernaut-2-emblem-mw2-2cbd201c.png"),
+        )),
+        "emblem-mw2-mw2-kinggorilla-emblem-mw2-cba9527b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-kinggorilla-emblem-mw2-cba9527b.png"),
+        )),
+        "emblem-mw2-mw2-laststandpro-cba0c6ff" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-laststandpro-cba0c6ff.png"),
+        )),
+        "emblem-mw2-mw2-launcher-emblem-mw2-2ebc6e48" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-launcher-emblem-mw2-2ebc6e48.png"),
+        )),
+        "emblem-mw2-mw2-league-grenade-emblem-mw2-f1069ed3" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-league-grenade-emblem-mw2-f1069ed3.png"
+            ),
+        )),
+        "emblem-mw2-mw2-lieutenant-colonel-emblem-mw2-6249924b" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-lieutenant-colonel-emblem-mw2-6249924b.png"
+            ),
+        )),
+        "emblem-mw2-mw2-lieutenant-general-emblem-mw2-05802f99" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-lieutenant-general-emblem-mw2-05802f99.png"
+            ),
+        )),
+        "emblem-mw2-mw2-lightpro1-8f7261d1" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-lightpro1-8f7261d1.png"),
+        )),
+        "emblem-mw2-mw2-loadedfinger-emblem-mw2-aaac3b7d" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-loadedfinger-emblem-mw2-aaac3b7d.png"),
+        )),
+        "emblem-mw2-mw2-m1a2-abrams-emblem-mw2-a5a36db4" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-m1a2-abrams-emblem-mw2-a5a36db4.png"),
+        )),
+        "emblem-mw2-mw2-major-emblem-mw2-0924cadb" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-major-emblem-mw2-0924cadb.png"),
+        )),
+        "emblem-mw2-mw2-major-general-emblem-mw2-0a216d14" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-major-general-emblem-mw2-0a216d14.png"),
+        )),
+        "emblem-mw2-mw2-makarov-emblem-mw2-ab708a30" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-makarov-emblem-mw2-ab708a30.png"),
+        )),
+        "emblem-mw2-mw2-marathonpro1-721a100e" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-marathonpro1-721a100e.png"),
+        )),
+        "emblem-mw2-mw2-martyrdom-emblem-mw2-629555e4" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-martyrdom-emblem-mw2-629555e4.png"),
+        )),
+        "emblem-mw2-mw2-master-sergeant-emblem-mw2-30839293" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-master-sergeant-emblem-mw2-30839293.png"
+            ),
+        )),
+        "emblem-mw2-mw2-mexican-blue-emblem-mw2-d12f8a9f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-mexican-blue-emblem-mw2-d12f8a9f.png"),
+        )),
+        "emblem-mw2-mw2-mexican-red-emblem-mw2-8f2bc37f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-mexican-red-emblem-mw2-8f2bc37f.png"),
+        )),
+        "emblem-mw2-mw2-mig-emblem-mw2-ce99b738" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-mig-emblem-mw2-ce99b738.png"),
+        )),
+        "emblem-mw2-mw2-minigun-emblem-mw2-5111585c" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-minigun-emblem-mw2-5111585c.png"),
+        )),
+        "emblem-mw2-mw2-missile-1-emblem-mw2-629022cc" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-missile-1-emblem-mw2-629022cc.png"),
+        )),
+        "emblem-mw2-mw2-moon-emblem-mw2-7df84dd9" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-moon-emblem-mw2-7df84dd9.png"),
+        )),
+        "emblem-mw2-mw2-motorcycle-emblem-mw2-72e13208" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-motorcycle-emblem-mw2-72e13208.png"),
+        )),
+        "emblem-mw2-mw2-night-vision-1-emblem-mw2-56d05000" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-night-vision-1-emblem-mw2-56d05000.png"
+            ),
+        )),
+        "emblem-mw2-mw2-night-vision-2-emblem-mw2-b3a2f9e9" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-night-vision-2-emblem-mw2-b3a2f9e9.png"
+            ),
+        )),
+        "emblem-mw2-mw2-ninjapro1-3aede584" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-ninjapro1-3aede584.png"),
+        )),
+        "emblem-mw2-mw2-noseart-emblem-mw2-d5394d70" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-noseart-emblem-mw2-d5394d70.png"),
+        )),
+        "emblem-mw2-mw2-pacifier-blue-emblem-mw2-38d0565f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-pacifier-blue-emblem-mw2-38d0565f.png"),
+        )),
+        "emblem-mw2-mw2-pacifier-pink-emblem-mw2-d62e87e3" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-pacifier-pink-emblem-mw2-d62e87e3.png"),
+        )),
+        "emblem-mw2-mw2-painkiller-emblem-mw2-bb8dba14" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-painkiller-emblem-mw2-bb8dba14.png"),
+        )),
+        "emblem-mw2-mw2-paratrooper-emblem-mw2-e59d3348" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-paratrooper-emblem-mw2-e59d3348.png"),
+        )),
+        "emblem-mw2-mw2-patch-emblem-mw2-0c9cb286" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-patch-emblem-mw2-0c9cb286.png"),
+        )),
+        "emblem-mw2-mw2-pave-low-emblem-mw2-527a2bf1" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-pave-low-emblem-mw2-527a2bf1.png"),
+        )),
+        "emblem-mw2-mw2-pirate-emblem-mw2-95f3d6f2" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-pirate-emblem-mw2-95f3d6f2.png"),
+        )),
+        "emblem-mw2-mw2-pirateflag-emblem-mw2-8b1ecd5c" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-pirateflag-emblem-mw2-8b1ecd5c.png"),
+        )),
+        "emblem-mw2-mw2-porter-justice-emblem-mw2-9f2427d9" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-porter-justice-emblem-mw2-9f2427d9.png"
+            ),
+        )),
+        "emblem-mw2-mw2-prestige-10-emblem-mw2-9a1f45b3" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-prestige-10-emblem-mw2-9a1f45b3.png"),
+        )),
+        "emblem-mw2-mw2-prestige-1-emblem-mw2-65806fdc" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-prestige-1-emblem-mw2-65806fdc.png"),
+        )),
+        "emblem-mw2-mw2-prestige-2-emblem-mw2-61ee357f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-prestige-2-emblem-mw2-61ee357f.png"),
+        )),
+        "emblem-mw2-mw2-prestige-3-emblem-mw2-66d3bdc4" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-prestige-3-emblem-mw2-66d3bdc4.png"),
+        )),
+        "emblem-mw2-mw2-prestige-4-emblem-mw2-84069d9b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-prestige-4-emblem-mw2-84069d9b.png"),
+        )),
+        "emblem-mw2-mw2-prestige-5-emblem-mw2-d0506227" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-prestige-5-emblem-mw2-d0506227.png"),
+        )),
+        "emblem-mw2-mw2-prestige-6-emblem-mw2-318c7dde" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-prestige-6-emblem-mw2-318c7dde.png"),
+        )),
+        "emblem-mw2-mw2-prestige-7-emblem-mw2-fab623dc" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-prestige-7-emblem-mw2-fab623dc.png"),
+        )),
+        "emblem-mw2-mw2-prestige-8-emblem-mw2-70e8b083" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-prestige-8-emblem-mw2-70e8b083.png"),
+        )),
+        "emblem-mw2-mw2-prestige-9-emblem-mw2-7a046413" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-prestige-9-emblem-mw2-7a046413.png"),
+        )),
+        "emblem-mw2-mw2-price-arctic-emblem-mw2-e3544232" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-price-arctic-emblem-mw2-e3544232.png"),
+        )),
+        "emblem-mw2-mw2-price-woodland-emblem-mw2-95be5c56" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-price-woodland-emblem-mw2-95be5c56.png"
+            ),
+        )),
+        "emblem-mw2-mw2-price-world-war-ii-emblem-mw2-5a21b584" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-price-world-war-ii-emblem-mw2-5a21b584.png"
+            ),
+        )),
+        "emblem-mw2-mw2-private-emblem-mw2-27fb047d" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-private-emblem-mw2-27fb047d.png"),
+        )),
+        "emblem-mw2-mw2-private-first-class-emblem-mw2-5eb1f5a3" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-private-first-class-emblem-mw2-5eb1f5a3.png"
+            ),
+        )),
+        "emblem-mw2-mw2-pushin-daisies-emblem-mw2-5c966074" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-pushin-daisies-emblem-mw2-5c966074.png"
+            ),
+        )),
+        "emblem-mw2-mw2-radiation-emblem-mw2-85985ad2" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-radiation-emblem-mw2-85985ad2.png"),
+        )),
+        "emblem-mw2-mw2-rapid-fire-emblem-mw2-dd0cb00d" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-rapid-fire-emblem-mw2-dd0cb00d.png"),
+        )),
+        "emblem-mw2-mw2-red-devil-emblem-mw2-100906c3" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-red-devil-emblem-mw2-100906c3.png"),
+        )),
+        "emblem-mw2-mw2-redhand-emblem-mw2-3a4250df" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-redhand-emblem-mw2-3a4250df.png"),
+        )),
+        "emblem-mw2-mw2-redhead-emblem-mw2-87fd1367" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-redhead-emblem-mw2-87fd1367.png"),
+        )),
+        "emblem-mw2-mw2-rhino-emblem-mw2-98ed64db" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-rhino-emblem-mw2-98ed64db.png"),
+        )),
+        "emblem-mw2-mw2-riot-shield-death-icon-mw2-46bad393" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-riot-shield-death-icon-mw2-46bad393.png"
+            ),
+        )),
+        "emblem-mw2-mw2-riot-shield-emblem-mw2-42e666dd" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-riot-shield-emblem-mw2-42e666dd.png"),
+        )),
+        "emblem-mw2-mw2-russian-beret-emblem-mw2-08f4f671" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-russian-beret-emblem-mw2-08f4f671.png"),
+        )),
+        "emblem-mw2-mw2-sas-beret-emblem-mw2-8ac760a2" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-sas-beret-emblem-mw2-8ac760a2.png"),
+        )),
+        "emblem-mw2-mw2-scavengepro1-780bfdd8" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-scavengepro1-780bfdd8.png"),
+        )),
+        "emblem-mw2-mw2-scramblerpro-e225eef9" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-scramblerpro-e225eef9.png"),
+        )),
+        "emblem-mw2-mw2-seasnipers-emblem-mw2-38b810f4" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-seasnipers-emblem-mw2-38b810f4.png"),
+        )),
+        "emblem-mw2-mw2-semtex-emblem-mw2-b56aa182" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-semtex-emblem-mw2-b56aa182.png"),
+        )),
+        "emblem-mw2-mw2-sergeant-emblem-mw2-5027389d" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-sergeant-emblem-mw2-5027389d.png"),
+        )),
+        "emblem-mw2-mw2-sergeant-first-class-emblem-mw2-77981840" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-sergeant-first-class-emblem-mw2-77981840.png"
+            ),
+        )),
+        "emblem-mw2-mw2-sergeant-major-emblem-mw2-a4dffa20" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-sergeant-major-emblem-mw2-a4dffa20.png"
+            ),
+        )),
+        "emblem-mw2-mw2-shotgun-shells-emblem-mw2-03095a81" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-shotgun-shells-emblem-mw2-03095a81.png"
+            ),
+        )),
+        "emblem-mw2-mw2-shuriken-emblem-mw2-7ac83dad" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-shuriken-emblem-mw2-7ac83dad.png"),
+        )),
+        "emblem-mw2-mw2-simple-gun-emblem-mw2-13015cd3" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-simple-gun-emblem-mw2-13015cd3.png"),
+        )),
+        "emblem-mw2-mw2-sitreppro1-dcc0ff85" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-sitreppro1-dcc0ff85.png"),
+        )),
+        "emblem-mw2-mw2-skull-award-emblem-mw2-2c55f531" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-skull-award-emblem-mw2-2c55f531.png"),
+        )),
+        "emblem-mw2-mw2-skull-black-emblem-mw2-c86a348c" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-skull-black-emblem-mw2-c86a348c.png"),
+        )),
+        "emblem-mw2-mw2-skull-emblem-mw2-111dbb39" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-skull-emblem-mw2-111dbb39.png"),
+        )),
+        "emblem-mw2-mw2-sleightpro-625e50af" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-sleightpro-625e50af.png"),
+        )),
+        "emblem-mw2-mw2-snake-eyes-emblem-mw2-a1033596" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-snake-eyes-emblem-mw2-a1033596.png"),
+        )),
+        "emblem-mw2-mw2-sniper-scope-emblem-mw2-84c07327" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-sniper-scope-emblem-mw2-84c07327.png"),
+        )),
+        "emblem-mw2-mw2-snowmobile-emblem-mw2-062ef1c9" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-snowmobile-emblem-mw2-062ef1c9.png"),
+        )),
+        "emblem-mw2-mw2-soap-bar-emblem-mw2-6b8c4dbf" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-soap-bar-emblem-mw2-6b8c4dbf.png"),
+        )),
+        "emblem-mw2-mw2-specialist-emblem-mw2-04bcf8c5" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-specialist-emblem-mw2-04bcf8c5.png"),
+        )),
+        "emblem-mw2-mw2-staff-sergeant-emblem-mw2-c7aa868b" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-staff-sergeant-emblem-mw2-c7aa868b.png"
+            ),
+        )),
+        "emblem-mw2-mw2-steadypro1-f5d224db" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-steadypro1-f5d224db.png"),
+        )),
+        "emblem-mw2-mw2-stoppowerpro-da3f4cd7" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-stoppowerpro-da3f4cd7.png"),
+        )),
+        "emblem-mw2-mw2-stop-emblem-mw2-a60d0a25" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-stop-emblem-mw2-a60d0a25.png"),
+        )),
+        "emblem-mw2-mw2-stryker-emblem-mw2-19d685bb" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-stryker-emblem-mw2-19d685bb.png"),
+        )),
+        "emblem-mw2-mw2-sugarglider-emblem-mw2-f4045fcc" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-sugarglider-emblem-mw2-f4045fcc.png"),
+        )),
+        "emblem-mw2-mw2-tf141-emblem-mw2-e3fdc945" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-tf141-emblem-mw2-e3fdc945.png"),
+        )),
+        "emblem-mw2-mw2-tactical-insertion-emblem-mw2-b5e27d3f" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-tactical-insertion-emblem-mw2-b5e27d3f.png"
+            ),
+        )),
+        "emblem-mw2-mw2-tank-emblem-mw2-30ce0023" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-tank-emblem-mw2-30ce0023.png"),
+        )),
+        "emblem-mw2-mw2-task-force-army-emblem-mw2-7f730416" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-task-force-army-emblem-mw2-7f730416.png"
+            ),
+        )),
+        "emblem-mw2-mw2-the-bomb-emblem-mw2-d71881b3" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-the-bomb-emblem-mw2-d71881b3.png"),
+        )),
+        "emblem-mw2-mw2-the-cow-emblem-mw2-270b76f8" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-the-cow-emblem-mw2-270b76f8.png"),
+        )),
+        "emblem-mw2-mw2-throwing-knife-soda-emblem-mw2-3d5fd168" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-throwing-knife-soda-emblem-mw2-3d5fd168.png"
+            ),
+        )),
+        "emblem-mw2-mw2-throwing-knive-emblem-mw2-239ddaa6" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-throwing-knive-emblem-mw2-239ddaa6.png"
+            ),
+        )),
+        "emblem-mw2-mw2-throwing-knife-icon-0560df3f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-throwing-knife-icon-0560df3f.png"),
+        )),
+        "emblem-mw2-mw2-tic-tac-boom-emblem-mw2-65d54eda" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-tic-tac-boom-emblem-mw2-65d54eda.png"),
+        )),
+        "emblem-mw2-mw2-tiger-emblem-mw2-7be2a982" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-tiger-emblem-mw2-7be2a982.png"),
+        )),
+        "emblem-mw2-mw2-tire-emblem-mw2-8ca254d6" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-tire-emblem-mw2-8ca254d6.png"),
+        )),
+        "emblem-mw2-mw2-toon-price-emblem-mw2-1199adfc" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-toon-price-emblem-mw2-1199adfc.png"),
+        )),
+        "emblem-mw2-mw2-treasure-chest-emblem-mw2-5a80040e" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-treasure-chest-emblem-mw2-5a80040e.png"
+            ),
+        )),
+        "emblem-mw2-mw2-treasure-map-emblem-mw2-a0c26590" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-treasure-map-emblem-mw2-a0c26590.png"),
+        )),
+        "emblem-mw2-mw2-tsunami-emblem-mw2-131fe88a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-tsunami-emblem-mw2-131fe88a.png"),
+        )),
+        "emblem-mw2-mw2-umbra-catervae-emblem-mw2-5341177b" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-mw2-mw2-umbra-catervae-emblem-mw2-5341177b.png"
+            ),
+        )),
+        "emblem-mw2-mw2-vest-emblem-mw2-da670970" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-vest-emblem-mw2-da670970.png"),
+        )),
+        "emblem-mw2-mw2-veteran-emblem-mw2-ce92394e" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-veteran-emblem-mw2-ce92394e.png"),
+        )),
+        "emblem-mw2-mw2-war-pig-emblem-mw2-e81617b5" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-war-pig-emblem-mw2-e81617b5.png"),
+        )),
+        "emblem-mw2-mw2-weed-emblem-mw2-07e9d187" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-weed-emblem-mw2-07e9d187.png"),
+        )),
+        "emblem-mw2-mw2-xray-emblem-mw2-4c547666" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-mw2-mw2-xray-emblem-mw2-4c547666.png"),
+        )),
+        "emblem-rank-advanced-warfare-iw5-prestige-1-efeab8ac" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-iw5-prestige-1-efeab8ac.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-iw5-prestige-10-2f4a9fb0" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-iw5-prestige-10-2f4a9fb0.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-iw5-prestige-2-7730666b" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-iw5-prestige-2-7730666b.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-iw5-prestige-3-3c80872e" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-iw5-prestige-3-3c80872e.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-iw5-prestige-4-8f96c9c7" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-iw5-prestige-4-8f96c9c7.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-iw5-prestige-5-047b1245" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-iw5-prestige-5-047b1245.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-iw5-prestige-6-03131b2b" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-iw5-prestige-6-03131b2b.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-iw5-prestige-7-16a74ea8" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-iw5-prestige-7-16a74ea8.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-iw5-prestige-8-cab39137" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-iw5-prestige-8-cab39137.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-iw5-prestige-9-c89b57ed" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-iw5-prestige-9-c89b57ed.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-master-prestige-01-c2062c9d" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-master-prestige-01-c2062c9d.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-master-prestige-02-845c9fb2" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-master-prestige-02-845c9fb2.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-master-prestige-03-5565437f" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-master-prestige-03-5565437f.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-master-prestige-04-26dea4b4" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-master-prestige-04-26dea4b4.png"
+            ),
+        )),
+        "emblem-rank-advanced-warfare-master-prestige-05-9bf604b4" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-advanced-warfare-master-prestige-05-9bf604b4.png"
+            ),
+        )),
+        "emblem-rank-black-ops-1-iw5-prestige-1-4e0d9c3a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-1-iw5-prestige-1-4e0d9c3a.png"),
+        )),
+        "emblem-rank-black-ops-1-iw5-prestige-10-36251bb7" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-1-iw5-prestige-10-36251bb7.png"),
+        )),
+        "emblem-rank-black-ops-1-iw5-prestige-2-2ab726a1" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-1-iw5-prestige-2-2ab726a1.png"),
+        )),
+        "emblem-rank-black-ops-1-iw5-prestige-3-2bae14cc" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-1-iw5-prestige-3-2bae14cc.png"),
+        )),
+        "emblem-rank-black-ops-1-iw5-prestige-4-dedf17e0" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-1-iw5-prestige-4-dedf17e0.png"),
+        )),
+        "emblem-rank-black-ops-1-iw5-prestige-5-ec19897b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-1-iw5-prestige-5-ec19897b.png"),
+        )),
+        "emblem-rank-black-ops-1-iw5-prestige-6-e02f9412" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-1-iw5-prestige-6-e02f9412.png"),
+        )),
+        "emblem-rank-black-ops-1-iw5-prestige-7-23406732" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-1-iw5-prestige-7-23406732.png"),
+        )),
+        "emblem-rank-black-ops-1-iw5-prestige-8-04e92463" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-1-iw5-prestige-8-04e92463.png"),
+        )),
+        "emblem-rank-black-ops-1-iw5-prestige-9-9323bc71" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-1-iw5-prestige-9-9323bc71.png"),
+        )),
+        "emblem-rank-black-ops-1-master-prestige-01-dbc40f2b" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-black-ops-1-master-prestige-01-dbc40f2b.png"
+            ),
+        )),
+        "emblem-rank-black-ops-1-master-prestige-02-8e46087d" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-black-ops-1-master-prestige-02-8e46087d.png"
+            ),
+        )),
+        "emblem-rank-black-ops-1-master-prestige-03-f32f5699" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-black-ops-1-master-prestige-03-f32f5699.png"
+            ),
+        )),
+        "emblem-rank-black-ops-1-master-prestige-04-f04e260a" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-black-ops-1-master-prestige-04-f04e260a.png"
+            ),
+        )),
+        "emblem-rank-black-ops-1-master-prestige-05-fa9052ec" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-black-ops-1-master-prestige-05-fa9052ec.png"
+            ),
+        )),
+        "emblem-rank-black-ops-2-iw5-prestige-1-615d9241" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-2-iw5-prestige-1-615d9241.png"),
+        )),
+        "emblem-rank-black-ops-2-iw5-prestige-10-c15d87db" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-2-iw5-prestige-10-c15d87db.png"),
+        )),
+        "emblem-rank-black-ops-2-iw5-prestige-2-24f6196b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-2-iw5-prestige-2-24f6196b.png"),
+        )),
+        "emblem-rank-black-ops-2-iw5-prestige-3-ca1fb0af" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-2-iw5-prestige-3-ca1fb0af.png"),
+        )),
+        "emblem-rank-black-ops-2-iw5-prestige-4-ba2db96f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-2-iw5-prestige-4-ba2db96f.png"),
+        )),
+        "emblem-rank-black-ops-2-iw5-prestige-5-115becad" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-2-iw5-prestige-5-115becad.png"),
+        )),
+        "emblem-rank-black-ops-2-iw5-prestige-6-c7313d27" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-2-iw5-prestige-6-c7313d27.png"),
+        )),
+        "emblem-rank-black-ops-2-iw5-prestige-7-f08ee99d" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-2-iw5-prestige-7-f08ee99d.png"),
+        )),
+        "emblem-rank-black-ops-2-iw5-prestige-8-67220c07" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-2-iw5-prestige-8-67220c07.png"),
+        )),
+        "emblem-rank-black-ops-2-iw5-prestige-9-dce3a583" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-2-iw5-prestige-9-dce3a583.png"),
+        )),
+        "emblem-rank-black-ops-3-iw5-prestige-1-cce408fa" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-3-iw5-prestige-1-cce408fa.png"),
+        )),
+        "emblem-rank-black-ops-3-iw5-prestige-10-0b118a43" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-3-iw5-prestige-10-0b118a43.png"),
+        )),
+        "emblem-rank-black-ops-3-iw5-prestige-2-6122b3a2" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-3-iw5-prestige-2-6122b3a2.png"),
+        )),
+        "emblem-rank-black-ops-3-iw5-prestige-3-5bd148c3" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-3-iw5-prestige-3-5bd148c3.png"),
+        )),
+        "emblem-rank-black-ops-3-iw5-prestige-4-c903b30a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-3-iw5-prestige-4-c903b30a.png"),
+        )),
+        "emblem-rank-black-ops-3-iw5-prestige-5-03668a05" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-3-iw5-prestige-5-03668a05.png"),
+        )),
+        "emblem-rank-black-ops-3-iw5-prestige-6-899ff49e" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-3-iw5-prestige-6-899ff49e.png"),
+        )),
+        "emblem-rank-black-ops-3-iw5-prestige-7-6202ec2a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-3-iw5-prestige-7-6202ec2a.png"),
+        )),
+        "emblem-rank-black-ops-3-iw5-prestige-8-055860c2" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-3-iw5-prestige-8-055860c2.png"),
+        )),
+        "emblem-rank-black-ops-3-iw5-prestige-9-7f8e5621" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-3-iw5-prestige-9-7f8e5621.png"),
+        )),
+        "emblem-rank-black-ops-3-master-prestige-01-0cef611d" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-black-ops-3-master-prestige-01-0cef611d.png"
+            ),
+        )),
+        "emblem-rank-black-ops-4-iw5-prestige-1-e9164d74" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-4-iw5-prestige-1-e9164d74.png"),
+        )),
+        "emblem-rank-black-ops-4-iw5-prestige-10-9ac207c0" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-4-iw5-prestige-10-9ac207c0.png"),
+        )),
+        "emblem-rank-black-ops-4-iw5-prestige-2-9273c3bf" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-4-iw5-prestige-2-9273c3bf.png"),
+        )),
+        "emblem-rank-black-ops-4-iw5-prestige-3-ff3ec6dd" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-4-iw5-prestige-3-ff3ec6dd.png"),
+        )),
+        "emblem-rank-black-ops-4-iw5-prestige-4-2a4cd541" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-4-iw5-prestige-4-2a4cd541.png"),
+        )),
+        "emblem-rank-black-ops-4-iw5-prestige-5-2018d7d5" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-4-iw5-prestige-5-2018d7d5.png"),
+        )),
+        "emblem-rank-black-ops-4-iw5-prestige-6-ad506b84" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-4-iw5-prestige-6-ad506b84.png"),
+        )),
+        "emblem-rank-black-ops-4-iw5-prestige-7-af10e5cc" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-4-iw5-prestige-7-af10e5cc.png"),
+        )),
+        "emblem-rank-black-ops-4-iw5-prestige-8-e5b6393b" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-4-iw5-prestige-8-e5b6393b.png"),
+        )),
+        "emblem-rank-black-ops-4-iw5-prestige-9-943225b2" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-black-ops-4-iw5-prestige-9-943225b2.png"),
+        )),
+        "emblem-rank-black-ops-4-master-prestige-01-3c4db351" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-black-ops-4-master-prestige-01-3c4db351.png"
+            ),
+        )),
+        "emblem-rank-cod-4-iw5-prestige-1-925188a8" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-cod-4-iw5-prestige-1-925188a8.png"),
+        )),
+        "emblem-rank-cod-4-iw5-prestige-10-6d9fd605" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-cod-4-iw5-prestige-10-6d9fd605.png"),
+        )),
+        "emblem-rank-cod-4-iw5-prestige-2-48682d61" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-cod-4-iw5-prestige-2-48682d61.png"),
+        )),
+        "emblem-rank-cod-4-iw5-prestige-3-52ee7d79" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-cod-4-iw5-prestige-3-52ee7d79.png"),
+        )),
+        "emblem-rank-cod-4-iw5-prestige-4-dd4a5056" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-cod-4-iw5-prestige-4-dd4a5056.png"),
+        )),
+        "emblem-rank-cod-4-iw5-prestige-5-369f1c9f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-cod-4-iw5-prestige-5-369f1c9f.png"),
+        )),
+        "emblem-rank-cod-4-iw5-prestige-6-0a36f766" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-cod-4-iw5-prestige-6-0a36f766.png"),
+        )),
+        "emblem-rank-cod-4-iw5-prestige-7-768e6c2a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-cod-4-iw5-prestige-7-768e6c2a.png"),
+        )),
+        "emblem-rank-cod-4-iw5-prestige-8-ca97295d" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-cod-4-iw5-prestige-8-ca97295d.png"),
+        )),
+        "emblem-rank-cod-4-iw5-prestige-9-35e4ff48" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-cod-4-iw5-prestige-9-35e4ff48.png"),
+        )),
+        "emblem-rank-ghosts-iw5-prestige-1-ec9b9655" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-ghosts-iw5-prestige-1-ec9b9655.png"),
+        )),
+        "emblem-rank-ghosts-iw5-prestige-10-b2bc2873" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-ghosts-iw5-prestige-10-b2bc2873.png"),
+        )),
+        "emblem-rank-ghosts-iw5-prestige-2-a325c162" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-ghosts-iw5-prestige-2-a325c162.png"),
+        )),
+        "emblem-rank-ghosts-iw5-prestige-3-1d2befde" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-ghosts-iw5-prestige-3-1d2befde.png"),
+        )),
+        "emblem-rank-ghosts-iw5-prestige-4-c4b421a8" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-ghosts-iw5-prestige-4-c4b421a8.png"),
+        )),
+        "emblem-rank-ghosts-iw5-prestige-5-15c44c46" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-ghosts-iw5-prestige-5-15c44c46.png"),
+        )),
+        "emblem-rank-ghosts-iw5-prestige-6-d9962561" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-ghosts-iw5-prestige-6-d9962561.png"),
+        )),
+        "emblem-rank-ghosts-iw5-prestige-7-596771b8" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-ghosts-iw5-prestige-7-596771b8.png"),
+        )),
+        "emblem-rank-ghosts-iw5-prestige-8-79b7fdd7" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-ghosts-iw5-prestige-8-79b7fdd7.png"),
+        )),
+        "emblem-rank-ghosts-iw5-prestige-9-7f51cfea" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-ghosts-iw5-prestige-9-7f51cfea.png"),
+        )),
+        "emblem-rank-infinite-warfare-iw5-prestige-1-9d655ec2" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-infinite-warfare-iw5-prestige-1-9d655ec2.png"
+            ),
+        )),
+        "emblem-rank-infinite-warfare-iw5-prestige-10-cdf51d49" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-infinite-warfare-iw5-prestige-10-cdf51d49.png"
+            ),
+        )),
+        "emblem-rank-infinite-warfare-iw5-prestige-2-a5736831" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-infinite-warfare-iw5-prestige-2-a5736831.png"
+            ),
+        )),
+        "emblem-rank-infinite-warfare-iw5-prestige-3-a5b9ca1c" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-infinite-warfare-iw5-prestige-3-a5b9ca1c.png"
+            ),
+        )),
+        "emblem-rank-infinite-warfare-iw5-prestige-4-f9c42e42" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-infinite-warfare-iw5-prestige-4-f9c42e42.png"
+            ),
+        )),
+        "emblem-rank-infinite-warfare-iw5-prestige-5-626ebee9" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-infinite-warfare-iw5-prestige-5-626ebee9.png"
+            ),
+        )),
+        "emblem-rank-infinite-warfare-iw5-prestige-6-cf65a76a" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-infinite-warfare-iw5-prestige-6-cf65a76a.png"
+            ),
+        )),
+        "emblem-rank-infinite-warfare-iw5-prestige-7-65e51513" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-infinite-warfare-iw5-prestige-7-65e51513.png"
+            ),
+        )),
+        "emblem-rank-infinite-warfare-iw5-prestige-8-cfe8c33b" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-infinite-warfare-iw5-prestige-8-cfe8c33b.png"
+            ),
+        )),
+        "emblem-rank-infinite-warfare-iw5-prestige-9-44761cb3" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-infinite-warfare-iw5-prestige-9-44761cb3.png"
+            ),
+        )),
+        "emblem-rank-mw2-iw5-prestige-1-96816565" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-mw2-iw5-prestige-1-96816565.png"),
+        )),
+        "emblem-rank-mw2-iw5-prestige-10-0f6de1e5" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-mw2-iw5-prestige-10-0f6de1e5.png"),
+        )),
+        "emblem-rank-mw2-iw5-prestige-2-133b85ff" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-mw2-iw5-prestige-2-133b85ff.png"),
+        )),
+        "emblem-rank-mw2-iw5-prestige-3-069b40b4" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-mw2-iw5-prestige-3-069b40b4.png"),
+        )),
+        "emblem-rank-mw2-iw5-prestige-4-4ba37aed" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-mw2-iw5-prestige-4-4ba37aed.png"),
+        )),
+        "emblem-rank-mw2-iw5-prestige-5-ed833369" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-mw2-iw5-prestige-5-ed833369.png"),
+        )),
+        "emblem-rank-mw2-iw5-prestige-6-2488716e" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-mw2-iw5-prestige-6-2488716e.png"),
+        )),
+        "emblem-rank-mw2-iw5-prestige-7-062059a1" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-mw2-iw5-prestige-7-062059a1.png"),
+        )),
+        "emblem-rank-mw2-iw5-prestige-8-7acaf266" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-mw2-iw5-prestige-8-7acaf266.png"),
+        )),
+        "emblem-rank-mw2-iw5-prestige-9-6334b012" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-mw2-iw5-prestige-9-6334b012.png"),
+        )),
+        "emblem-rank-waw-iw5-prestige-1-6bb7ef05" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-waw-iw5-prestige-1-6bb7ef05.png"),
+        )),
+        "emblem-rank-waw-iw5-prestige-10-6eed06ce" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-waw-iw5-prestige-10-6eed06ce.png"),
+        )),
+        "emblem-rank-waw-iw5-prestige-2-fb648a0a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-waw-iw5-prestige-2-fb648a0a.png"),
+        )),
+        "emblem-rank-waw-iw5-prestige-3-1d176e89" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-waw-iw5-prestige-3-1d176e89.png"),
+        )),
+        "emblem-rank-waw-iw5-prestige-4-42f343cf" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-waw-iw5-prestige-4-42f343cf.png"),
+        )),
+        "emblem-rank-waw-iw5-prestige-5-5369d7c3" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-waw-iw5-prestige-5-5369d7c3.png"),
+        )),
+        "emblem-rank-waw-iw5-prestige-6-ed51b200" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-waw-iw5-prestige-6-ed51b200.png"),
+        )),
+        "emblem-rank-waw-iw5-prestige-7-2b875d12" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-waw-iw5-prestige-7-2b875d12.png"),
+        )),
+        "emblem-rank-waw-iw5-prestige-8-1235776a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-waw-iw5-prestige-8-1235776a.png"),
+        )),
+        "emblem-rank-waw-iw5-prestige-9-64f94c12" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-waw-iw5-prestige-9-64f94c12.png"),
+        )),
+        "emblem-rank-world-war-2-iw5-prestige-1-d32e635a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-world-war-2-iw5-prestige-1-d32e635a.png"),
+        )),
+        "emblem-rank-world-war-2-iw5-prestige-10-1fcf724c" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-world-war-2-iw5-prestige-10-1fcf724c.png"),
+        )),
+        "emblem-rank-world-war-2-iw5-prestige-2-21f44e59" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-world-war-2-iw5-prestige-2-21f44e59.png"),
+        )),
+        "emblem-rank-world-war-2-iw5-prestige-3-2025590a" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-world-war-2-iw5-prestige-3-2025590a.png"),
+        )),
+        "emblem-rank-world-war-2-iw5-prestige-4-9724f248" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-world-war-2-iw5-prestige-4-9724f248.png"),
+        )),
+        "emblem-rank-world-war-2-iw5-prestige-5-85a482b1" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-world-war-2-iw5-prestige-5-85a482b1.png"),
+        )),
+        "emblem-rank-world-war-2-iw5-prestige-6-a2f0e6a6" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-world-war-2-iw5-prestige-6-a2f0e6a6.png"),
+        )),
+        "emblem-rank-world-war-2-iw5-prestige-7-02310fba" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-world-war-2-iw5-prestige-7-02310fba.png"),
+        )),
+        "emblem-rank-world-war-2-iw5-prestige-8-955f4a51" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-world-war-2-iw5-prestige-8-955f4a51.png"),
+        )),
+        "emblem-rank-world-war-2-iw5-prestige-9-6b0a4b5f" => Some((
+            "image/png",
+            include_bytes!("../web/cosmetics/emblem-rank-world-war-2-iw5-prestige-9-6b0a4b5f.png"),
+        )),
+        "emblem-rank-world-war-2-master-prestige-01-5d433ec3" => Some((
+            "image/png",
+            include_bytes!(
+                "../web/cosmetics/emblem-rank-world-war-2-master-prestige-01-5d433ec3.png"
+            ),
+        )),
+        "name-effect-aurora" => Some((
+            "image/svg+xml",
+            include_bytes!("../web/cosmetics/name-effect-aurora.svg"),
+        )),
+        "name-effect-canna" => Some((
+            "image/svg+xml",
+            include_bytes!("../web/cosmetics/name-effect-canna.svg"),
+        )),
+        "name-effect-sunset" => Some((
+            "image/svg+xml",
+            include_bytes!("../web/cosmetics/name-effect-sunset.svg"),
+        )),
+        "name-effect-royal" => Some((
+            "image/svg+xml",
+            include_bytes!("../web/cosmetics/name-effect-royal.svg"),
+        )),
+        "name-effect-ice" => Some((
+            "image/svg+xml",
+            include_bytes!("../web/cosmetics/name-effect-ice.svg"),
+        )),
+        "name-effect-rainbow" => Some((
+            "image/svg+xml",
+            include_bytes!("../web/cosmetics/name-effect-rainbow.svg"),
+        )),
         _ => None,
     }
 }

@@ -96,6 +96,8 @@ pub fn rules_view(db: &Connection) -> ApiResult<Value> {
         "bo2-calling-cards",
         "mw2-calling-cards",
         "avatar-frames",
+        "cod-emblems",
+        "username-effects",
         "canna-case",
     ]
     .into_iter()
@@ -160,7 +162,7 @@ pub async fn admin_rules(
     let actor = community::owner(&app, &headers)?;
     if !(1..=500).contains(&input.daily_limit)
         || input.games.len() != GAMES.len()
-        || input.crates.len() > 4
+        || input.crates.len() > 6
     {
         return Err(bad(
             "Choose all six game rules and a daily limit from 1 to 500",

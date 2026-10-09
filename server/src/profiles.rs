@@ -25,6 +25,7 @@ pub async fn directory(
         let id = user["id"].as_i64().unwrap();
         user["roles"] = json!(admin_settings::roles(&db, id)?);
         user["can_rebound"] = json!(admin_settings::has_rebound(&db, id)?);
+        user["cosmetics"] = gambling::equipped(&db, id)?;
     }
     Ok(axum::Json(page.response(users, total)))
 }

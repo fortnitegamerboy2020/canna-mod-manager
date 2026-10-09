@@ -47,6 +47,15 @@ pub async fn messages(
     let mut stmt=db.prepare("SELECT c.id,c.user_id,u.username,u.role,c.body,c.created,c.bot,COALESCE(w.badge,'none') FROM chat_messages c JOIN users u ON u.id=c.user_id LEFT JOIN bot_wallets w ON w.user_id=c.user_id WHERE c.created>?1 ORDER BY c.id DESC LIMIT 100")?;
     let mut rows=stmt.query_map([now()-86400], |r|Ok(json!({"id":r.get::<_,i64>(0)?,"user_id":r.get::<_,i64>(1)?,"username":r.get::<_,String>(2)?,"role":r.get::<_,String>(3)?,"body":r.get::<_,String>(4)?,"created":r.get::<_,i64>(5)?,"bot":r.get::<_,bool>(6)?,"badge":r.get::<_,String>(7)?})))?.collect::<Result<Vec<_>,_>>()?;
     rows.reverse();
+    let mut cosmetics = std::collections::HashMap::new();
+    for row in &mut rows {
+        if row["bot"] == true { continue; }
+        let actor = row["user_id"].as_i64().unwrap();
+        if let std::collections::hash_map::Entry::Vacant(entry) = cosmetics.entry(actor) {
+            entry.insert(gambling::equipped(&db, actor)?);
+        }
+        row["cosmetics"] = cosmetics[&actor].clone();
+    }
     Ok(axum::Json(json!(rows)))
 }
 pub async fn history(

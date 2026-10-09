@@ -16,6 +16,10 @@ const INTERMISSION_MS: i64 = 4_000;
 const PARTICIPANT_PAGE_SIZE: i64 = 200;
 const NOTICE: &str = "Kash is free fictional currency: no purchase or real-money cash-out; member tips transfer existing Kash. The owner can see Crash outcomes before each round, including random rounds. Controlled rounds are openly marked; this is not a provably-fair game. Blackjack uses a shuffled 52-card shoe, dealer stands on soft 17, no splits or insurance; natural blackjack pays 3:2, rounded down to whole Kash. Balances are capped at 9007199254740991 Kash.";
 
+#[cfg(test)]
+#[path = "gambling_cosmetics_tests.rs"]
+mod cosmetic_tests;
+
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch(
         "CREATE TABLE IF NOT EXISTS gambling_config(id INTEGER PRIMARY KEY CHECK(id=1),mode TEXT NOT NULL DEFAULT 'random' CHECK(mode IN ('random','controlled')),paused INTEGER NOT NULL DEFAULT 0);
@@ -46,6 +50,17 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     if !columns.iter().any(|name| name == "cashout_at_ms") {
         // Historical wins have no recorded clock time; leave them unknown.
         db.execute_batch("ALTER TABLE gambling_crash_bets ADD COLUMN cashout_at_ms INTEGER;")?;
+    }
+    let columns = db
+        .prepare("PRAGMA table_info(gambling_equipped)")?
+        .query_map([], |r| r.get::<_, String>(1))?
+        .collect::<Result<Vec<_>, _>>()?;
+    for column in ["emblem", "name_effect"] {
+        if !columns.iter().any(|name| name == column) {
+            db.execute_batch(&format!(
+                "ALTER TABLE gambling_equipped ADD COLUMN {column} TEXT;"
+            ))?;
+        }
     }
     // Warm immutable metadata during initialization, before this connection is
     // shared or used by gameplay transactions. Invalid metadata stays unavailable.
@@ -878,10 +893,24 @@ fn build_catalog(source: &str) -> ApiResult<CosmeticCatalog> {
             .ok_or_else(|| bad("Cosmetics catalog is unavailable"))?;
         if !identifier(id)
             || !ids.insert(id)
-            || !matches!(item["kind"].as_str(), Some("frame" | "banner"))
+            || !matches!(
+                item["kind"].as_str(),
+                Some("frame" | "banner" | "emblem" | "name_effect")
+            )
             || !matches!(
                 (item["kind"].as_str(), item["collection"].as_str()),
-                (Some("frame"), Some("frames")) | (Some("banner"), Some("bo2" | "mw2" | "canna"))
+                (Some("frame"), Some("frames"))
+                    | (Some("banner"), Some("bo2" | "mw2" | "canna"))
+                    | (Some("emblem"), Some("mw2-emblems" | "cod-ranks"))
+                    | (Some("name_effect"), Some("username-effects"))
+            )
+        {
+            return Err(bad("Cosmetics catalog is unavailable"));
+        }
+        if item["kind"] == "name_effect"
+            && !matches!(
+                item["style"].as_str(),
+                Some("aurora" | "canna" | "sunset" | "royal" | "ice" | "rainbow")
             )
         {
             return Err(bad("Cosmetics catalog is unavailable"));
@@ -953,8 +982,14 @@ fn case_definition(id: &str) -> ApiResult<(&'static str, Option<&'static str>, &
         "bo2-calling-cards" => Ok(("BO2 calling cards crate", Some("bo2"), "banner")),
         "mw2-calling-cards" => Ok(("MW2 calling cards crate", Some("mw2"), "banner")),
         "avatar-frames" => Ok(("Avatar frames crate", Some("frames"), "frame")),
+        "cod-emblems" => Ok(("Call of Duty emblems crate", None, "emblem")),
+        "username-effects" => Ok((
+            "Animated usernames crate",
+            Some("username-effects"),
+            "name_effect",
+        )),
         // Old clients can still open the original mixed case. Its inventory IDs
-        // remain valid, while new clients show the three separate collections.
+        // remain valid, while new clients show separate collections.
         "canna-case" => Ok(("Canna cosmetics case", None, "mixed")),
         _ => Err(bad("Cosmetic case not found")),
     }
@@ -971,8 +1006,13 @@ fn case_pool<'a>(catalog: &'a Value, id: &str) -> ApiResult<(Vec<&'a Value>, u64
         if item["paused"] == true {
             continue;
         }
-        if collection
-            .is_some_and(|collection| item["collection"] != collection || item["kind"] != kind)
+        // The legacy mixed crate remains compatible with clients that only
+        // understand frame and banner equipment.
+        if kind == "mixed" && !matches!(item["kind"].as_str(), Some("frame" | "banner")) {
+            continue;
+        }
+        if (kind != "mixed" && item["kind"] != kind)
+            || collection.is_some_and(|collection| item["collection"] != collection)
         {
             continue;
         }
@@ -1006,7 +1046,7 @@ fn select_case_item(catalog: &Value, id: &str, mut roll: u64) -> ApiResult<Value
 }
 
 fn cases_view(catalog: &Value) -> ApiResult<Value> {
-    ["bo2-calling-cards", "mw2-calling-cards", "avatar-frames"]
+    ["bo2-calling-cards", "mw2-calling-cards", "avatar-frames", "cod-emblems", "username-effects"]
         .into_iter()
         .map(|id| {
             let (name, collection, kind) = case_definition(id)?;
@@ -1030,15 +1070,20 @@ fn cosmetics_view(
             Ok(json!({"id":r.get::<_,String>(0)?,"count":r.get::<_,i64>(1)?}))
         })?
         .collect::<Result<Vec<_>, _>>()?;
-    let (frame, banner): (Option<String>, Option<String>) = db
+    let (frame, banner, emblem, name_effect): (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = db
         .query_row(
-            "SELECT frame,banner FROM gambling_equipped WHERE user_id=?1",
+            "SELECT frame,banner,emblem,name_effect FROM gambling_equipped WHERE user_id=?1",
             [actor],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?
         .unwrap_or_default();
-    let mut cosmetics = json!({"catalog_version":catalog.version,"owned":owned,"equipped":{"frame":frame,"banner":banner}});
+    let mut cosmetics = json!({"catalog_version":catalog.version,"owned":owned,"equipped":{"frame":frame,"banner":banner,"emblem":emblem,"name_effect":name_effect}});
     let cases = if include_catalog {
         cosmetics["catalog"] = catalog.value["items"].clone();
         Some(catalog.cases.clone())
@@ -1049,11 +1094,16 @@ fn cosmetics_view(
 }
 
 pub fn equipped(db: &Connection, actor: i64) -> ApiResult<Value> {
-    let (frame, banner): (Option<String>, Option<String>) = db
+    let (frame, banner, emblem, name_effect): (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = db
         .query_row(
-            "SELECT frame,banner FROM gambling_equipped WHERE user_id=?1",
+            "SELECT frame,banner,emblem,name_effect FROM gambling_equipped WHERE user_id=?1",
             [actor],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?
         .unwrap_or_default();
@@ -1068,7 +1118,9 @@ pub fn equipped(db: &Connection, actor: i64) -> ApiResult<Value> {
         })
         .unwrap_or(Value::Null)
     };
-    Ok(json!({"frame":find(frame),"banner":find(banner)}))
+    Ok(
+        json!({"frame":find(frame),"banner":find(banner),"emblem":find(emblem),"name_effect":find(name_effect)}),
+    )
 }
 
 #[derive(Deserialize, Serialize)]
@@ -1115,6 +1167,15 @@ pub async fn case_open(
 pub struct EquipInput {
     frame: Option<String>,
     banner: Option<String>,
+    #[serde(default, deserialize_with = "nullable_equipment")]
+    emblem: Option<Option<String>>,
+    #[serde(default, deserialize_with = "nullable_equipment")]
+    name_effect: Option<Option<String>>,
+}
+fn nullable_equipment<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<Option<Option<String>>, D::Error> {
+    Option::<String>::deserialize(deserializer).map(Some)
 }
 pub async fn equip(
     State(app): State<Shared>,
@@ -1125,15 +1186,29 @@ pub async fn equip(
     let catalog = catalog()?;
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let previous: (Option<String>, Option<String>) = tx
+    let previous: (
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+    ) = tx
         .query_row(
-            "SELECT frame,banner FROM gambling_equipped WHERE user_id=?1",
+            "SELECT frame,banner,emblem,name_effect FROM gambling_equipped WHERE user_id=?1",
             [actor],
-            |r| Ok((r.get(0)?, r.get(1)?)),
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )
         .optional()?
         .unwrap_or_default();
-    for (kind, id) in [("frame", &input.frame), ("banner", &input.banner)] {
+    // Older clients do not know these slots. Omission preserves them, while an
+    // explicit JSON null removes them. Every newly selected item still needs ownership.
+    let emblem = input.emblem.unwrap_or_else(|| previous.2.clone());
+    let name_effect = input.name_effect.unwrap_or_else(|| previous.3.clone());
+    for (kind, id, previous_id) in [
+        ("frame", &input.frame, &previous.0),
+        ("banner", &input.banner, &previous.1),
+        ("emblem", &emblem, &previous.2),
+        ("name_effect", &name_effect, &previous.3),
+    ] {
         if let Some(id) = id {
             let item = catalog["items"]
                 .as_array()
@@ -1141,11 +1216,6 @@ pub async fn equip(
                 .iter()
                 .find(|i| i["id"] == *id && i["kind"] == kind)
                 .ok_or_else(|| bad("Choose an item of the correct cosmetic kind"))?;
-            let previous_id = if kind == "frame" {
-                &previous.0
-            } else {
-                &previous.1
-            };
             if item["paused"] == true && previous_id.as_ref() != Some(id) {
                 return Err(bad(
                     "This cosmetic collection is paused due to artwork quality",
@@ -1164,10 +1234,10 @@ pub async fn equip(
             }
         }
     }
-    tx.execute("INSERT INTO gambling_equipped VALUES(?1,?2,?3) ON CONFLICT(user_id) DO UPDATE SET frame=excluded.frame,banner=excluded.banner",params![actor,input.frame,input.banner])?;
+    tx.execute("INSERT INTO gambling_equipped(user_id,frame,banner,emblem,name_effect) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(user_id) DO UPDATE SET frame=excluded.frame,banner=excluded.banner,emblem=excluded.emblem,name_effect=excluded.name_effect",params![actor,input.frame,input.banner,emblem,name_effect])?;
     tx.commit()?;
     Ok(axum::Json(
-        json!({"ok":true,"equipped":{"frame":input.frame,"banner":input.banner}}),
+        json!({"ok":true,"equipped":{"frame":input.frame,"banner":input.banner,"emblem":emblem,"name_effect":name_effect}}),
     ))
 }
 
@@ -1211,6 +1281,8 @@ pub struct OverviewQuery {
     crash_round_id: Option<i64>,
     crash_after_user_id: Option<i64>,
     catalog_version: Option<String>,
+    #[serde(default)]
+    crash_only: bool,
 }
 
 pub async fn overview(
@@ -1237,7 +1309,7 @@ pub async fn overview(
     }
     // Resolve and validate immutable metadata before acquiring the game DB lock.
     // The participant-only branch needs no catalog at all.
-    let catalog = if query.crash_after_user_id.is_none() {
+    let catalog = if query.crash_after_user_id.is_none() && !query.crash_only {
         Some(cached_catalog()?)
     } else {
         None
@@ -1269,6 +1341,12 @@ pub async fn overview(
         ));
     }
     let (balance, earned, daily) = wallet(&tx, actor)?;
+    if query.crash_only {
+        tx.commit()?;
+        return Ok(axum::Json(
+            json!({"member_id":actor,"server_time_ms":time,"crash":crash,"wallet":{"balance":balance,"earned":earned,"daily_available":daily!=now()/86400}}),
+        ));
+    }
     let hand_id:Option<String>=tx.query_row("SELECT id FROM gambling_blackjack WHERE user_id=?1 ORDER BY created DESC,rowid DESC LIMIT 1",[actor],|r|r.get(0)).optional()?;
     let hand = hand_id
         .map(|id| load_hand(&tx, &id, actor).map(|h| hand_view(&h)))
@@ -1736,8 +1814,8 @@ mod tests {
             assert_eq!(response.headers()["x-content-type-options"], "nosniff");
             let result = value(response).await;
             assert_eq!(result["version"], cached_catalog().unwrap().version);
-            assert_eq!(result["catalog"].as_array().unwrap().len(), 654);
-            assert_eq!(result["cases"].as_array().unwrap().len(), 3);
+            assert_eq!(result["catalog"].as_array().unwrap().len(), 988);
+            assert_eq!(result["cases"].as_array().unwrap().len(), 5);
             assert!(result.get("owned").is_none());
             assert!(result.get("wallet").is_none());
             if let Some(previous) = first.as_ref() {
@@ -1790,7 +1868,7 @@ mod tests {
         assert!(full_size > 600_000);
         assert_eq!(
             legacy["cosmetics"]["catalog"].as_array().unwrap().len(),
-            654
+            988
         );
         assert!(legacy["cases"].is_array());
         let compact_path = format!("/api/v1/gambling?catalog_version={version}");
@@ -3127,10 +3205,12 @@ mod tests {
             {"id":"frame-a","collection":"frames","kind":"frame","weight":2},
             {"id":"canna-a","collection":"canna","kind":"banner","weight":1},
             {"id":"bo2-zero","collection":"bo2","kind":"banner","weight":0},
-            {"id":"wrong-kind","collection":"bo2","kind":"frame","weight":1}
+            {"id":"wrong-kind","collection":"bo2","kind":"frame","weight":1},
+            {"id":"emblem-a","collection":"mw2-emblems","kind":"emblem","weight":2},
+            {"id":"effect-a","collection":"username-effects","kind":"name_effect","weight":1}
         ]});
         let cases = cases_view(&catalog).unwrap();
-        assert_eq!(cases.as_array().unwrap().len(), 3);
+        assert_eq!(cases.as_array().unwrap().len(), 5);
         for case in cases.as_array().unwrap() {
             let id = case["id"].as_str().unwrap();
             let (pool, sum) = case_pool(&catalog, id).unwrap();
@@ -3147,7 +3227,9 @@ mod tests {
             let mut counts = std::collections::HashMap::<String, u64>::new();
             for roll in 0..sum {
                 let item = select_case_item(&catalog, id, roll).unwrap();
-                assert_eq!(item["collection"], case["collection"]);
+                if !case["collection"].is_null() {
+                    assert_eq!(item["collection"], case["collection"]);
+                }
                 assert_eq!(item["kind"], case["kind"]);
                 *counts
                     .entry(item["id"].as_str().unwrap().to_owned())

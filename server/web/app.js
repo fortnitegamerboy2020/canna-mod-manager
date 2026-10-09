@@ -140,6 +140,7 @@ function memberRoleLabel(member){
 function renderAccountBadges(){
   $('adminnav').hidden=!currentUser.admin;
   $('rolebadge').textContent=memberRoleLabel(currentUser);$('welcome').textContent=currentUser.username;$('kashbalance').textContent=(currentUser.kash||0).toLocaleString()+' Kash';$('sideusername').textContent=currentUser.username;$('siderole').textContent=`${memberRoleLabel(currentUser)} · Canna community`;
+  if(typeof applyUsernameCosmetics==='function'){for(const id of ['sideusername','welcome'])applyUsernameCosmetics($(id),currentUser.cosmetics);}
 }
 $('logout').addEventListener('click',()=>action(async()=>{await api('logout',{method:'POST'});location.assign('/');}));
 $('forgetdevices').addEventListener('click',()=>action(async()=>{if(!await cannaConfirm('Forget all trusted devices and sign out everywhere?'))return;await api('trusted-devices',{method:'DELETE'});location.assign('/');}));

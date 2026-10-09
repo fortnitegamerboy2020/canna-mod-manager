@@ -6,11 +6,14 @@ let gamblingReadGeneration=0,gamblingReadController=null,gamblingRouteSignal=nul
 let gamblingMemberMismatch=false;
 let gamblingPendingMutation=null;
 let gamblingCaseRenderKey='',gamblingCosmeticRenderKey='';
+let caseReel=null;
 let crashPeople={round:null,pages:1,rows:[],total:0,hasMore:false},crashPeopleLoading=false;
 let crashPeopleRefreshPromise=null,crashPeopleRefreshPending=null;
 let crashPeopleGeneration=0,crashPeopleController=null;
 let gamblingAdminReady=false,gamblingAdminData=null,gamblingAdminLoading=false;
 const CRASH_VISUAL_FRESH_MS=2000,CRASH_GROWTH_MS=10000;
+const gamblingTimings=new WeakMap();
+let crashLatencySamples=[];
 let crashVisual=null,crashAnimation=null,crashMotionQuery=null,crashHooksReady=false;
 function crashClock(){return typeof performance!=='undefined'?performance.now():Date.now();}
 function crashReducedMotion(){return !!crashMotionQuery?.matches;}
@@ -23,15 +26,16 @@ function drawCrashVisual(at=crashClock()){
  const sample=crashVisual,age=Math.max(0,at-sample.receivedAt),stale=sample.needsFresh||age>=CRASH_VISUAL_FRESH_MS;
  // The flight is a short display estimate only. Bet/cashout state and amounts
  // always use the untouched server response in renderCrash/gamblingMutation.
- const elapsed=Math.max(0,sample.serverTime-sample.startsAt);
+ const elapsed=Math.max(0,sample.serverTime+sample.oneWayMs-sample.startsAt);
  const serverGrowth=Math.exp(Math.min(elapsed,CRASH_GROWTH_MS*Math.log(1000))/CRASH_GROWTH_MS);
- const base=Math.min(sample.multiplier,serverGrowth);
+ const base=serverGrowth;
  const estimate=sample.phase==='running'&&!crashReducedMotion()&&!sample.needsFresh?Math.min(1000,base*Math.exp(Math.min(age,CRASH_VISUAL_FRESH_MS)/CRASH_GROWTH_MS)):sample.multiplier;
  const value=sample.phase==='crashed'?sample.final:sample.phase==='running'?estimate:1;
  const progress=Math.max(0,Math.min(1,Math.log(value)/Math.log(1000)));
  crashSetText('crash-multiplier',multiplierText(value));
+ updateCrashCashoutDisplay(value,stale,elapsed+Math.min(age,CRASH_VISUAL_FRESH_MS));
  const stage=$('crash-multiplier').parentElement;stage.dataset.stale=String(stale&&sample.phase!=='crashed'&&sample.phase!=='paused');
- const seconds=Math.max(0,Math.ceil((sample.startsAt-sample.serverTime-Math.min(age,CRASH_VISUAL_FRESH_MS))/1000));
+ const seconds=Math.max(0,Math.ceil((sample.startsAt-sample.serverTime-sample.oneWayMs-Math.min(age,CRASH_VISUAL_FRESH_MS))/1000));
  const phase=sample.phase==='betting'?(seconds?`Taking bets · ${seconds}s`:'Starting round…'):sample.phase==='running'?'In flight':sample.phase==='paused'?'Wagering paused':'Crashed';
  crashSetText('crash-phase',stale&&(sample.phase==='running'||sample.phase==='betting')?'Syncing round…':phase);
  const syncText=sample.phase==='crashed'?'Final result confirmed by server':sample.phase==='paused'?'Waiting for wagering to resume':stale?'Waiting for a fresh server update':crashReducedMotion()?'Server updates · reduced motion':'';crashSetText('crash-sync',syncText);const sync=$('crash-sync');if(sync)sync.hidden=!syncText;
@@ -53,12 +57,25 @@ function setupCrashAnimation(){
  document.addEventListener?.('visibilitychange',()=>{stopCrashAnimation(true);if(!document.hidden){drawCrashVisual();requestCrashRefresh();}});
  window.addEventListener?.('pagehide',()=>stopCrashAnimation(true));window.addEventListener?.('pageshow',()=>{if(crashVisual){drawCrashVisual();requestCrashRefresh();}});
 }
-function updateCrashVisual(crash,serverTime){
+function updateCrashVisual(crash,serverTime,timing){
+ if(timing&&timing.receivedAt!==crashVisual?.receivedAt&&Number.isFinite(timing.rtt)&&timing.rtt>=0&&timing.rtt<=10000){crashLatencySamples.push(timing.rtt);crashLatencySamples=crashLatencySamples.slice(-8);}
+ const oneWayMs=crashLatencySamples.length?Math.min(500,Math.min(...crashLatencySamples)/2):0;
  const time=Number(serverTime),starts=Number(crash.betting_ends_ms),multiplier=Number(crash.multiplier),final=Number(crash.crash_multiplier);
  if(!crashVisual||crashVisual.id!==crash.id||crashVisual.phase!==crash.phase||Number.isFinite(time)&&time>crashVisual.serverTime){
-  stopCrashAnimation();crashVisual={id:crash.id,phase:crash.phase,serverTime:Number.isFinite(time)?time:0,startsAt:Number.isFinite(starts)?starts:Number.isFinite(time)?time:0,multiplier:Number.isFinite(multiplier)?Math.max(1,Math.min(1000,multiplier)):1,final:Number.isFinite(final)?Math.max(1,Math.min(1000,final)):1,receivedAt:crashClock(),needsFresh:!Number.isFinite(time)};
+  stopCrashAnimation();crashVisual={id:crash.id,phase:crash.phase,serverTime:Number.isFinite(time)?time:0,startsAt:Number.isFinite(starts)?starts:Number.isFinite(time)?time:0,multiplier:Number.isFinite(multiplier)?Math.max(1,Math.min(1000,multiplier)):1,final:Number.isFinite(final)?Math.max(1,Math.min(1000,final)):1,receivedAt:timing?.receivedAt??crashClock(),oneWayMs,needsFresh:!Number.isFinite(time)};
  }
  drawCrashVisual();scheduleCrashAnimation();
+}
+function updateCrashCashoutDisplay(value,stale,elapsed){
+ const crash=gamblingData?.crash,bet=crash?.bet,control=$('crash-cashout');if(!control)return;
+ const active=crash?.phase==='running'&&bet?.status==='pending';
+ control.disabled=gamblingBusy||!!gamblingPendingMutation||!active||stale;
+ if(gamblingBusy&&gamblingPendingPath==='gambling/crash/cashout'){crashSetText('crash-cashout','Cashing out…');return;}
+ const estimate=Math.floor((Number(bet?.stake)||0)*Math.floor(value*100)/100);
+ crashSetText('crash-cashout',active?(stale?'Syncing cashout…':`Cash out · ~${kashText(estimate)} · ${multiplierText(value)}`):'Cash out');
+ control.title=active?'Live estimate, adjusted for measured network delay. The server confirms the final payout on receipt. Auto cashout is scheduled on the server.':'';
+ crashSetText('crash-ping',crashLatencySamples.length?`Connection · ${Math.round(Math.min(...crashLatencySamples))} ms`:'Measuring connection…');
+ if(active&&bet.auto_cashout){const remaining=Math.max(0,Math.log(bet.auto_cashout)*CRASH_GROWTH_MS-elapsed);crashSetText('crash-your-bet',`${kashText(bet.stake)} in play · Auto ${multiplierText(bet.auto_cashout)}${remaining?` · ~${(remaining/1000).toFixed(1)}s`:' · Confirming result…'}`);}
 }
 function gameNode(tag,text,className){const n=document.createElement(tag);if(text!==undefined&&text!==null)n.textContent=text;if(className)n.className=className;return n;}
 function gameField(id,label,value,min,max,step='1'){
@@ -71,24 +88,25 @@ function gameRequestId(){return crypto.randomUUID();}
 function setGamblingStatus(text,error=false){const n=$('gambling-status');if(n){n.textContent=text;n.classList.toggle('is-error',error);}}
 function setupGambling(){
  if(gamblingReady)return;const root=$('gamblingview');if(!root)return;gamblingReady=true;root.classList.add('gamblingworkspace');
- const hero=gameNode('header',null,'gamehero');const intro=gameNode('div');intro.append(gameNode('p','CANNA / AFTER HOURS','eyebrow'),gameNode('h2','A little luck. A lot of Kash.'),gameNode('p','Play Crash, Blackjack, Roulette, Dice or Slots, then turn your Kash into profile frames and banners. Kash is community play currency.'));
+ const hero=gameNode('header',null,'gamehero');const intro=gameNode('div');intro.append(gameNode('p','CANNA / AFTER HOURS','eyebrow'),gameNode('h2','A little luck. A lot of Kash.'),gameNode('p','Play Crash, Blackjack, Roulette, Dice or Slots, then turn your Kash into frames, banners, emblems and animated usernames. Kash is community play currency.'));
  const wallet=gameNode('div',null,'gamewallet');wallet.append(gameNode('small','YOUR WALLET'),gameNode('strong','—'));wallet.lastChild.id='gambling-balance';const daily=gameButton('Claim daily Kash',()=>gamblingMutation('gambling/daily',{}),'primary');daily.id='gambling-daily';wallet.append(daily);hero.append(intro,wallet);
  const nav=gameNode('nav',null,'gametabs');nav.setAttribute('aria-label','Kash games');
  const panes=gameNode('div',null,'gamepanes');for(const [id,name]of [['crash','↗ Crash'],['blackjack','♠ Blackjack'],['roulette','◎ Roulette'],['dice','⚄ Dice'],['slots','▥ Slots'],['history','◷ Recent results'],['cases','◇ Cosmetic crates'],['collection','▣ My collection']]){const tab=gameButton(name,()=>selectGamblingTab(id));tab.dataset.game=id;nav.append(tab);const pane=gameNode('section');pane.id='gambling-'+id;pane.hidden=id!==gamblingTab;panes.append(pane);}
  const status=gameNode('p');status.id='gambling-status';status.setAttribute('role','status');const retry=gameButton('Retry pending action',()=>{const pending=gamblingPendingMutation;return pending&&gamblingMutation(pending.path,pending.data,pending.success);});retry.id='gambling-retry';retry.hidden=true;root.append(hero,nav,status,retry,panes);setupCrash();setupBlackjack();setupArcade();setupCases();setupCosmeticCollection();selectGamblingTab(gamblingTab);
 }
-function selectGamblingTab(id){gamblingTab=id;if(id!=='crash')cancelCrashParticipantReads();document.querySelectorAll('.gamepanes>section').forEach(p=>p.hidden=p.id!=='gambling-'+id);document.querySelectorAll('.gametabs button').forEach(b=>{const active=b.dataset.game===id;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');});refreshCrashVisibility();if(id==='crash'&&crashVisual&&(crashVisual.needsFresh||crashClock()-crashVisual.receivedAt>=CRASH_VISUAL_FRESH_MS))requestCrashRefresh();}
+function selectGamblingTab(id){gamblingTab=id;if(id!=='cases')caseReel?.finish();if(id!=='crash')cancelCrashParticipantReads();document.querySelectorAll('.gamepanes>section').forEach(p=>p.hidden=p.id!=='gambling-'+id);document.querySelectorAll('.gametabs button').forEach(b=>{const active=b.dataset.game===id;b.classList.toggle('active',active);b.setAttribute('aria-current',active?'page':'false');});refreshCrashVisibility();if(id==='crash'&&crashVisual&&(crashVisual.needsFresh||crashClock()-crashVisual.receivedAt>=CRASH_VISUAL_FRESH_MS))requestCrashRefresh();}
 function acceptGamblingCatalog(data){
- if(!data||!/^[a-f0-9]{64}$/.test(data.version||'')||!Array.isArray(data.catalog)||!data.catalog.length||data.catalog.length>2000||!Array.isArray(data.cases)||data.cases.length!==3)throw new Error('Cosmetic catalog could not load. Refresh to try again.');
+ if(!data||!/^[a-f0-9]{64}$/.test(data.version||'')||!Array.isArray(data.catalog)||!data.catalog.length||data.catalog.length>2000||!Array.isArray(data.cases)||!data.cases.length||data.cases.length>8)throw new Error('Cosmetic catalog could not load. Refresh to try again.');
  gamblingCatalog={version:data.version,catalog:data.catalog,cases:data.cases};return gamblingCatalog;
 }
 function gamblingAbortError(){const error=new Error('This page request was cancelled.');error.name='AbortError';return error;}
 function gamblingRouteActive(){return typeof location==='undefined'||location.pathname==='/gambling';}
 function readGamblingJson(path,signal){
+ const sentAt=crashClock();
  if(signal?.aborted)return Promise.reject(gamblingAbortError());
  return new Promise((resolve,reject)=>{
   const abort=()=>reject(gamblingAbortError());signal?.addEventListener('abort',abort,{once:true});
-  Promise.resolve().then(()=>{if(signal?.aborted)throw gamblingAbortError();return api(path,signal?{signal}:{});}).then(response=>response.json()).then(data=>{if(signal?.aborted)throw gamblingAbortError();resolve(data);},reject).finally(()=>signal?.removeEventListener('abort',abort)).catch(reject);
+  Promise.resolve().then(()=>{if(signal?.aborted)throw gamblingAbortError();return api(path,signal?{signal}:{});}).then(response=>response.json()).then(data=>{if(signal?.aborted)throw gamblingAbortError();if(data&&typeof data==='object'){const receivedAt=crashClock();gamblingTimings.set(data,{receivedAt,rtt:receivedAt-sentAt});}resolve(data);},reject).finally(()=>signal?.removeEventListener('abort',abort)).catch(reject);
  });
 }
 function cancelGamblingPrimaryReads(){
@@ -102,7 +120,7 @@ function observeGamblingRoute(){
  if(typeof navigationSignal!=='function'||!gamblingRouteActive())return;
  const signal=navigationSignal();if(signal===gamblingRouteSignal){if(signal?.aborted)throw gamblingAbortError();return;}
  gamblingRouteSignal?.removeEventListener('abort',gamblingRouteAbort);gamblingRouteSignal=signal;
- gamblingRouteAbort=()=>{cancelGamblingPrimaryReads();cancelCrashParticipantReads();stopCrashAnimation(true);};
+ gamblingRouteAbort=()=>{caseReel?.finish();cancelGamblingPrimaryReads();cancelCrashParticipantReads();stopCrashAnimation(true);};
  signal?.addEventListener('abort',gamblingRouteAbort,{once:true});if(signal?.aborted){gamblingRouteAbort();throw gamblingAbortError();}
 }
 function gamblingIdentityError(){const error=new Error('Your signed-in account changed. Reload this page before using Kash or your collection.');error.status=409;return error;}
@@ -131,32 +149,33 @@ function attachGamblingCatalog(data){
  if(!gamblingCatalog||cosmetics.catalog_version!==gamblingCatalog.version){gamblingCatalog=null;throw new Error('The cosmetic catalog changed. Refresh to load its current version.');}
  cosmetics.catalog=gamblingCatalog.catalog;const caseRule=data.rules?.games?.find(r=>r.game==='cases');data.cases=gamblingCatalog.cases.map(c=>{const cost=data.rules?.crates?.find(p=>p.case_id===c.id)?.cost??c.cost;return {...c,cost,available:c.available!==false&&!data.rules?.paused&&(caseRule?.enabled??true)&&cost>=(caseRule?.min_stake??1)&&cost<=(caseRule?.max_stake??1000000)};});return data;
 }
-async function loadGambling(){
+async function loadGambling(crashOnly=false){
  setupGambling();if(!gamblingReady||!gamblingRouteActive())return;observeGamblingRoute();const member=gamblingMember();
  if(gamblingLoading)return gamblingLoadPromise;
  const generation=++gamblingReadGeneration,controller=new AbortController();gamblingReadController=controller;gamblingLoading=true;
  const promise=(async()=>{try{
-  const catalog=await loadGamblingCatalog(controller.signal);const response=await readGamblingJson('gambling?catalog_version='+catalog.version,controller.signal);
+  const compact=crashOnly&&!!gamblingData;const catalog=compact?null:await loadGamblingCatalog(controller.signal);const response=await readGamblingJson(compact?'gambling?crash_only=true':'gambling?catalog_version='+catalog.version,controller.signal);
   if(generation!==gamblingReadGeneration||controller.signal.aborted)throw gamblingAbortError();verifyGamblingMember(response,member);
-  const data=attachGamblingCatalog(response);gamblingData=data;renderGambling(data);queueCrashParticipantRefresh(data.crash);
+  if(compact){gamblingData={...gamblingData,crash:response.crash,wallet:response.wallet,server_time_ms:response.server_time_ms};gamblingTimings.set(gamblingData,gamblingTimings.get(response));}else{gamblingData=attachGamblingCatalog(response);}renderGambling(gamblingData);queueCrashParticipantRefresh(gamblingData.crash);
  }finally{if(generation===gamblingReadGeneration){gamblingLoading=false;gamblingReadController=null;gamblingLoadPromise=null;}}})();gamblingLoadPromise=promise;return promise;
 }
 function renderGambling(data){
  $('gambling-balance').textContent=kashText(data.wallet.balance);$('kashbalance').textContent=kashText(data.wallet.balance);if(currentUser)currentUser.kash=data.wallet.balance;
  $('gambling-daily').disabled=gamblingBusy||!!gamblingPendingMutation||!data.wallet.daily_available;$('gambling-daily').textContent=data.wallet.daily_available?'Claim daily Kash':'Daily already claimed';
  $('gambling-retry').hidden=!gamblingPendingMutation||gamblingBusy;$('gambling-retry').disabled=gamblingBusy;
- renderCrash(data.crash,data.server_time_ms);renderBlackjack(data.blackjack);renderArcade(data);
- const casesKey=JSON.stringify([data.cosmetics.catalog_version,data.wallet.balance,data.rules,gamblingBusy,!!gamblingPendingMutation]);
+ renderCrash(data.crash,data.server_time_ms,gamblingTimings.get(data));renderBlackjack(data.blackjack);renderArcade(data);
+ const casesKey=JSON.stringify([data.cosmetics.catalog_version,data.wallet.balance,data.rules,gamblingBusy,!!gamblingPendingMutation,!!caseReel]);
  if(casesKey!==gamblingCaseRenderKey){renderCases(data);gamblingCaseRenderKey=casesKey;}
  const cosmeticKey=JSON.stringify([data.cosmetics.catalog_version,data.cosmetics.owned,data.cosmetics.equipped,gamblingBusy,!!gamblingPendingMutation]);
  if(cosmeticKey!==gamblingCosmeticRenderKey){renderCosmeticCollection(data.cosmetics);gamblingCosmeticRenderKey=cosmeticKey;}
 }
+let gamblingPendingPath=null;
 async function gamblingMutation(path,data,success){
  if(gamblingBusy)return;const member=gamblingMember();
  const key=JSON.stringify({path,data});
  if(gamblingPendingMutation&&gamblingPendingMutation.key!==key)throw new Error('Retry your pending action before starting another. Its original request is preserved to prevent a second charge.');
  const pending=gamblingPendingMutation||{path,data,success,key,member_id:member,payload:{...data,request_id:gameRequestId()}};
- gamblingBusy=true;setGamblingStatus('Working…');if(gamblingData)renderGambling(gamblingData);let recorded=false,submitted=false;
+ gamblingBusy=true;gamblingPendingPath=path;setGamblingStatus(path==='gambling/crash/cashout'?'Cashing out…':'Working…');if(gamblingData)renderGambling(gamblingData);let recorded=false,submitted=false;
  // A delayed display poll must never hold up a time-sensitive cashout. Its
  // eventual response is discarded; a confirmed mutation gets a fresh snapshot.
  cancelGamblingPrimaryReads();
@@ -164,13 +183,15 @@ async function gamblingMutation(path,data,success){
   if(currentUser?.id!==pending.member_id)rejectGamblingMember();submitted=true;
   const result=await json(path,pending.payload,{headers:{'X-Canna-Member':String(pending.member_id)}});recorded=true;gamblingPendingMutation=null;
   if(currentUser?.id!==pending.member_id)rejectGamblingMember();
-  if(gamblingRouteActive()){try{await loadGambling();}catch(error){if(error.name!=='AbortError')throw error;}}
+  if(path==='gambling/cases/open'&&result.item?.id&&gamblingData){const old=gamblingData.cosmetics.owned.find(item=>item.id===result.item.id);if(old)old.count=result.count;else gamblingData.cosmetics.owned.push({id:result.item.id,count:result.count});}
+  if(gamblingData){if(Number.isSafeInteger(result.balance)&&result.balance>=0)gamblingData.wallet.balance=result.balance;if(result.bet&&gamblingData.crash.id===pending.payload.round_id){gamblingData.crash.bet=result.bet;const person=crashPeople.rows.find(row=>row.user_id===pending.member_id);if(person)Object.assign(person,result.bet,{cashout_elapsed_ms:Number.isFinite(result.bet.cashout_at_ms)?Math.max(0,result.bet.cashout_at_ms-gamblingData.crash.betting_ends_ms):null});}renderGambling(gamblingData);}
+  if(path==='gambling/cosmetics/equip'&&result.equipped&&gamblingData){gamblingData.cosmetics.equipped=result.equipped;if(currentUser){currentUser.cosmetics=Object.fromEntries(Object.entries(result.equipped).map(([kind,id])=>[kind,gamblingData.cosmetics.catalog.find(item=>item.id===id)||null]));if(typeof renderAccountBadges==='function')renderAccountBadges();}renderGambling(gamblingData);}
   setGamblingStatus(typeof success==='function'?success(result):success||'Done.');return result;
  }catch(error){
   if(!recorded&&submitted&&(!Number.isInteger(error.status)||error.status>=500)){gamblingPendingMutation=pending;setGamblingStatus('The connection ended before the result was confirmed. Retry the pending action; Canna will reuse the same request and prevent a second charge.',true);}
   else{gamblingPendingMutation=null;setGamblingStatus(gamblingMemberMismatch?gamblingIdentityError().message:recorded?'Your action was recorded. The latest balance could not load; refresh this page.':error.message,true);}
   throw error;
- }finally{gamblingBusy=false;if(gamblingData&&!gamblingMemberMismatch)renderGambling(gamblingData);}
+ }finally{gamblingBusy=false;gamblingPendingPath=null;if(gamblingData&&!gamblingMemberMismatch)renderGambling(gamblingData);if(recorded&&gamblingRouteActive())loadGambling(path.startsWith('gambling/crash/')).catch(error=>{if(error.name!=='AbortError'&&!gamblingBusy)setGamblingStatus('Action confirmed. Refreshing the display failed; it will retry.',true);});}
 }
 function setupCrash(){
  const root=$('gambling-crash');const layout=gameNode('div',null,'crashlayout');const stage=gameNode('div',null,'crashstage');stage.setAttribute('aria-label','Current Crash round');
@@ -180,18 +201,17 @@ function setupCrash(){
  const control=gameNode('section',null,'gamepanel');control.append(gameNode('h3','Your next flight'),gameNode('p','Join during the countdown. Cash out before the crash, or choose an automatic target. At the crash the round is over.'));
  const form=gameNode('form');form.id='crash-bet-form';form.append(gameField('crash-stake','Stake (Kash)',25,1,1000000),gameField('crash-auto','Auto cashout (×)',2,1.01,1000,'0.01'));const auto=gameNode('label',null,'check');const autoToggle=gameNode('input');autoToggle.type='checkbox';autoToggle.checked=true;autoToggle.id='crash-auto-enabled';auto.append(autoToggle,document.createTextNode('Use auto cashout'));form.append(auto);
  const bet=gameNode('button','Place bet');bet.type='submit';bet.className='primary';bet.id='crash-place-bet';form.append(bet);form.addEventListener('submit',e=>{e.preventDefault();action(async()=>{if(!gamblingData)return;await gamblingMutation('gambling/crash/bet',{round_id:gamblingData.crash.id,stake:Number($('crash-stake').value),auto_cashout:$('crash-auto-enabled').checked?Number($('crash-auto').value):null},'Bet placed.');});});
- const cashout=gameButton('Cash out',()=>gamblingMutation('gambling/crash/cashout',{round_id:gamblingData.crash.id},r=>'Cashout recorded. '+kashText(r.bet?.payout||r.payout||0)),'gamecashout');cashout.id='crash-cashout';const betStatus=gameNode('p');betStatus.id='crash-your-bet';betStatus.setAttribute('role','status');control.append(form,cashout,betStatus);layout.append(stage,control);
+ const cashout=gameButton('Cash out',()=>gamblingMutation('gambling/crash/cashout',{round_id:gamblingData.crash.id},r=>r.bet?.status==='won'?`Cashed out at ${multiplierText(r.bet.cashout_multiplier)} · ${kashText(r.bet.payout)}`:r.bet?.status==='lost'?'The round crashed before the server received the cashout.':'Cashout recorded.'),'gamecashout');cashout.id='crash-cashout';const betStatus=gameNode('p');betStatus.id='crash-your-bet';betStatus.setAttribute('role','status');const ping=gameNode('small','Measuring connection…','game-footnote');ping.id='crash-ping';control.append(form,cashout,betStatus,ping);layout.append(stage,control);
  const people=gameNode('section',null,'gamepanel crashpeople');const heading=gameNode('div',null,'crashpeople-heading');const count=gameNode('p');count.id='crash-people-count';heading.append(gameNode('h3','Players this round'),count);const scroll=gameNode('div',null,'crashpeople-scroll');const table=gameNode('table');table.setAttribute('aria-label','Crash bets and cashouts');const head=gameNode('thead');const headings=gameNode('tr');for(const label of ['Player','Bet','Result'])headings.append(gameNode('th',label));head.append(headings);const body=gameNode('tbody');body.id='crash-people-rows';table.append(head,body);scroll.append(table);const empty=gameNode('p','No bets yet.');empty.id='crash-people-empty';const more=gameButton('Show more players',async()=>{if(crashPeopleLoading)return;crashPeople.pages++;await loadGambling();});more.id='crash-people-more';more.hidden=true;const status=gameNode('p');status.id='crash-people-status';status.setAttribute('role','status');people.append(heading,scroll,empty,more,status,gameNode('p','Cashouts stay here until the next round.','game-footnote'));
  const history=gameNode('div',null,'crashhistory');history.id='crash-history';root.append(layout,people,gameNode('h3','Recent rounds'),history,gameNode('p','Round state and payouts are decided by the server. Random mode still allows the owner to inspect the upcoming result. Owner-controlled rounds are labelled here.','game-footnote'));
 }
-function renderCrash(crash,now){
+function renderCrash(crash,now,timing){
  const phase=crash.phase;const stage=$('crash-multiplier').parentElement;stage.dataset.phase=phase;const seconds=Math.max(0,Math.ceil((crash.betting_ends_ms-now)/1000));
  $('crash-phase').textContent=phase==='betting'?`Taking bets · ${seconds}s`:phase==='running'?'In flight':phase==='paused'?'Wagering paused':'Crashed';
- updateCrashVisual(crash,now);
  $('crash-detail').textContent=`${crash.id===null?'Waiting for next round':'Round '+String(crash.id).slice(0,12)} · ${crash.mode==='controlled'?'Owner-controlled':'Random'}${crash.owner_visible?' · Owner can inspect result':''}${crash.paused?' · New wagering paused':''}`;
  const hasBet=!!crash.bet;$('crash-place-bet').disabled=gamblingBusy||!!gamblingPendingMutation||crash.paused||phase!=='betting'||hasBet;$('crash-cashout').disabled=gamblingBusy||!!gamblingPendingMutation||phase!=='running'||!hasBet||crash.bet.status!=='pending';
- $('crash-cashout').textContent=hasBet&&crash.bet.status==='pending'&&phase==='running'?`Cash out · ${kashText(Math.floor(crash.bet.stake*crash.multiplier))}`:'Cash out';
  $('crash-your-bet').textContent=!hasBet?'No bet in this round.':crash.bet.status==='pending'?`${kashText(crash.bet.stake)} in play${crash.bet.auto_cashout?' · Auto '+multiplierText(crash.bet.auto_cashout):''}`:crash.bet.status==='won'?`Cashed out · ${kashText(crash.bet.payout)}`:`Crashed · ${kashText(crash.bet.stake)} lost`;
+ updateCrashVisual(crash,now,timing);
  $('crash-history').replaceChildren(...(crash.history||[]).slice(0,15).map(r=>{const n=gameNode('span',multiplierText(r.crash_multiplier),'crashchip '+(r.crash_multiplier>=10?'high':r.crash_multiplier<2?'low':'mid'));n.title=`Round ${r.id} · ${r.mode==='controlled'?'Owner-controlled':'Random'}`;return n;}));
  acceptCrashParticipants(crash);renderCrashParticipants(crash.phase);
 }
@@ -257,33 +277,59 @@ function renderBlackjack(hand){
  const active=hand?.status==='playing';const messages={playing:'Your move',won:'You win',lost:'Dealer wins',push:'Push · stake returned',blackjack:'Blackjack!'};$('blackjack-outcome').textContent=hand?(messages[hand.status]||hand.status)+(active?'':` · ${kashText(hand.payout)} returned`):'Ready when you are';
  $('blackjack-deal').disabled=gamblingBusy||!!gamblingPendingMutation||active;for(const id of ['hit','stand'])$('blackjack-'+id).disabled=gamblingBusy||!!gamblingPendingMutation||!active;$('blackjack-double').disabled=gamblingBusy||!!gamblingPendingMutation||!active||!hand.can_double;
 }
-function setupCases(){const root=$('gambling-cases');root.append(gameNode('h3','Choose your crate'),gameNode('p','BO2 calling cards and avatar frames have separate crates. MW2 calling cards are paused due to artwork quality; owned cards are saved. Check every item and its odds before spending Kash. Duplicate drops add to your collection.'),gameNode('div',null,'casegrid'));root.lastChild.id='case-list';const result=gameNode('section',null,'case-result');result.id='case-result';result.hidden=true;result.setAttribute('role','status');root.append(result);}
+function setupCases(){const root=$('gambling-cases');root.append(gameNode('h3','Choose your crate'),gameNode('p','Choose BO2 calling cards, avatar frames, Call of Duty emblems or animated username effects. MW2 calling cards are paused due to artwork quality; owned cards are saved. Check every item and its odds before spending Kash. Duplicate drops add to your collection.'),gameNode('div',null,'casegrid'));root.lastChild.id='case-list';const result=gameNode('section',null,'case-result');result.id='case-result';result.hidden=true;result.setAttribute('role','status');root.append(result);}
+function cosmeticKindLabel(kind){return {frame:'avatar frame',banner:'banner',emblem:'emblem',name_effect:'username effect'}[kind]||'cosmetic';}
 function cosmeticPreview(item,large=false){
+ if(item.kind==='name_effect'){const preview=gameNode('div',null,'cosmeticpreview nameeffectpreview'+(large?' large':''));const name=gameNode('strong',currentUser?.username||'Canna');if(typeof applyUsernameCosmetics==='function')applyUsernameCosmetics(name,{name_effect:item});preview.append(name);preview.dataset.rarity=item.rarity;return preview;}
  const preview=gameNode('div',null,'cosmeticpreview '+(large?'large ':'')+(item.kind==='banner'?'bannerpreview':'framepreview'));const style=String(item.style||item.id||'');if(/^[a-z0-9_-]{1,80}$/.test(style))preview.classList.add('cosmetic-'+style);
- if(item.kind==='frame')preview.append(gameNode('span',currentUser?.username?.slice(0,1).toUpperCase()||'C','cosmeticinitial'));else preview.append(gameNode('span','CANNA','cosmeticbannertext'));
+ if(item.kind==='frame')preview.append(gameNode('span',currentUser?.username?.slice(0,1).toUpperCase()||'C','cosmeticinitial'));else if(item.kind==='banner')preview.append(gameNode('span','CANNA','cosmeticbannertext'));else preview.classList.add('emblempreview');
  if(item.kind==='banner'&&['mw2','bo2'].includes(cosmeticCollection(item))){preview.classList.add('calling-card');preview.title=item.name;const width=typeof callingCardDisplayWidth==='function'?callingCardDisplayWidth(item):0;if(width)preview.style.maxWidth=width+'px';}
  const asset=item.animated&&typeof window.matchMedia==='function'&&window.matchMedia('(prefers-reduced-motion: reduce)').matches&&item.poster_asset?item.poster_asset:item.asset;
  if(typeof asset==='string'&&/^\/api\/v1\/cosmetics\/assets\/[a-zA-Z0-9_-]+$/.test(asset)){const img=gameNode('img');const hash=asset===item.poster_asset?item.poster_sha256:item.sha256;img.src=asset+(/^[a-f0-9]{64}$/.test(hash||'')?'?v='+hash:'');if(typeof bindCosmeticMotion==='function')bindCosmeticMotion(img,item);img.alt='';img.loading='lazy';img.decoding='async';img.className='cosmeticasset';preview.append(img);}
  preview.dataset.rarity=item.rarity||'common';preview.setAttribute('aria-label',item.name+' '+item.kind+' preview');return preview;
+}
+function showCrateDrop(item,crate,catalog){
+ caseReel?.finish();
+ const result=$('case-result');result.hidden=false;result.replaceChildren();
+ const label=gameNode('p','Opening '+crate.name+'…','eyebrow'),details=gameNode('div');details.hidden=true;
+ if(item?.paused)details.append(gameNode('p','This calling card is saved, but its collection is currently paused.'));
+ else if(item)details.append(cosmeticPreview(item,true),gameNode('h3',item.name),gameNode('p',`${item.rarity} ${cosmeticKindLabel(item.kind)}${item.animated?' · Animated':''} · Added to your collection`),gameButton('Equip this '+cosmeticKindLabel(item.kind),()=>equipCosmetic(item.kind,item.id),'primary'));
+ else details.append(gameNode('h3','Cosmetic added to your collection'));
+ details.append(gameButton('View my collection',()=>selectGamblingTab('collection')));result.append(label,details);
+ const reduced=window.matchMedia?.('(prefers-reduced-motion: reduce)'),pool=(crate.items||[]).map(drop=>({item:catalog.get(drop.id),weight:Number(drop.odds_percent)||0})).filter(drop=>drop.item&&!drop.item.paused&&drop.weight>0);
+ if(!item||item.paused||!pool.length||reduced?.matches||!gamblingRouteActive()||gamblingTab!=='cases'||document.hidden){label.textContent='YOUR DROP';details.hidden=false;return;}
+ // The POST has already saved the server-selected award. These weighted
+ // neighboring cards only decorate the reel; they never select or change it.
+ const total=pool.reduce((sum,drop)=>sum+drop.weight,0),pick=()=>{let position=Math.random()*total;for(const drop of pool){position-=drop.weight;if(position<=0)return drop.item;}return pool.at(-1).item;};
+ const viewport=gameNode('div',null,'case-reel'),track=gameNode('div',null,'case-reel-track'),marker=gameNode('span',null,'case-reel-marker'),winner=30;
+ viewport.setAttribute('aria-hidden','true');
+ for(let index=0;index<36;index++){const cosmetic=index===winner?item:pick(),cell=gameNode('div',null,'case-reel-item');cell.dataset.rarity=cosmetic.rarity||'common';cell.dataset.cosmeticId=cosmetic.id;cell.append(cosmeticPreview(cosmetic),gameNode('strong',cosmetic.name),gameNode('small',cosmetic.rarity));track.append(cell);}
+ viewport.append(track,marker);const skip=gameButton('Skip animation',()=>caseReel?.finish()),note=gameNode('small','Your cosmetic is already saved. Skip to reveal it now.','game-footnote');result.insertBefore(viewport,details);result.insertBefore(skip,details);result.insertBefore(note,details);
+ let animation=null,done=false;const visibility=()=>{if(document.hidden)finish();},motion=()=>{if(reduced?.matches)finish();},resize=()=>finish();
+ const finish=()=>{if(done)return;done=true;animation?.cancel();document.removeEventListener('visibilitychange',visibility);window.removeEventListener('resize',resize);window.removeEventListener('pagehide',finish);reduced?.removeEventListener?.('change',motion);if(caseReel?.finish===finish)caseReel=null;viewport.remove();skip.remove();note.remove();label.textContent='YOUR DROP';details.hidden=false;if(gamblingData&&!gamblingMemberMismatch)renderGambling(gamblingData);};
+ caseReel={finish};document.addEventListener('visibilitychange',visibility);window.addEventListener('resize',resize,{once:true});window.addEventListener('pagehide',finish,{once:true});reduced?.addEventListener?.('change',motion);
+ result.scrollIntoView({block:'nearest',behavior:'instant'});
+ const first=track.firstElementChild,cellWidth=first.getBoundingClientRect().width,gap=parseFloat(getComputedStyle(track).gap)||0,stride=cellWidth+gap,center=viewport.clientWidth/2-cellWidth/2;
+ const from=center-2*stride,to=center-winner*stride;
+ if(!cellWidth||typeof track.animate!=='function'){finish();return;}
+ animation=track.animate([{transform:`translateX(${from}px)`},{transform:`translateX(${to}px)`}],{duration:5200,easing:'cubic-bezier(.10,.65,.12,1)',fill:'forwards'});
+ animation.finished.then(finish,()=>{});
 }
 function renderCases(data){
  const catalog=new Map(data.cosmetics.catalog.map(item=>[item.id,item]));
  $('case-list').replaceChildren(...data.cases.map(c=>{
   const card=gameNode('section',null,'gamepanel casecard');card.dataset.crate=c.id;
   const collection=c.collection||'',glyph=collection==='bo2'?'II':collection==='mw2'?'MW2':'◇';
-  card.append(gameNode('span',glyph,'caseglyph'),gameNode('h3',c.name),gameNode('p',`${c.items.length} ${collection==='frames'?'avatar frames':'calling cards'} · ${kashText(c.cost)}`));
+  card.append(gameNode('span',glyph,'caseglyph'),gameNode('h3',c.name),gameNode('p',`${c.items.length} ${c.kind==='emblem'?'emblems':c.kind==='name_effect'?'username effects':collection==='frames'?'avatar frames':'calling cards'} · ${kashText(c.cost)}`));
   if(c.paused){card.append(gameNode('p',c.pause_reason||'This collection is paused. Owned items are saved.'));const paused=gameButton('Paused',()=>{});paused.disabled=true;card.append(paused);return card;}
   const samples=gameNode('div',null,'cratepreviews');const sampleIds=[...(c.items||[])].sort((a,b)=>Number(!!catalog.get(b.id)?.animated)-Number(!!catalog.get(a.id)?.animated)).slice(0,3);
   for(const drop of sampleIds){const item=catalog.get(drop.id);if(item)samples.append(cosmeticPreview(item));}card.append(samples);
   const open=gameButton('Open crate · '+kashText(c.cost),async()=>{
+   if(caseReel)return;
    await gamblingMutation('gambling/cases/open',{case_id:c.id},r=>{
-    const item=typeof r.item==='string'?catalog.get(r.item):catalog.get(r.item?.id)||r.item,result=$('case-result');result.hidden=false;result.replaceChildren(gameNode('p','YOUR DROP','eyebrow'));
-    if(item?.paused)result.append(gameNode('p','This calling card is saved, but its collection is currently paused.'));
-    else if(item)result.append(cosmeticPreview(item,true),gameNode('h3',item.name),gameNode('p',`${item.rarity} ${item.kind}${item.animated?' · Animated':''} · Added to your collection`),gameButton('Equip this '+item.kind,()=>equipCosmetic(item.kind,item.id),'primary'));
-    else result.append(gameNode('h3','Cosmetic added to your collection'));
-    result.append(gameButton('View my collection',()=>selectGamblingTab('collection')));return 'Crate opened. Your drop is ready to equip.';
+    const item=typeof r.item==='string'?catalog.get(r.item):catalog.get(r.item?.id)||r.item;showCrateDrop(item,c,catalog);return 'Crate opened. Your cosmetic is saved in your collection.';
    });
-  },'primary');open.disabled=gamblingBusy||!!gamblingPendingMutation||c.available===false||data.wallet.balance<c.cost;if(c.available===false)open.textContent='Crate unavailable';card.append(open);
+  },'primary');open.disabled=gamblingBusy||!!gamblingPendingMutation||!!caseReel||c.available===false||data.wallet.balance<c.cost;if(c.available===false)open.textContent='Crate unavailable';card.append(open);
   const odds=gameNode('details');odds.append(gameNode('summary','See every item & drop odds'),gameNode('p','Shown chances are rounded to two decimals.'));const list=gameNode('div',null,'caseodds');odds.append(list);let rendered=false;
   odds.addEventListener('toggle',()=>{if(!odds.open||rendered)return;rendered=true;for(const drop of c.items){const item=catalog.get(drop.id);if(!item)continue;const row=gameNode('div');row.append(cosmeticPreview(item),gameNode('span',item.name+(item.animated?' · Animated':'')),gameNode('strong',Number(drop.odds_percent).toFixed(2)+'%'));list.append(row);}});
   card.append(odds);return card;
@@ -291,12 +337,12 @@ function renderCases(data){
 }
 function cosmeticCollection(item){return item.collection||(item.kind==='frame'?'frames':String(item.id).startsWith('mw2-')?'mw2':String(item.id).startsWith('bo2-')?'bo2':'canna');}
 function setupCosmeticCollection(){
- const root=$('gambling-collection'),tools=gameNode('div',null,'row collectiontools'),kind=gameNode('select');kind.id='cosmetic-kind';kind.setAttribute('aria-label','Filter cosmetic type');kind.append(new Option('Frames & banners',''),new Option('Avatar frames','frame'),new Option('Profile banners','banner'));
- const collection=gameNode('select');collection.id='cosmetic-source';collection.setAttribute('aria-label','Filter cosmetic collection');collection.append(new Option('All collections',''),new Option('BO2 calling cards','bo2'),new Option('Avatar frames','frames'),new Option('Canna originals','canna'));
+ const root=$('gambling-collection'),tools=gameNode('div',null,'row collectiontools'),kind=gameNode('select');kind.id='cosmetic-kind';kind.setAttribute('aria-label','Filter cosmetic type');kind.append(new Option('All cosmetic types',''),new Option('Avatar frames','frame'),new Option('Profile banners','banner'),new Option('Emblems','emblem'),new Option('Username effects','name_effect'));
+ const collection=gameNode('select');collection.id='cosmetic-source';collection.setAttribute('aria-label','Filter cosmetic collection');collection.append(new Option('All collections',''),new Option('BO2 calling cards','bo2'),new Option('Avatar frames','frames'),new Option('MW2 emblems','mw2-emblems'),new Option('CoD rank emblems','cod-ranks'),new Option('Username effects','username-effects'),new Option('Canna originals','canna'));
  const owned=gameNode('label',null,'check'),check=gameNode('input');check.type='checkbox';check.id='cosmetic-owned-only';check.checked=true;owned.append(check,document.createTextNode('Only my collection'));
  for(const input of [kind,collection,check])input.addEventListener('change',()=>gamblingData&&renderCosmeticCollection(gamblingData.cosmetics));
- const search=gameNode('input');search.type='search';search.id='cosmetic-search';search.placeholder='Find a frame or banner…';search.maxLength=80;search.setAttribute('aria-label','Search cosmetics');search.addEventListener('input',()=>gamblingData&&renderCosmeticCollection(gamblingData.cosmetics));
- tools.append(search,kind,collection,owned,gameButton('Remove frame',()=>equipCosmetic('frame',null)),gameButton('Remove banner',()=>equipCosmetic('banner',null)),gameButton('View my profile',()=>openProfile(currentUser.id)));
+ const search=gameNode('input');search.type='search';search.id='cosmetic-search';search.placeholder='Find a cosmetic…';search.maxLength=80;search.setAttribute('aria-label','Search cosmetics');search.addEventListener('input',()=>gamblingData&&renderCosmeticCollection(gamblingData.cosmetics));
+ tools.append(search,kind,collection,owned,gameButton('Remove frame',()=>equipCosmetic('frame',null)),gameButton('Remove banner',()=>equipCosmetic('banner',null)),gameButton('Remove emblem',()=>equipCosmetic('emblem',null)),gameButton('Remove username effect',()=>equipCosmetic('name_effect',null)),gameButton('View my profile',()=>openProfile(currentUser.id)));
  const summary=gameNode('p');summary.id='cosmetic-collection-summary';summary.setAttribute('role','status');const grid=gameNode('div',null,'cosmeticgrid');grid.id='cosmetic-collection';
  root.append(gameNode('h3','Make your profile yours'),gameNode('p','Equip your unlocked cosmetics here. MW2 calling cards are paused due to artwork quality and hidden here and on profiles; ownership is saved. Uncheck Only my collection to preview locked items. Animated cards play in previews and profiles. Reduced motion shows a still frame.'),summary,tools,grid);
 }
@@ -304,15 +350,16 @@ function renderCosmeticCollection(cosmetics){
  const inventory=new Map(cosmetics.owned.map(i=>[i.id,i.count])),kind=$('cosmetic-kind').value,collection=$('cosmetic-source').value,only=$('cosmetic-owned-only').checked,query=$('cosmetic-search').value.trim().toLowerCase();
  const items=cosmetics.catalog.filter(i=>!i.paused&&(!kind||kind===i.kind)&&(!collection||collection===cosmeticCollection(i))&&(!only||inventory.has(i.id))&&(!query||`${i.name} ${i.kind} ${i.rarity} ${cosmeticCollection(i)} ${i.animated?'animated':''}`.toLowerCase().includes(query)));
  const saved=cosmetics.catalog.filter(i=>i.paused&&inventory.has(i.id)).length;
- $('cosmetic-collection-summary').textContent=`${inventory.size} unlocked cosmetic${inventory.size===1?'':'s'} · ${items.length} shown.${saved?' '+saved+' paused item'+(saved===1?'':'s')+' saved.':''} ${gamblingPendingMutation?'Confirm the pending action before changing your cosmetics.':'Equip one avatar frame and one banner.'}`;
+ $('cosmetic-collection-summary').textContent=`${inventory.size} unlocked cosmetic${inventory.size===1?'':'s'} · ${items.length} shown.${saved?' '+saved+' paused item'+(saved===1?'':'s')+' saved.':''} ${gamblingPendingMutation?'Confirm the pending action before changing your cosmetics.':'Equip one frame, banner, emblem and username effect together.'}`;
  $('cosmetic-collection').replaceChildren(...items.map(item=>{
   const card=gameNode('article',null,'cosmeticcard'),count=inventory.get(item.id)||0,equipped=cosmetics.equipped[item.kind]===item.id;card.dataset.cosmeticId=item.id;
-  card.append(cosmeticPreview(item,true),gameNode('h3',item.name),gameNode('p',`${item.rarity} · ${item.kind}${item.animated?' · Animated':''}${count?' · Owned '+count:' · Locked — unlock from a crate'}`));
-  const equip=gameButton(equipped?'Equipped':count?'Equip '+item.kind:'View cosmetic crate',()=>count?equipCosmetic(item.kind,item.id):selectGamblingTab('cases'),equipped?'equipped':'');equip.disabled=gamblingBusy||!!gamblingPendingMutation||equipped;card.append(equip);return card;
+  card.append(cosmeticPreview(item,true),gameNode('h3',item.name),gameNode('p',`${item.rarity} · ${cosmeticKindLabel(item.kind)}${item.animated?' · Animated':''}${count?' · Owned '+count:' · Locked — unlock from a crate'}`));
+  const equip=gameButton(equipped?'Equipped':count?'Equip '+cosmeticKindLabel(item.kind):'View cosmetic crate',()=>count?equipCosmetic(item.kind,item.id):selectGamblingTab('cases'),equipped?'equipped':'');equip.disabled=gamblingBusy||!!gamblingPendingMutation||equipped;card.append(equip);return card;
  }));
  if(!items.length){const empty=gameNode('section',null,'cosmeticempty');empty.append(gameNode('p',inventory.size?'No cosmetics match this filter.':'Your collection is empty. Opening a crate unlocks an item you can equip.'),gameButton('Browse cosmetic crates',()=>selectGamblingTab('cases')));$('cosmetic-collection').append(empty);}
 }
-async function equipCosmetic(kind,id){if(!gamblingData)return;if(!['frame','banner'].includes(kind))throw new Error('Choose an avatar frame or a banner.');if(id&&gamblingData.cosmetics.catalog.some(item=>item.id===id&&item.paused))throw new Error('This cosmetic collection is paused due to artwork quality.');if(id&&!gamblingData.cosmetics.owned.some(item=>item.id===id&&item.count>0))throw new Error('Unlock this cosmetic from a crate before equipping it.');const equipped={frame:gamblingData.cosmetics.equipped.frame||null,banner:gamblingData.cosmetics.equipped.banner||null,[kind]:id};await gamblingMutation('gambling/cosmetics/equip',equipped,id?`${kind==='frame'?'Avatar frame':'Banner'} equipped. View My profile to see it.`:`${kind==='frame'?'Avatar frame':'Banner'} removed.`);}
+async function equipCosmetic(kind,id){if(!gamblingData)return;const kinds=['frame','banner','emblem','name_effect'];if(!kinds.includes(kind))throw new Error('Choose a valid cosmetic type.');if(id&&gamblingData.cosmetics.catalog.some(item=>item.id===id&&item.paused))throw new Error('This cosmetic collection is paused due to artwork quality.');if(id&&!gamblingData.cosmetics.owned.some(item=>item.id===id&&item.count>0))throw new Error('Unlock this cosmetic from a crate before equipping it.');const equipped=Object.fromEntries(kinds.map(slot=>[slot,gamblingData.cosmetics.equipped[slot]||null]));equipped[kind]=id;await gamblingMutation('gambling/cosmetics/equip',equipped,`${cosmeticKindLabel(kind)} ${id?'equipped':'removed'}.`);}
+
 function arcadeRule(game){return gamblingData?.rules?.games?.find(r=>r.game===game)||{enabled:true,min_stake:1,max_stake:1000000,payout_percent:game==='dice'?95:100};}
 function gameIsPaused(game){return !!gamblingData?.rules?.paused||!arcadeRule(game).enabled;}
 const SLOT_SYMBOLS=['💎','7','🍀','🔔','🍒','🍋'];
@@ -392,5 +439,6 @@ function renderGamblingAdminPreview(data){
  $('admin-crash-history').replaceChildren(...(crash.history||[]).map(r=>gameNode('span',multiplierText(r.crash_multiplier)+' · '+r.mode,'crashchip')));
 }
 async function refreshGamblingAdminPreview(){if(gamblingAdminLoading)return;gamblingAdminLoading=true;try{renderGamblingAdminPreview(await(await api('admin/gambling')).json());}finally{gamblingAdminLoading=false;}}
-setInterval(()=>{if(!gamblingReady||document.hidden||$('gamblingview')?.hidden||gamblingBusy)return;loadGambling().catch(error=>{if(error.name!=='AbortError')setGamblingStatus(error.message,true);});},1500);
+setInterval(()=>{if(!gamblingReady||document.hidden||$('gamblingview')?.hidden||gamblingBusy||gamblingTab==='crash')return;loadGambling().catch(error=>{if(error.name!=='AbortError')setGamblingStatus(error.message,true);});},1500);
+setInterval(()=>{if(!gamblingReady||!crashIsVisible()||gamblingBusy)return;loadGambling(true).catch(error=>{if(error.name!=='AbortError')setGamblingStatus(error.message,true);});},500);
 setInterval(()=>{if(!gamblingAdminReady||document.hidden||$('moderation')?.hidden||$('admin-gambling')?.hidden)return;refreshGamblingAdminPreview().catch(error=>{const n=$('admin-crash-status');if(n)n.textContent=error.message;});},2000);

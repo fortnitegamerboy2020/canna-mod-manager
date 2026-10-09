@@ -1,5 +1,8 @@
 # Canna family server
 
+Community 0.3.73 adds a CS-style cosmetic crate reel, 328 Call of Duty cosmetic emblems and six animated username gradients. Crash cashout estimates now update live with bounded RTT correction, and confirmed bets/balances no longer wait for secondary refreshes. Server-confirmed outcomes remain authoritative. MW2 calling cards stay paused because the supplied artwork remains 188x40.
+
+
 Community 0.3.72 updates Help for the released Canna Anvil 1.0.7 Magnet fix. The fix passed 70 offline native-game checks; full multiplayer testing remains unverified. Desktop stays at 0.2.47. Community 0.3.71 removed the long rules paragraph from Gambling.
 
 Community 0.3.70 additions: Roulette, Dice and Slots; owner controls for game pauses, stake limits, arcade payout factors, crate prices and daily new-game limits; 1,000× Crash; `/tip @username amount` with member autocomplete and retry protection; and live admin wallet values that preserve adjustment drafts. Protected membership checks and atomic wallet accounting remain in place. Released with Desktop 0.2.47 / Community 0.3.70.
@@ -10,7 +13,7 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.72
+## Current release: Community 0.3.73
 
 MW2 banner correction cleans the baked screenshot matte in 260 tiny source images, including Stuck on You, with audited alpha masks, transparent-only crops and lossless PNG output. Retained RGB pixels, all 654 cosmetic IDs, crate odds and equipment routes remain unchanged. Fifty-two ambiguous/full-art JPEGs and 86 existing transparent MW2 PNGs are kept intact. MW2 profile and crate previews cap artwork at twice its source width and shrink on small screens. This is a source-matte and excessive-stretch correction, not an HD replacement; isolated one-pixel JPEG fringes may remain. Reloading obtains changed checksum URLs without re-equipping.
 
@@ -485,3 +488,23 @@ archive pin can omit CardThemeLib 1.1.7, GravityPatch 0.0.0, ZeroGBulletPatch
 Beta invitations (Community 0.3.69): owner and Beta member friend links can grant additive Beta at signup. Owners can privately distribute these links to current Beta members or preview random/newest/oldest/most-posts existing-account access waves before granting. See public /help for expiry, eligibility and limits.
 
 Community 0.3.70 analysis update: game filters and readable labels, bounded C# caller/destination traces, grouped evidence, more retained source previews, and failed-rescan evidence retention. Static tracing does not establish safety. Findings remain subject to staff review.
+
+Community 0.3.73: Call of Duty emblems and animated username gradients
+have separate crates and independently owned/equipped slots. `scripts/Import-CosmeticPacks.py`
+imports only PNG emblem assets from the supplied ZIPs and generates six original
+gradient preview SVGs. The 188x40 MW2 calling cards remain paused. Existing frame,
+banner and paused-card identities are retained; legacy equipment requests preserve
+new slots when omitted, while explicit null clears them. Gradients and emblems
+appear in profiles, member listings, chat and the signed-in account UI. Cosmetic
+rank art never changes roles or XP. Reduced motion and the artwork pause switch
+stop gradients. `gambling?crash_only=true` returns authenticated round/wallet state
+without catalog/blackjack/history payloads. Visible Crash polls at 500ms; its live
+cashout estimate uses bounded measured RTT correction. Confirmed mutation results
+update the bet/wallet before any secondary read. The server remains authoritative;
+client timestamps cannot backdate manual cashouts. `scripts/Test-CrashCosmetics.cjs`
+exercises delayed/lost replies and motion settings in real Edge with synthetic HTTP.
+
+Community 0.3.73 also includes a CS-style crate reel with a fixed server-selected
+stop, Skip animation, reduced-motion reveal and cleanup on navigation/resize. Decorative
+weighted neighboring cards do not change awards. Inventory updates on confirmation,
+before the visual roll; retry retains the original request ID.

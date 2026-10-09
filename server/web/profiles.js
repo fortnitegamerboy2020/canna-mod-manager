@@ -16,6 +16,7 @@ function renderPeople() {
     const row = document.createElement('div'); row.className = 'membercard';
     if (member.avatar) { const image = document.createElement('img'); image.className = 'avatar'; image.src = `/api/v1/profiles/${member.id}/avatar`; image.width = image.height = 48; image.alt = ''; image.loading='lazy'; row.append(image); }
     const info = document.createElement('div'); const title = document.createElement('strong'); title.textContent = member.username;
+    applyUsernameCosmetics(title,member.cosmetics);
     const status = document.createElement('p'); status.textContent = `${memberRoleLabel(member)}${member.status ? ` · ${member.status}` : ''}`;
     info.append(title,status);const link=button('View profile',() => openProfile(member.id));link.dataset.page='/members/'+member.id;row.append(info,link); return row;
   }));
@@ -64,6 +65,7 @@ async function openProfile(id) {
   $('profilecard').scrollIntoView({behavior:'smooth',block:'start'});
 }
 function applyProfileCosmetics(profile){
+ applyUsernameCosmetics($('profilename'),profile.cosmetics);
  const card=$('profilecard');let banner=$('profilebanner');if(!banner){banner=document.createElement('div');banner.id='profilebanner';banner.className='profilebanner';card.prepend(banner);}
  const item=profile.cosmetics?.banner?.paused?null:profile.cosmetics?.banner;banner.className='profilebanner';banner.replaceChildren();banner.hidden=!item;
  if(item){banner.setAttribute('aria-label',item.name+(item.animated?' animated':'')+' profile banner');banner.setAttribute('role','img');banner.title=item.name;const image=profileCosmeticImage(item);if(image){if(item.collection==='mw2'){banner.classList.add('mw2-banner');const width=callingCardDisplayWidth(item);if(width)image.style.width=width+'px';}banner.append(image);}else{if(/^[a-z0-9_-]{1,80}$/.test(item.style||item.id||''))banner.classList.add('cosmetic-'+(item.style||item.id));}}
@@ -73,8 +75,8 @@ function applyProfileCosmetics(profile){
  if(profile.cosmetics?.frame){const cosmetic=profile.cosmetics.frame;frame.setAttribute('aria-label',cosmetic.name+' avatar frame');const image=profileCosmeticImage(cosmetic);if(image)frame.append(image);else{frame.className='profileframe';if(/^[a-z0-9_-]{1,80}$/.test(cosmetic.style||cosmetic.id||''))frame.classList.add('cosmetic-'+(cosmetic.style||cosmetic.id));}}
 }
 function renderProfileCosmeticActions(own,profile){
- let tools=$('profilecosmetictools');if(!tools){tools=document.createElement('div');tools.id='profilecosmetictools';tools.className='row profilecosmetictools';const manage=button('Manage avatar frame & banner',async()=>{await navigatePage('/gambling');if(location.pathname==='/gambling')selectGamblingTab('collection');});manage.id='profile-cosmetic-manage';manage.type='button';manage.dataset.page='/gambling';tools.append(manage,artworkMotionControl());$('profilebio').before(tools);}
- const animated=!!profile?.cosmetics?.banner?.animated||!!profile?.cosmetics?.frame?.animated;
+ let tools=$('profilecosmetictools');if(!tools){tools=document.createElement('div');tools.id='profilecosmetictools';tools.className='row profilecosmetictools';const manage=button('Manage profile cosmetics',async()=>{await navigatePage('/gambling');if(location.pathname==='/gambling')selectGamblingTab('collection');});manage.id='profile-cosmetic-manage';manage.type='button';manage.dataset.page='/gambling';tools.append(manage,artworkMotionControl());$('profilebio').before(tools);}
+ const animated=!!profile?.cosmetics?.banner?.animated||!!profile?.cosmetics?.frame?.animated||!!profile?.cosmetics?.name_effect?.animated;
  $('profile-cosmetic-manage').hidden=!own;$('cosmetic-motion-toggle').hidden=!animated;tools.hidden=!own&&!animated;refreshCosmeticMotion();
 }
 let cosmeticMotionQuery=null,cosmeticMotionReady=false;
@@ -84,6 +86,7 @@ function cosmeticAssetUrl(asset,hash){return typeof asset==='string'&&/^\/api\/v
 function cosmeticAnimationsPaused(){return cosmeticMotionPaused||!!cosmeticMotionQuery?.matches;}
 function updateCosmeticMotionImage(image){const url=cosmeticAnimationsPaused()?image.dataset.cosmeticPoster:image.dataset.cosmeticAnimation;if(url&&image.getAttribute('src')!==url)image.src=url;}
 function refreshCosmeticMotion(){
+ document.documentElement.dataset.cosmeticMotion=cosmeticAnimationsPaused()?'paused':'auto';
  for(const image of document.querySelectorAll('img[data-cosmetic-animation]'))updateCosmeticMotionImage(image);
  const control=$('cosmetic-motion-toggle');if(control){control.setAttribute('aria-pressed',String(cosmeticAnimationsPaused()));control.textContent=cosmeticMotionQuery?.matches?'Artwork animations paused by device':cosmeticMotionPaused?'Resume artwork animations':'Pause artwork animations';control.disabled=!!cosmeticMotionQuery?.matches;control.title=cosmeticMotionQuery?.matches?'Your device requests reduced motion. Artwork uses still images.':'Applies to profile banners and cosmetic previews in this browser.';}
 }
@@ -105,6 +108,11 @@ function artworkMotionControl(){
 }
 function profileCosmeticImage(item){const asset=cosmeticAssetUrl(item.asset,item.sha256);if(!asset)return null;const image=document.createElement('img');image.src=asset;image.alt='';image.decoding='async';bindCosmeticMotion(image,item);return image;}
 function callingCardDisplayWidth(item){return item.collection==='mw2'&&Number.isInteger(item.width)&&item.width>0&&item.width<=4096?item.width*2:0;}
+function applyUsernameCosmetics(node,cosmetics){
+ if(!node)return;delete node.dataset.usernameEffect;node.querySelector('.username-emblem')?.remove();
+ const effect=cosmetics?.name_effect;if(effect&&!effect.paused&&['aurora','canna','sunset','royal','ice','rainbow'].includes(effect.style)){node.dataset.usernameEffect=effect.style;setupCosmeticMotion();document.documentElement.dataset.cosmeticMotion=cosmeticAnimationsPaused()?'paused':'auto';}
+ const emblem=cosmetics?.emblem;if(emblem&&!emblem.paused){const image=profileCosmeticImage(emblem);if(image){image.className='username-emblem';image.title=emblem.name;image.setAttribute('aria-label',emblem.name+' cosmetic emblem');node.prepend(image);}}
+}
 $('editprofile').addEventListener('submit',event => { event.preventDefault(); action(async () => {
   await json('profiles/me',{status:$('editstatus').value,bio:$('editbio').value}); await openProfile(currentUser.id); message('Profile saved.');
 }); });

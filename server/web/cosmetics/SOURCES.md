@@ -74,3 +74,7 @@ files, provenance, IDs, odds weights, ownership and stored selections are retain
 for a future resume. The MW2 crate and new equips are disabled, mixed-case drops
 exclude them, and the collection/profile UI hides them. BO2 and avatar frames
 remain active. No asset pixels changed in this pause.
+
+## Local preview: user-supplied emblem packs and username effects
+
+`mw2-callcards-remastered-main.zip` (SHA256 `0af2c3dfa473e652760c159892376be4750a1df3adbea2f599433bfcc11d7337`) supplies 205 PNG emblems. Its 296 small calling-card images do not resolve the previously reported quality problem; MW2 calling cards remain paused. `Call-of-Duty-Rank-Emblems-main.zip` (SHA256 `1572137cd5209ca966008a2195507afb9d62e302e476a00f91c9937249bf8a76`) supplies 123 PNG rank/prestige emblems across its named games. Original image bytes and transparency are preserved; duplicate DDS versions and Backups, Lua addon code, fonts, sounds and VTF files are not imported. Each item records its archive member path and exact image digest. Game artwork remains owned by its respective creators. Six gradient preview SVGs and matching CSS animations are original Canna artwork. Run `scripts/Import-CosmeticPacks.py` to regenerate asset routing idempotently from the supplied archives and catalog.
