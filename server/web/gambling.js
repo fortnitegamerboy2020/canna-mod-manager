@@ -16,6 +16,8 @@ const CRASH_VISUAL_FRESH_MS=2000,CRASH_GROWTH_MS=10000;
 const gamblingTimings=new WeakMap();
 let crashLatencySamples=[];
 let crashVisual=null,crashAnimation=null,crashMotionQuery=null,crashHooksReady=false;
+let crashAutoRefresh={round:null,lastAt:-Infinity};
+let crashLastPaint=-Infinity,crashHistoryKey='';
 function crashClock(){return typeof performance!=='undefined'?performance.now():Date.now();}
 function crashReducedMotion(){return !!crashMotionQuery?.matches;}
 function crashIsVisible(){return !document.hidden&&!$('gamblingview')?.hidden&&!$('gambling-crash')?.hidden;}
@@ -23,6 +25,7 @@ function stopCrashAnimation(requireFresh=false){if(crashAnimation!==null&&typeof
 function crashSetText(id,text){const n=$(id);if(n&&n.textContent!==text)n.textContent=text;}
 function crashSvg(tag,attributes){const n=typeof document.createElementNS==='function'?document.createElementNS('http://www.w3.org/2000/svg',tag):gameNode(tag);for(const [key,value]of Object.entries(attributes))n.setAttribute(key,value);return n;}
 function drawCrashVisual(at=crashClock()){
+ crashLastPaint=at;
  if(!crashVisual||!$('crash-multiplier'))return;
  const sample=crashVisual,age=Math.max(0,at-sample.receivedAt),stale=sample.needsFresh||age>=CRASH_VISUAL_FRESH_MS;
  // The flight is a short display estimate only. Bet/cashout state and amounts
@@ -35,7 +38,7 @@ function drawCrashVisual(at=crashClock()){
  const progress=Math.max(0,Math.min(1,Math.log(value)/Math.log(1000)));
  crashSetText('crash-multiplier',multiplierText(value));
  updateCrashCashoutDisplay(value,stale,elapsed+Math.min(age,CRASH_VISUAL_FRESH_MS));
- const stage=$('crash-multiplier').parentElement;stage.dataset.stale=String(stale&&sample.phase!=='crashed'&&sample.phase!=='paused');
+ const stage=$('crash-multiplier').parentElement;const staleValue=String(stale&&sample.phase!=='crashed'&&sample.phase!=='paused');if(stage.dataset.stale!==staleValue)stage.dataset.stale=staleValue;
  const seconds=Math.max(0,Math.ceil((sample.startsAt-sample.serverTime-sample.oneWayMs-Math.min(age,CRASH_VISUAL_FRESH_MS))/1000));
  const phase=sample.phase==='betting'?(seconds?`Taking bets · ${seconds}s`:'Starting round…'):sample.phase==='running'?'In flight':sample.phase==='paused'?'Wagering paused':'Crashed';
  crashSetText('crash-phase',stale&&(sample.phase==='running'||sample.phase==='betting')?'Syncing round…':phase);
@@ -48,7 +51,7 @@ function drawCrashVisual(at=crashClock()){
 function scheduleCrashAnimation(){
  if(crashAnimation!==null||!crashVisual||!crashIsVisible()||crashReducedMotion()||typeof requestAnimationFrame!=='function'||!['running','betting'].includes(crashVisual.phase)||crashVisual.needsFresh)return;
  if(crashClock()-crashVisual.receivedAt>=CRASH_VISUAL_FRESH_MS){drawCrashVisual();return;}
- crashAnimation=requestAnimationFrame(()=>{crashAnimation=null;if(!crashIsVisible()){stopCrashAnimation(true);return;}if(drawCrashVisual())scheduleCrashAnimation();});
+ crashAnimation=requestAnimationFrame(()=>{crashAnimation=null;if(!crashIsVisible()){stopCrashAnimation(true);return;}const mobile=window.matchMedia?.('(max-width: 650px), (pointer: coarse)').matches;if(mobile&&crashClock()-crashLastPaint<1000/30){scheduleCrashAnimation();return;}if(drawCrashVisual())scheduleCrashAnimation();});
 }
 function refreshCrashVisibility(){if(!crashIsVisible()){stopCrashAnimation(true);return;}drawCrashVisual();scheduleCrashAnimation();}
 function requestCrashRefresh(){if(crashVisual&&crashIsVisible()&&!gamblingBusy)loadGambling().catch(error=>{if(error.name!=='AbortError')setGamblingStatus(error.message,true);});}
@@ -76,7 +79,7 @@ function updateCrashCashoutDisplay(value,stale,elapsed){
  crashSetText('crash-cashout',active?(stale?'Syncing cashout…':`Cash out · ~${kashText(estimate)} · ${multiplierText(value)}`):'Cash out');
  control.title=active?'Live estimate, adjusted for measured network delay. The server confirms the final payout on receipt. Auto cashout is scheduled on the server.':'';
  crashSetText('crash-ping',crashLatencySamples.length?`Connection · ${Math.round(Math.min(...crashLatencySamples))} ms`:'Measuring connection…');
- if(active&&bet.auto_cashout){const remaining=Math.max(0,Math.log(bet.auto_cashout)*CRASH_GROWTH_MS-elapsed);crashSetText('crash-your-bet',`${kashText(bet.stake)} in play · Auto ${multiplierText(bet.auto_cashout)}${remaining?` · ~${(remaining/1000).toFixed(1)}s`:' · Confirming result…'}`);}
+ if(active&&bet.auto_cashout){const remaining=Math.max(0,Math.log(bet.auto_cashout)*CRASH_GROWTH_MS-elapsed);crashSetText('crash-your-bet',`${kashText(bet.stake)} in play · Auto ${multiplierText(bet.auto_cashout)}${remaining?` · ~${(remaining/1000).toFixed(1)}s`:' · Confirming result…'}`);if(!remaining&&!stale&&!gamblingBusy&&!gamblingLoading&&crashIsVisible()){const at=crashClock();if(crashAutoRefresh.round!==crash.id||at-crashAutoRefresh.lastAt>=500){crashAutoRefresh={round:crash.id,lastAt:at};loadGambling(true).catch(error=>{if(error.name!=='AbortError')setGamblingStatus(error.message,true);});}}}
 }
 function gameNode(tag,text,className){const n=document.createElement(tag);if(text!==undefined&&text!==null)n.textContent=text;if(className)n.className=className;return n;}
 function gameField(id,label,value,min,max,step='1'){
@@ -157,14 +160,14 @@ async function loadGambling(crashOnly=false){
  const promise=(async()=>{try{
   const compact=crashOnly&&!!gamblingData;const catalog=compact?null:await loadGamblingCatalog(controller.signal);const response=await readGamblingJson(compact?'gambling?crash_only=true':'gambling?catalog_version='+catalog.version,controller.signal);
   if(generation!==gamblingReadGeneration||controller.signal.aborted)throw gamblingAbortError();verifyGamblingMember(response,member);
-  if(compact){gamblingData={...gamblingData,crash:response.crash,wallet:response.wallet,server_time_ms:response.server_time_ms};gamblingTimings.set(gamblingData,gamblingTimings.get(response));}else{gamblingData=attachGamblingCatalog(response);}renderGambling(gamblingData);queueCrashParticipantRefresh(gamblingData.crash);
+  if(compact){gamblingData={...gamblingData,crash:response.crash,wallet:response.wallet,server_time_ms:response.server_time_ms};gamblingTimings.set(gamblingData,gamblingTimings.get(response));}else{gamblingData=attachGamblingCatalog(response);}renderGambling(gamblingData,compact);queueCrashParticipantRefresh(gamblingData.crash);
  }finally{if(generation===gamblingReadGeneration){gamblingLoading=false;gamblingReadController=null;gamblingLoadPromise=null;}}})();gamblingLoadPromise=promise;return promise;
 }
-function renderGambling(data){
+function renderGambling(data,crashOnly=false){
  $('gambling-balance').textContent=kashText(data.wallet.balance);$('kashbalance').textContent=kashText(data.wallet.balance);if(currentUser)currentUser.kash=data.wallet.balance;
  $('gambling-daily').disabled=gamblingBusy||!!gamblingPendingMutation||!data.wallet.daily_available;$('gambling-daily').textContent=data.wallet.daily_available?'Claim daily Kash':'Daily already claimed';
  $('gambling-retry').hidden=!gamblingPendingMutation||gamblingBusy;$('gambling-retry').disabled=gamblingBusy;
- renderCrash(data.crash,data.server_time_ms,gamblingTimings.get(data));renderBlackjack(data.blackjack);renderArcade(data);
+ renderCrash(data.crash,data.server_time_ms,gamblingTimings.get(data));if(crashOnly)return;renderBlackjack(data.blackjack);renderArcade(data);
  const casesKey=JSON.stringify([data.cosmetics.catalog_version,data.wallet.balance,data.rules,gamblingBusy,!!gamblingPendingMutation,!!caseReel]);
  if(casesKey!==gamblingCaseRenderKey){renderCases(data);gamblingCaseRenderKey=casesKey;}
  const cosmeticKey=JSON.stringify([data.cosmetics.catalog_version,data.cosmetics.owned,data.cosmetics.equipped,data.cosmetics.collection,gamblingBusy,!!gamblingPendingMutation]);
@@ -204,16 +207,16 @@ function setupCrash(){
  const bet=gameNode('button','Place bet');bet.type='submit';bet.className='primary';bet.id='crash-place-bet';form.append(bet);form.addEventListener('submit',e=>{e.preventDefault();action(async()=>{if(!gamblingData)return;await gamblingMutation('gambling/crash/bet',{round_id:gamblingData.crash.id,stake:Number($('crash-stake').value),auto_cashout:$('crash-auto-enabled').checked?Number($('crash-auto').value):null},'Bet placed.');});});
  const cashout=gameButton('Cash out',()=>gamblingMutation('gambling/crash/cashout',{round_id:gamblingData.crash.id},r=>r.bet?.status==='won'?`Cashed out at ${multiplierText(r.bet.cashout_multiplier)} · ${kashText(r.bet.payout)}`:r.bet?.status==='lost'?'The round crashed before the server received the cashout.':'Cashout recorded.'),'gamecashout');cashout.id='crash-cashout';const betStatus=gameNode('p');betStatus.id='crash-your-bet';betStatus.setAttribute('role','status');const ping=gameNode('small','Measuring connection…','game-footnote');ping.id='crash-ping';control.append(form,cashout,betStatus,ping);layout.append(stage,control);
  const people=gameNode('section',null,'gamepanel crashpeople');const heading=gameNode('div',null,'crashpeople-heading');const count=gameNode('p');count.id='crash-people-count';heading.append(gameNode('h3','Players this round'),count);const scroll=gameNode('div',null,'crashpeople-scroll');const table=gameNode('table');table.setAttribute('aria-label','Crash bets and cashouts');const head=gameNode('thead');const headings=gameNode('tr');for(const label of ['Player','Bet','Result'])headings.append(gameNode('th',label));head.append(headings);const body=gameNode('tbody');body.id='crash-people-rows';table.append(head,body);scroll.append(table);const empty=gameNode('p','No bets yet.');empty.id='crash-people-empty';const more=gameButton('Show more players',async()=>{if(crashPeopleLoading)return;crashPeople.pages++;await loadGambling();});more.id='crash-people-more';more.hidden=true;const status=gameNode('p');status.id='crash-people-status';status.setAttribute('role','status');people.append(heading,scroll,empty,more,status,gameNode('p','Cashouts stay here until the next round.','game-footnote'));
- const history=gameNode('div',null,'crashhistory');history.id='crash-history';root.append(layout,people,gameNode('h3','Recent rounds'),history,gameNode('p','Round state and payouts are decided by the server. Random mode still allows the owner to inspect the upcoming result. Owner-controlled rounds are labelled here.','game-footnote'));
+ const history=gameNode('div',null,'crashhistory');history.id='crash-history';root.append(layout,people,gameNode('h3','Recent rounds'),history);
 }
 function renderCrash(crash,now,timing){
  const phase=crash.phase;const stage=$('crash-multiplier').parentElement;stage.dataset.phase=phase;const seconds=Math.max(0,Math.ceil((crash.betting_ends_ms-now)/1000));
  $('crash-phase').textContent=phase==='betting'?`Taking bets · ${seconds}s`:phase==='running'?'In flight':phase==='paused'?'Wagering paused':'Crashed';
- $('crash-detail').textContent=`${crash.id===null?'Waiting for next round':'Round '+String(crash.id).slice(0,12)} · ${crash.mode==='controlled'?'Owner-controlled':'Random'}${crash.owner_visible?' · Owner can inspect result':''}${crash.paused?' · New wagering paused':''}`;
+ $('crash-detail').textContent=`${crash.id===null?'Waiting for next round':'Round '+String(crash.id).slice(0,12)}${crash.paused?' · New wagering paused':''}`;
  const hasBet=!!crash.bet;$('crash-place-bet').disabled=gamblingBusy||!!gamblingPendingMutation||crash.paused||phase!=='betting'||hasBet;$('crash-cashout').disabled=gamblingBusy||!!gamblingPendingMutation||phase!=='running'||!hasBet||crash.bet.status!=='pending';
  $('crash-your-bet').textContent=!hasBet?'No bet in this round.':crash.bet.status==='pending'?`${kashText(crash.bet.stake)} in play${crash.bet.auto_cashout?' · Auto '+multiplierText(crash.bet.auto_cashout):''}`:crash.bet.status==='won'?`Cashed out · ${kashText(crash.bet.payout)}`:`Crashed · ${kashText(crash.bet.stake)} lost`;
  updateCrashVisual(crash,now,timing);
- $('crash-history').replaceChildren(...(crash.history||[]).slice(0,15).map(r=>{const n=gameNode('span',multiplierText(r.crash_multiplier),'crashchip '+(r.crash_multiplier>=10?'high':r.crash_multiplier<2?'low':'mid'));n.title=`Round ${r.id} · ${r.mode==='controlled'?'Owner-controlled':'Random'}`;return n;}));
+ const history=(crash.history||[]).slice(0,15),historyKey=JSON.stringify(history);if(historyKey!==crashHistoryKey){crashHistoryKey=historyKey;$('crash-history').replaceChildren(...history.map(r=>{const n=gameNode('span',multiplierText(r.crash_multiplier),'crashchip '+(r.crash_multiplier>=10?'high':r.crash_multiplier<2?'low':'mid'));n.title=`Round ${r.id}`;return n;}));}
  acceptCrashParticipants(crash);renderCrashParticipants(crash.phase);
 }
 function acceptCrashParticipants(crash){
@@ -254,15 +257,19 @@ function renderCrashParticipants(phase){
  $('crash-people-count').textContent=`${crashPeople.total} ${crashPeople.total===1?'player':'players'}${crashPeople.rows.length<crashPeople.total?' · '+crashPeople.rows.length+' shown':''}`;
  $('crash-people-empty').hidden=!!crashPeople.rows.length;
  $('crash-people-more').hidden=!crashPeople.hasMore;$('crash-people-more').disabled=crashPeopleLoading;
- $('crash-people-rows').replaceChildren(...crashPeople.rows.map(person=>{
+ const body=$('crash-people-rows'),existing=new Map([...body.children].map(row=>[Number(row.dataset.userId),row]));
+ const rows=crashPeople.rows.map(person=>{
+  const key=JSON.stringify([crashPeople.round,person,person.status==='pending'&&phase==='betting']),old=existing.get(person.user_id);if(old?.crashRenderKey===key)return old;
   const row=gameNode('tr');row.dataset.userId=person.user_id;const player=gameNode('td'),stake=gameNode('td',kashText(person.stake),'crashpeople-stake'),result=gameNode('td',null,'crashpeople-result');
   const name=person.display_name||person.username||'Unavailable member';
   if(Number.isSafeInteger(person.user_id)&&person.user_id>0&&person.profile_url===`/members/${person.user_id}`){const link=gameNode('a',name);link.href=person.profile_url;link.dataset.page=person.profile_url;player.append(link);}else player.textContent=name;
   result.dataset.status=person.status;
   if(person.status==='won'){result.append(gameNode('strong','Cashed out · '+multiplierText(person.cashout_multiplier)));if(Number.isFinite(person.cashout_elapsed_ms)&&person.cashout_elapsed_ms>=0)result.append(gameNode('small',(person.cashout_elapsed_ms/1000).toFixed(2)+'s into the round'));if(Number.isFinite(person.cashout_at_ms)){result.title='Cashed out '+new Date(person.cashout_at_ms).toLocaleString();}}
   else result.textContent=person.status==='lost'?'Crashed':phase==='betting'?'Waiting':'In play';
-  row.append(player,stake,result);return row;
- }));
+  row.append(player,stake,result);row.crashRenderKey=key;return row;
+ });
+ const retained=new Set(rows);for(const row of [...body.children])if(!retained.has(row))row.remove();
+ rows.forEach((row,index)=>{if(body.children[index]!==row)body.insertBefore(row,body.children[index]||null);});
 }
 function setupBlackjack(){
  const root=$('gambling-blackjack');const table=gameNode('div',null,'blackjacktable');const dealer=gameNode('section');dealer.append(gameNode('h3','Dealer'),gameNode('div',null,'playingcards'),gameNode('p'));dealer.children[1].id='blackjack-dealer';dealer.lastChild.id='blackjack-dealer-total';const player=gameNode('section');player.append(gameNode('h3','Your hand'),gameNode('div',null,'playingcards'),gameNode('p'));player.children[1].id='blackjack-player';player.lastChild.id='blackjack-player-total';const outcome=gameNode('p',null,'blackjackoutcome');outcome.id='blackjack-outcome';outcome.setAttribute('role','status');table.append(dealer,outcome,player);
@@ -491,7 +498,7 @@ function renderHouseMetrics(metrics){if(!metrics)return;$('admin-house-metrics')
 function setupGamblingAdmin(){
  if(gamblingAdminReady||currentUser.role!=='owner'||!$('admin-gambling'))return;gamblingAdminReady=true;const root=$('admin-gambling');
  setupHouseAdmin(root);
- root.append(gameNode('h3','Crash control desk'),gameNode('p','See the scheduled crash, switch the generation mode, pause new bets or queue a run of future multipliers. The public game labels owner-controlled rounds and explains owner visibility. Changes affect future rounds.'),gameButton('Refresh live outcome',refreshGamblingAdminPreview));
+ root.append(gameNode('h3','Crash control desk'),gameNode('p','See the scheduled crash, switch the generation mode, pause new bets or queue a run of future multipliers. Changes affect future rounds.'),gameButton('Refresh live outcome',refreshGamblingAdminPreview));
  const live=gameNode('div',null,'admincrashpreview');live.id='admin-crash-preview';root.append(live);
  const form=gameNode('form',null,'adminsettingcard');const mode=gameNode('select');mode.id='admin-crash-mode';mode.setAttribute('aria-label','Crash generation mode');mode.append(new Option('Random generation','random'),new Option('Owner-controlled queue','controlled'));mode.addEventListener('change',()=>{if(mode.value==='random')$('admin-crash-queue-editor').replaceChildren();});const modeLabel=gameNode('label','Crash generation');modeLabel.append(mode);form.append(modeLabel);
  const pause=gameNode('label',null,'adminswitch');const paused=gameNode('input');paused.type='checkbox';paused.id='admin-crash-paused';pause.append(paused,gameNode('span','Pause new wagering'));form.append(pause,gameNode('p','Current stakes and cashouts continue to settle. Pausing stops accepting new wagers.'));

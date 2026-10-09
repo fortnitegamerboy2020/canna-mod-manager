@@ -386,7 +386,11 @@ fn advance(db: &Connection, time: i64) -> ApiResult<Option<Round>> {
             .collect::<Result<Vec<_>, _>>()?;
         for (actor, auto) in bets {
             if let Some(auto) = auto.filter(|auto| {
-                *auto < round.multiplier && time >= at_multiplier(round.start, *auto)
+                // Reaching the hard ceiling completes a maximum-target auto bet.
+                // Settle from its scheduled time even when the next poll is late.
+                (*auto < round.multiplier
+                    || (*auto == MAX_MULTIPLIER && round.multiplier == MAX_MULTIPLIER))
+                    && time >= at_multiplier(round.start, *auto)
             }) {
                 settle_bet(
                     db,
@@ -1450,7 +1454,7 @@ fn admin_view(db: &Connection, actor: i64, time: i64) -> ApiResult<Value> {
         .collect::<Result<Vec<_>, _>>()?;
     let crash = crash_view(db, round.as_ref(), actor, time, true, 0)?;
     Ok(
-        json!({"mode":mode,"paused":paused,"queue":queue,"crash":crash,"planned_crash_multiplier":crash["planned_crash_multiplier"],"planned_crash_at_ms":crash["planned_crash_at_ms"],"server_time_ms":time,"notice":NOTICE,"rules":arcade::rules_view(db)?,"metrics":arcade::metrics(db)?,"limits":{"queued_rounds":20,"min_multiplier":1.0,"max_multiplier":1000.0},"queue_empty_behavior":"Controlled mode remains visibly controlled and draws random rounds when its queue is empty."}),
+        json!({"mode":mode,"paused":paused,"queue":queue,"crash":crash,"planned_crash_multiplier":crash["planned_crash_multiplier"],"planned_crash_at_ms":crash["planned_crash_at_ms"],"server_time_ms":time,"notice":NOTICE,"rules":arcade::rules_view(db)?,"metrics":arcade::metrics(db)?,"limits":{"queued_rounds":20,"min_multiplier":1.0,"max_multiplier":1000.0},"queue_empty_behavior":"Controlled mode draws random rounds when its queue is empty."}),
     )
 }
 
@@ -2276,6 +2280,42 @@ mod tests {
         assert_eq!(bet_view(&db, r.id, 2).unwrap()["status"], "pending");
     }
 
+    #[test]
+    fn crash_maximum_auto_target_wins_at_cap_and_after_delayed_poll_once() {
+        let (_dir, app) = fixture();
+        account(&app, "cap-auto", false);
+        account(&app, "cap-manual", false);
+        balance(&app, 1, 1000);
+        balance(&app, 2, 1000);
+        let db = app.db.lock().unwrap();
+        db.execute("UPDATE gambling_config SET paused=1", [])
+            .unwrap();
+        let r = round(&db, 100_000, MAX_MULTIPLIER);
+        for (actor, auto) in [(1, Some(MAX_MULTIPLIER)), (2, None)] {
+            debit(&db, actor, 25).unwrap();
+            db.execute("INSERT INTO gambling_crash_bets(round_id,user_id,stake,auto_multiplier) VALUES(?1,?2,25,?3)", params![r.id,actor,auto]).unwrap();
+        }
+        advance(&db, r.crash - 1).unwrap();
+        assert_eq!(bet_view(&db, r.id, 1).unwrap()["status"], "pending");
+        // No request at the deadline: a later server update still pays the target.
+        advance(&db, r.crash + 2000).unwrap();
+        let bet = bet_view(&db, r.id, 1).unwrap();
+        assert_eq!(bet["status"], "won");
+        assert_eq!(bet["cashout_multiplier"], 1000.0);
+        assert_eq!(bet["cashout_at_ms"], r.crash);
+        assert_eq!(bet["payout"], 25_000);
+        assert_eq!(wallet(&db, 1).unwrap().0, 25_975);
+        assert_eq!(bet_view(&db, r.id, 2).unwrap()["status"], "lost");
+        advance(&db, r.crash + INTERMISSION_MS + 1).unwrap();
+        assert_eq!(wallet(&db, 1).unwrap().0, 25_975);
+        // A 1000x target is still lost when the round stops below the ceiling.
+        let below = round(&db, 300_000, MAX_MULTIPLIER - 100);
+        debit(&db, 1, 25).unwrap();
+        db.execute("INSERT INTO gambling_crash_bets(round_id,user_id,stake,auto_multiplier) VALUES(?1,1,25,?2)", params![below.id,MAX_MULTIPLIER]).unwrap();
+        advance(&db, below.crash + 1000).unwrap();
+        assert_eq!(bet_view(&db, below.id, 1).unwrap()["status"], "lost");
+        assert_eq!(wallet(&db, 1).unwrap().0, 25_950);
+    }
     #[test]
     fn crash_clock_boundary_and_auto_cashout_settle_once() {
         let (_dir, app) = fixture();

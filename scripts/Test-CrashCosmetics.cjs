@@ -49,6 +49,28 @@ for(const item of catalog.items)if(item.poster_filename)assets.set(item.id+'-pos
   },{items,allItems:catalog.items,pausedCollections:catalog.paused_collections||[]});
   for(const file of ['profiles.js','gambling.js'])await page.addScriptTag({content:fs.readFileSync('server/web/'+file,'utf8')});
   await page.evaluate(async()=>{await loadGambling();});
+  // A cap target requests authoritative confirmation, never a client-timed POST.
+  await page.evaluate(async()=>{
+   window.originalCrashFixture=structuredClone(state.crash);
+   state.crash={...state.crash,id:901,mode:'controlled',phase:'running',betting_ends_ms:Date.now()-68000,bet:{round_id:901,stake:100,auto_cashout:1000,status:'pending'}};
+   await loadGambling(true);
+  });
+  assert.doesNotMatch(await page.locator('#gambling-crash').innerText(),/Owner-controlled|Owner can inspect|upcoming result/);
+  await page.evaluate(async()=>{
+   state.crash={...state.crash,phase:'crashed',crash_multiplier:1000,bet:{...state.crash.bet,status:'won',cashout_multiplier:1000,payout:100000,cashout_at_ms:state.crash.betting_ends_ms+69078}};
+   crashAutoRefresh={round:null,lastAt:-Infinity};
+   updateCrashCashoutDisplay(1000,false,70000);
+   await gamblingLoadPromise;
+  });
+  await page.waitForFunction(()=>gamblingData.crash.bet.status==='won');
+  assert.equal(await page.evaluate(()=>gamblingData.crash.bet.status),'won');
+  assert.match(await page.locator('#crash-your-bet').textContent(),/100,000 Kash/);
+  assert.equal(await page.evaluate(()=>posts.filter(p=>p.path==='gambling/crash/cashout').length),0);
+  await page.evaluate(async()=>{state.crash=originalCrashFixture;await loadGambling(true);});
+  // Compact polls keep unchanged player rows and unrelated games in place.
+  const preserved=await page.evaluate(async()=>{const row=$('crash-people-rows').children[1],dealer=$('blackjack-dealer').firstChild;await loadGambling(true);return row===$('crash-people-rows').children[1]&&dealer===$('blackjack-dealer').firstChild;});
+  assert.equal(preserved,true,'Compact Crash polling rebuilt unchanged panels');
+  if(width===390){const session=await page.context().newCDPSession(page);await session.send('Emulation.setCPUThrottlingRate',{rate:4});}
   assert.equal(await page.locator('#case-list .casecard').count(),5);
   assert.equal(await page.evaluate(()=>Math.round(crashVisual.oneWayMs)>=90&&Math.round(crashVisual.oneWayMs)<=150),true,'RTT must correct the render clock');
   const before=await page.locator('#crash-cashout').textContent();await page.waitForTimeout(350);const after=await page.locator('#crash-cashout').textContent();assert.notEqual(before,after,'Cashout text must move between snapshots');
