@@ -1,3 +1,5 @@
+Community 0.3.75 polishes the expanded arcade: Plinko replays its saved path with reduced-motion support, mixed crates are labelled cosmetics, and owner crate controls use readable names. Source publishers batch large trees to avoid failed bulk updates.
+
 # Canna Mod Manager
 
 Community 0.3.74 adds Keno, Plinko, Wheel and Baccarat; nine individually priced crates with owner rarity controls; 18 live username gradients; favorites, duplicate recycling and five saved looks. All 635 calling cards now use reviewed 4× reconstructed artwork, including corrected animation loops; MW2 resumes. Desktop 0.2.48 adds Setup health and fixes approved updates when historical versions remain in the catalog. Real installation/startup/vanilla-restoration tests passed for MoreCompany on Lethal Company, AbilityScrollBar/Anvil on Bopl Battle and CR/Bliss on ROUNDS. They do not verify full gameplay or new multiplayer combinations.

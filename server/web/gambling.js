@@ -7,6 +7,7 @@ let gamblingMemberMismatch=false;
 let gamblingPendingMutation=null;
 let gamblingCaseRenderKey='',gamblingCosmeticRenderKey='';
 let caseReel=null,cosmeticPage=1,cosmeticStylesKey='';
+const CRATE_NAMES=Object.freeze({'bo2-calling-cards':'BO2 calling cards crate','mw2-calling-cards':'MW2 calling cards crate','avatar-frames':'Avatar frames crate','cod-emblems':'Call of Duty emblems crate','username-effects':'Animated usernames crate','bo2-animated':'BO2 motion crate','mw2-canna':'MW2 green collection','premium-cosmetics':'Rare & legendary vault','rank-emblems':'Rank & prestige crate','canna-case':'Legacy mixed cosmetics case'});
 let crashPeople={round:null,pages:1,rows:[],total:0,hasMore:false},crashPeopleLoading=false;
 let crashPeopleRefreshPromise=null,crashPeopleRefreshPending=null;
 let crashPeopleGeneration=0,crashPeopleController=null;
@@ -320,7 +321,7 @@ function renderCases(data){
  $('case-list').replaceChildren(...data.cases.map(c=>{
   const card=gameNode('section',null,'gamepanel casecard');card.dataset.crate=c.id;
   const collection=c.collection||'',glyph=collection==='bo2'?'II':collection==='mw2'?'MW2':'◇';
-  card.append(gameNode('span',glyph,'caseglyph'),gameNode('h3',c.name),gameNode('p',`${c.items.length} ${c.kind==='emblem'?'emblems':c.kind==='name_effect'?'username effects':collection==='frames'?'avatar frames':'calling cards'} · ${kashText(c.cost)}`));
+  card.append(gameNode('span',glyph,'caseglyph'),gameNode('h3',c.name),gameNode('p',`${c.items.length} ${['all','mixed'].includes(c.kind)?'cosmetics':c.kind==='emblem'?'emblems':c.kind==='name_effect'?'username effects':c.kind==='frame'||collection==='frames'?'avatar frames':'calling cards'} · ${kashText(c.cost)}`));
   const tierOdds=new Map();for(const drop of c.items||[]){const tier=catalog.get(drop.id)?.rarity||'common';tierOdds.set(tier,(tierOdds.get(tier)||0)+drop.odds_percent);}const tiers=gameNode('div',null,'rarityodds');for(const [tier,odds]of tierOdds){const chip=gameNode('span',`${tier} ${odds.toFixed(2)}%`);chip.dataset.rarity=tier;tiers.append(chip);}card.append(tiers);
   if(c.paused){card.append(gameNode('p',c.pause_reason||'This collection is paused. Owned items are saved.'));const paused=gameButton('Paused',()=>{});paused.disabled=true;card.append(paused);return card;}
   const samples=gameNode('div',null,'cratepreviews');const sampleIds=[...(c.items||[])].sort((a,b)=>Number(!!catalog.get(b.id)?.animated)-Number(!!catalog.get(a.id)?.animated)).slice(0,3);
@@ -397,6 +398,8 @@ function renderArcadeVisual(game,row){
   for(let row=0;row<12;row++)for(let col=0;col<=row;col++)svg.append(crashSvg('circle',{cx:180+(col-row/2)*25,cy:20+row*17,r:2.5,fill:'#83baae'}));
   let x=180;const points=['180,5'];for(let i=0;i<12;i++){x+=(r.path[i]?1:-1)*12.5;points.push(x+','+(30+i*17));}
   svg.append(crashSvg('polyline',{points:points.join(' '),fill:'none',stroke:'#b5ff89','stroke-width':3}));
+  const ball=crashSvg('circle',{cx:0,cy:0,r:5,fill:'#ecffba',stroke:'#18271b','stroke-width':1.5,transform:'translate('+points.at(-1).replace(',',' ')+')',class:'plinko-ball'});svg.append(ball);
+  if(!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)ball.animate?.(points.map(point=>{const [x,y]=point.split(',');return{transform:`translate(${x}px, ${y}px)`};}),{duration:1400,easing:'linear'});
   for(let i=0;i<13;i++){const text=crashSvg('text',{x:30+i*25,y:247,'text-anchor':'middle',fill:i===r.slot?'#d5ffa6':'#a5b9b0','font-size':10});text.textContent=r.multipliers[i]+'×';svg.append(text);}root.append(svg,gameNode('strong',r.base_multiplier+'× return before payout factor'));
  }
 }
@@ -455,7 +458,7 @@ function setupHouseAdmin(root){
 function renderHouseEditor(rules){
  if(!rules)return;$('admin-house-paused').checked=rules.paused;$('admin-house-daily').value=rules.daily_limit;
  $('admin-house-games').replaceChildren(...rules.games.map(rule=>{const row=gameNode('section',null,'houserule');row.dataset.game=rule.game;row.append(gameNode('h4',rule.game==='cases'?'Cosmetic crates':rule.game[0].toUpperCase()+rule.game.slice(1)));const label=gameNode('label',null,'check'),enabled=gameNode('input');enabled.type='checkbox';enabled.dataset.field='enabled';enabled.checked=rule.enabled;label.append(enabled,document.createTextNode('Accept new wagers'));row.append(label);for(const [field,name,min,max]of [['min_stake','Minimum stake',1,1000000],['max_stake','Maximum stake',1,1000000],['payout_percent','Payout factor (%)',25,150]]){const fieldNode=gameField('admin-rule-'+rule.game+'-'+field,name,rule[field],min,max);fieldNode.querySelector('input').dataset.field=field;if(field==='payout_percent'&&!INSTANT_GAMES.includes(rule.game))fieldNode.hidden=true;row.append(fieldNode);}return row;}));
- $('admin-house-crates').replaceChildren(...rules.crates.map(crate=>{const row=gameNode('section',null,'houserule');row.append(gameNode('h4',crate.case_id));const cost=gameField('admin-price-'+crate.case_id,'Price (Kash)',crate.cost,1,1000000);cost.querySelector('input').dataset.field='cost';row.append(cost);row.dataset.caseId=crate.case_id;
+ $('admin-house-crates').replaceChildren(...rules.crates.map(crate=>{const row=gameNode('section',null,'houserule');row.append(gameNode('h4',CRATE_NAMES[crate.case_id]||'Cosmetic crate'));const cost=gameField('admin-price-'+crate.case_id,'Price (Kash)',crate.cost,1,1000000);cost.querySelector('input').dataset.field='cost';row.append(cost);row.dataset.caseId=crate.case_id;
   row.append(gameNode('small','Rarity weight factors: 100 keeps the original weight; 0 excludes a tier. Players see the resulting exact odds.'));
   for(const rarity of ['common','uncommon','rare','epic','legendary']){const field=gameField('admin-rarity-'+crate.case_id+'-'+rarity,rarity,crate.rarity_factors?.[rarity]??100,0,1000);field.querySelector('input').dataset.rarity=rarity;row.append(field);}return row;}));
 }
