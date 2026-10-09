@@ -1,5 +1,7 @@
 # Canna Mod Manager
 
+Community 0.3.71 removes the long rules paragraph from the Gambling page. Game rules remain available in Help. Desktop stays at 0.2.47.
+
 Community 0.3.70 additions: Roulette, Dice and Slots; owner controls for game pauses, stake limits, arcade payout factors, crate prices and daily new-game limits; 1,000× Crash; `/tip @username amount` with member autocomplete and retry protection; and live admin wallet values that preserve adjustment drafts. Protected membership checks and atomic wallet accounting remain in place. Released with Desktop 0.2.47 / Community 0.3.70.
 
 Desktop 0.2.47: **Canna Bliss**, formerly **Canna Rebound**. Existing settings, Beta permissions and compatibility identifiers are preserved. The user reported a successful multiplayer match with their CR setup; broader mod combinations and anonymous report delivery remain unverified.

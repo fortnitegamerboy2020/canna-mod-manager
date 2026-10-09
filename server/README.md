@@ -1,5 +1,7 @@
 # Canna family server
 
+Community 0.3.71 removes the long rules paragraph from the Gambling page. Game rules remain available in Help. Desktop stays at 0.2.47.
+
 Community 0.3.70 additions: Roulette, Dice and Slots; owner controls for game pauses, stake limits, arcade payout factors, crate prices and daily new-game limits; 1,000× Crash; `/tip @username amount` with member autocomplete and retry protection; and live admin wallet values that preserve adjustment drafts. Protected membership checks and atomic wallet accounting remain in place. Released with Desktop 0.2.47 / Community 0.3.70.
 
 Community 0.3.70 diagnostics: desktop Settings has an off-by-default anonymous error-report preference that also controls Bliss compatibility reporting. `POST /api/v1/launcher/diagnostics` accepts a bounded, allowlisted schema with explicit consent and no free-text logs, account identifiers or paths. It does not require an account cookie or token. Only staff can read `GET /api/v1/admin/launcher-diagnostics`; Admin → Diagnostics shows launcher codes alongside Bliss hashes. Reports are deduplicated, rate limited, retained for seven days and capped at 5,000 rows per type. They are untrusted evidence and never change review decisions or gameplay settings. Local fixtures and browser checks do not establish production delivery.
@@ -8,7 +10,7 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.70
+## Current release: Community 0.3.71
 
 MW2 banner correction cleans the baked screenshot matte in 260 tiny source images, including Stuck on You, with audited alpha masks, transparent-only crops and lossless PNG output. Retained RGB pixels, all 654 cosmetic IDs, crate odds and equipment routes remain unchanged. Fifty-two ambiguous/full-art JPEGs and 86 existing transparent MW2 PNGs are kept intact. MW2 profile and crate previews cap artwork at twice its source width and shrink on small screens. This is a source-matte and excessive-stretch correction, not an HD replacement; isolated one-pixel JPEG fringes may remain. Reloading obtains changed checksum URLs without re-equipping.
 
