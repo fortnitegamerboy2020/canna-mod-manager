@@ -38,7 +38,9 @@ try {
     $cannaFiles += @('server/Cargo.toml', 'server/Cargo.lock', 'server/README.md')
     $cannaExistingTree = Invoke-CannaApi "git/trees/$($cannaCommit.tree.sha)?recursive=1"
     $cannaExistingBlobs = @{}
-    foreach ($cannaEntry in $cannaExistingTree.tree) { if ($cannaEntry.type -eq 'blob') { $cannaExistingBlobs[$cannaEntry.path] = $cannaEntry.sha } }
+    $cannaExistingModes = @{}
+    if ($cannaExistingTree.truncated) { throw 'Source tree is truncated.' }
+    foreach ($cannaEntry in $cannaExistingTree.tree) { if ($cannaEntry.type -eq 'blob') { $cannaExistingBlobs[$cannaEntry.path] = $cannaEntry.sha; $cannaExistingModes[$cannaEntry.path] = $cannaEntry.mode } }
     $cannaEntries = @()
     foreach ($cannaFile in $cannaFiles) {
         $cannaBytes = [IO.File]::ReadAllBytes((Join-Path $cannaRoot $cannaFile))
@@ -51,17 +53,25 @@ try {
         [Array]::Copy($cannaBytes, 0, $cannaGitBytes, $cannaBlobPrefix.Length, $cannaBytes.Length)
         $cannaHasher = [Security.Cryptography.SHA1]::Create()
         try { $cannaBlobSha = ([BitConverter]::ToString($cannaHasher.ComputeHash($cannaGitBytes))).Replace('-','').ToLowerInvariant() } finally { $cannaHasher.Dispose() }
-        if ($cannaExistingBlobs[$cannaFile] -eq $cannaBlobSha) { $cannaBlob = @{sha=$cannaBlobSha} }
-        else { $cannaBlob = Invoke-CannaApi 'git/blobs' 'POST' @{ content = [Convert]::ToBase64String($cannaBytes); encoding = 'base64' } }
-        $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
+        if ($cannaExistingBlobs[$cannaFile] -eq $cannaBlobSha) { continue }
+        $cannaBlob = Invoke-CannaApi 'git/blobs' 'POST' @{ content = [Convert]::ToBase64String($cannaBytes); encoding = 'base64' }
+        if ($cannaBlob.sha -ne $cannaBlobSha) { throw 'Source upload digest differs.' }
+        $cannaMode = if ($cannaExistingModes[$cannaFile] -in @('100644','100755')) { $cannaExistingModes[$cannaFile] } else { '100644' }
+        $cannaEntries += @{ path = $cannaFile; mode = $cannaMode; type = 'blob'; sha = $cannaBlob.sha }
     }
-    $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
+    # Large recursive updates can fail at GitHub even after every blob succeeds.
+    # Small sequential trees preserve the baseline and reuse uploaded objects.
+    $cannaTree = @{sha=$cannaCommit.tree.sha}
+    for ($cannaTreeStart=0; $cannaTreeStart -lt $cannaEntries.Count; $cannaTreeStart+=75) {
+        $cannaTreeEnd=[Math]::Min($cannaTreeStart+74,$cannaEntries.Count-1)
+        $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaTree.sha; tree = @($cannaEntries[$cannaTreeStart..$cannaTreeEnd]) }
+    }
     if (!$CommitMessage) { $CommitMessage = "Canna ${Version}: source update" }
     $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = $CommitMessage; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi "git/refs/heads/$cannaBranch" 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
     if ($SourceOnly) { "Published application source commit $($cannaNewCommit.sha)."; exit 0 }
     $cannaReleaseNotes = @'
-Canna 0.2.38 checks public and legacy ROUNDS mod branch requirements and rejects mixed HollowPurple packs before setup or launch. HollowPurple Fixed 1.8.2 is the default-public ROUNDS preview, credited to flofl + Canna with the original logo and description. Its own narrow compatibility adapter replaces legacy UnboundLib/MMHook. Leaked card artwork, diagnostic card clones and the sandbox menu transition are corrected. All 70 automated local gameplay checks and four final scene/cleanup checks passed on public build 21020021 / Unity 2022.3.34; the user reported the final test looked fine. Complete human matches and two-client multiplayer remain unverified. One native audio shutdown exception is documented. The legacy-only 1.8.1 fork is withdrawn.
+Canna 0.2.48 adds Setup health to modpacks, checks incomplete BepInEx bootstraps before enabling a modded launch, and selects the unique highest approved numeric release when the catalog retains historical versions. Local imports, disabled selections and version pins remain respected. The sidebar close control now uses a clear X. Canna Bliss remains protected by server-verified Beta access. Real installation, plugin startup and vanilla-restoration smoke tests covered MoreCompany on Lethal Company, AbilityScrollBar plus Canna Anvil on Bopl Battle, and CR with Bliss on ROUNDS. These checks do not establish complete gameplay or new multiplayer combinations. Community 0.3.74 adds four Kash games, nine crates with rarity controls, collection tools, 18 name effects and reviewed 4x calling-card artwork.
 '@
     $cannaRelease = Invoke-CannaApi 'releases' 'POST' @{ tag_name = "v$Version"; target_commitish = $cannaNewCommit.sha; name = "Canna Mod Manager $Version"; draft = $true; prerelease = $false; body = $cannaReleaseNotes }
     foreach ($cannaUpload in @(

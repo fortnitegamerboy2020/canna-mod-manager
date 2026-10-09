@@ -231,6 +231,53 @@ impl Chrome {
         response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
         response
     }
+    pub fn close_game(ui: &mut egui::Ui, game_name: &str) -> egui::Response {
+        let (rect, response) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::click());
+        let hovered = response.hovered() || response.has_focus();
+        let color = if hovered {
+            Color32::WHITE
+        } else {
+            Color32::from_rgb(244, 158, 160)
+        };
+        if ui.is_rect_visible(rect) {
+            ui.painter().rect(
+                rect,
+                super::ui_helpers::CONTROL_RADIUS,
+                if hovered {
+                    Color32::from_rgb(96, 43, 46)
+                } else {
+                    Color32::from_rgb(57, 35, 37)
+                },
+                egui::Stroke::new(1.0_f32, Color32::from_rgb(139, 73, 77)),
+                egui::StrokeKind::Inside,
+            );
+            // Standard close-X shape, matching https://lucide.dev/icons/x.
+            // Paint vector strokes directly so the control stays sharp at any DPI.
+            let center = rect.center() - egui::vec2(0.0, 6.0);
+            for diagonal in [egui::vec2(9.0, 9.0), egui::vec2(9.0, -9.0)] {
+                let ends = [center - diagonal, center + diagonal];
+                ui.painter()
+                    .line_segment(ends, egui::Stroke::new(2.4_f32, color));
+                for end in ends {
+                    ui.painter().circle_filled(end, 1.2, color);
+                }
+            }
+            ui.painter().text(
+                rect.center() + egui::vec2(0.0, 13.0),
+                egui::Align2::CENTER_CENTER,
+                "Close",
+                egui::FontId::proportional(10.0),
+                color,
+            );
+        }
+        let label = format!("Close {game_name}");
+        response.widget_info(|| {
+            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label)
+        });
+        response
+            .on_hover_cursor(egui::CursorIcon::PointingHand)
+            .on_hover_text(format!("{label}\nStops the game launched by Canna."))
+    }
     pub fn packs(ui: &mut egui::Ui, selected: bool) -> egui::Response {
         let (rect, response) = ui.allocate_exact_size(egui::vec2(48.0, 48.0), egui::Sense::click());
         let visuals = ui.style().interact_selectable(&response, selected);

@@ -1,4 +1,4 @@
-# Canna Anvil 1.0.6
+# Canna Anvil 1.0.7
 
 1.0.6 replaces the circular Rock hull with a native flat-sided box fitted to the
 artwork. It can tip and settle on its top, base or side instead of rolling like
@@ -27,7 +27,8 @@ Everyone in an online lobby must enable the same version and identical ability m
 The host checks Anvil version advertisements before starting a round.
 Actual multiplayer verification requires a second PC.
 
-Install through Canna Discover, add to your Bopl modpack, then Apply modpack.
+Install the published version through Canna Discover, add to your Bopl modpack,
+then Launch modded to install the enabled mods while the game is closed.
 Disabling/removing the mod requires a game restart. Existing native ability indices
 remain unchanged. Remove saved Anvil selections before playing without the mod.
 
@@ -37,3 +38,5 @@ original plugin code. `Audit.cs` is a development-only check and is never packag
 
 
 
+
+1.0.7 routes Magnet wall correction through the registered box instead of the circle facade. It preserves native pull, pickup, hold and launch behavior. An offline native-game audit reproduced the old InvalidCastException and passed 70 checks with the fix, including pickup, twelve holding ticks, input-release launch, wall separation through both overloads, ordinary Rock, rotation, landing, combat and exit. The production build contains no audit code; both wall-fix methods match the tested IL. Released Magnet compatibility fix. A full multiplayer match remains unverified.

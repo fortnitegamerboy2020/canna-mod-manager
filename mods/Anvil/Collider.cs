@@ -145,4 +145,31 @@ namespace Canna.Anvil
         static bool Prefix(DPhysicsCircle __instance)
         {DPhysicsBox box=AnvilHull.Box(__instance);if(box==null)return true;Box shape=box.physicsBox;shape.layer=box.gameObject.layer;box.physicsBox=shape;return false;}
     }
+    [HarmonyPatch(typeof(DetPhysics),"MoveObjectOutOfWalls",new Type[]{typeof(IPhysicsCollider)})]
+    static class AnvilWallCollider
+    {
+        // Magnet gets the first IPhysicsCollider on the Rock-derived prefab (the
+        // circle facade). Native dispatch casts by shape, so a facade reporting
+        // Box would otherwise be cast to DPhysicsBox and throw. Substitute only
+        // Anvil's registered box; leave the native correction algorithm intact.
+        static void Prefix(ref IPhysicsCollider __0)
+        {
+            DPhysicsCircle circle=__0 as DPhysicsCircle;
+            if(circle==null)return;
+            DPhysicsBox box=AnvilHull.Box(circle);
+            if(box!=null)__0=box;
+        }
+    }
+    [HarmonyPatch(typeof(DetPhysics),"MoveObjectOutOfWalls",new Type[]{typeof(DPhysicsCircle)})]
+    static class AnvilCircleWallCorrection
+    {
+        // Concrete circle callers must also avoid the unregistered circle list.
+        static bool Prefix(DetPhysics __instance,DPhysicsCircle __0)
+        {
+            DPhysicsBox box=AnvilHull.Box(__0);if(box==null)return true;
+            box.UpdatePhysicsPositions();
+            __instance.MoveObjectOutOfWalls(box);
+            return false;
+        }
+    }
 }

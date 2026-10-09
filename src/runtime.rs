@@ -1154,6 +1154,7 @@ pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::O
     } else if modded {
         crate::unity_restore::resume(game, true)?;
         crate::game_compat::check_current(game)?;
+        ensure_loader_ready(&game.path)?;
         set_mode(&game.path, true)?;
     } else {
         restore_vanilla(game)?;
@@ -1185,6 +1186,15 @@ pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::O
     bail!(
         "Steam launch requested, but no game process could be retained. Check Steam or the Console."
     )
+}
+
+fn ensure_loader_ready(root: &Path) -> Result<()> {
+    let il2cpp = root.join("GameAssembly.dll").is_file();
+    let core = root.join(if il2cpp { "BepInEx/core/BepInEx.Unity.IL2CPP.dll" } else { "BepInEx/core/BepInEx.dll" });
+    no_links(&core)?;
+    anyhow::ensure!(core.is_file(), "The loader bootstrap exists but the matching BepInEx core is missing. Open Setup health, then repair the framework with the game closed; manual files are preserved.");
+    anyhow::ensure!(["winhttp.dll", "version.dll"].iter().any(|p|root.join(p).is_file()), "The BepInEx bootstrap DLL is missing. Launch modded from a saved modpack to prepare its framework.");
+    Ok(())
 }
 
 #[cfg(test)]
@@ -2397,3 +2407,7 @@ mod tests {
         fs::remove_dir_all(root).unwrap();
     }
 }
+
+#[cfg(test)]
+#[path = "runtime_live_tests.rs"]
+mod live_tests;

@@ -35,6 +35,7 @@ pub struct PackUi {
     sharing: crate::shared_packs::Sharing,
 
     pub console_game: Option<u32>,
+    pub health_pack: Option<Modpack>,
 
     pub discover_pack: Option<String>,
 
@@ -762,6 +763,7 @@ impl PackUi {
             sharing: Default::default(),
 
             console_game: None,
+            health_pack: None,
 
             discover_pack: None,
 
@@ -987,6 +989,7 @@ impl PackUi {
                     action = Some(Action::Export(pack.clone()));
                 }
 
+                if ui.button("Setup health").clicked() {self.health_pack=Some(pack.clone());}
                 if ui.button("Console").clicked() {
                     self.console_game = Some(pack.game.app_id);
                 }

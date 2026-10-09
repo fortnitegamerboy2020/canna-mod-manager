@@ -33,11 +33,11 @@
       "enabled": true
     },
     {
-      "description": "Native flat-sided hull with low bounce and settling friction. Inherited momentum, free rotation, twice Rock mass, team-colored HUD circle and five-second transformation.",
+      "description": "Magnet pickup/hold/launch compatibility fix. Native flat-sided hull, inherited momentum, free rotation and five-second transformation.",
       "name": "Canna Anvil",
-      "file": "Mods/Canna-Anvil-1.0.6.zip",
-      "version": "1.0.6",
-      "sha256": "23603e8adaf354c9661a45684e28bfc8498dd5d1e27f5b9412f89dbca998e505",
+      "file": "Mods/Canna-Anvil-1.0.7.zip",
+      "version": "1.0.7",
+      "sha256": "8aa4ac74d0b6a0e272750d1f882f72b449bed4bf1e2158b6dbf2964be575b6a3",
       "dependencies": [
         "AbilityScrollBar"
       ],

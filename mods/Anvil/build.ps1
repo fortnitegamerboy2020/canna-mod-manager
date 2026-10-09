@@ -1,6 +1,6 @@
-param([switch]$Audit, [string]$GamePath = 'D:\SteamLibrary\steamapps\common\Bopl Battle', [string]$FrameworkZip = 'C:\Users\t_tra\Downloads\bopl-battle\Framework\BepInEx.zip')
+param([switch]$Audit, [string]$GamePath = 'D:\SteamLibrary\steamapps\common\Bopl Battle', [string]$FrameworkZip = 'C:\Users\t_tra\Downloads\bopl-battle\Framework\BepInEx.zip', [string]$OutputDirectory = (Join-Path $PSScriptRoot 'build'))
 $ErrorActionPreference = 'Stop'
-$cannaOutput = Join-Path $PSScriptRoot 'build'
+$cannaOutput = [IO.Path]::GetFullPath($OutputDirectory)
 New-Item -ItemType Directory -Path $cannaOutput -Force | Out-Null
 $cannaReferences = Join-Path $cannaOutput 'references'
 if (-not (Test-Path -LiteralPath $cannaReferences)) { Expand-Archive -LiteralPath $FrameworkZip -DestinationPath $cannaReferences }
@@ -17,8 +17,8 @@ $cannaPluginFolder = Join-Path $cannaOutput 'package\BepInEx\plugins\CannaAnvil'
 New-Item -ItemType Directory -Path $cannaPluginFolder -Force | Out-Null
 Copy-Item -LiteralPath $cannaDll -Destination $cannaPluginFolder
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'README.md') -Destination (Join-Path $cannaOutput 'package\README.md')
-Compress-Archive -Path (Join-Path $cannaOutput 'package\*') -DestinationPath (Join-Path $cannaOutput 'Canna-Anvil-1.0.6.zip') -Force
-Write-Output 'Built Canna-Anvil-1.0.6.zip'
+Compress-Archive -Path (Join-Path $cannaOutput 'package\*') -DestinationPath (Join-Path $cannaOutput 'Canna-Anvil-1.0.7.zip') -Force
+Write-Output 'Built Canna-Anvil-1.0.7.zip'
 
 
 

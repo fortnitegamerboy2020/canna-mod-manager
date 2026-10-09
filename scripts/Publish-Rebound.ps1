@@ -121,7 +121,7 @@ try {
     if (!$cannaPackageMatch.Success -or $cannaPackageMatch.Groups['body'].Value -notmatch ('(?m)^version\s*=\s*"' + [regex]::Escape($Version) + '"\s*$')) { throw 'Cargo package version does not match release' }
     # Native integration only. Do not publish scanners, provider registries, unrelated mods or catalogs.
     $cannaFiles = @('Cargo.toml', 'Cargo.lock', 'build.rs',
-        'src/main.rs', 'src/model.rs', 'src/runtime.rs', 'src/ducttape.rs', 'src/play_backup.rs', 'src/pack_ui.rs', 'src/play_lab.rs',
+        'src/main.rs', 'src/chrome.rs', 'src/model.rs', 'src/runtime.rs', 'src/ducttape.rs', 'src/play_backup.rs', 'src/pack_ui.rs', 'src/play_lab.rs',
         'src/account.rs', 'src/provider_browser.rs', 'src/rebound_support.rs', 'src/unity_restore.rs', 'src/modpacks.rs', 'src/pack_updates.rs', 'src/dependencies.rs', 'src/diagnostics.rs', 'src/repository.rs', 'src/website.rs', 'src/runtime_cache.rs', 'src/source_addons.rs',
         'README.md', 'server/web/help.html',
         'scripts/Build-DuctTapePlusPlus.ps1', 'scripts/Build-DuctTapePreview.ps1', 'scripts/Build-ReboundRelease.ps1',

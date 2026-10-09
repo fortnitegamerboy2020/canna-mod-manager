@@ -21,10 +21,10 @@ try {
         'server/Cargo.toml','server/Cargo.lock','server/README.md',
         'server/src/scans.rs','server/src/catalog.rs',
         'server/web/review.js','server/web/review.html','server/web/help.html',
-        'server/deploy/review-worker.py','server/deploy/review_context.py',
+        'server/deploy/review-worker.py','server/deploy/review_context.py','server/deploy/review_trace.py','server/deploy/test-review-trace.py',
         'server/deploy/test-review-context.py','server/deploy/test-review-packing.py',
         'server/deploy/test-review-adversarial.py','server/deploy/test-review-coverage.py','server/deploy/test-review-offline.py','server/deploy/test-review-live.py','server/deploy/test-review-permissions.py',
-        'scripts/Replay-ReviewSources.py','scripts/Test-ModReview.cjs','scripts/Test-ReviewWorker.py',
+        'scripts/Replay-ReviewSources.py','scripts/Test-ModReview.cjs','scripts/Test-ReviewWorkspace.cjs','scripts/Test-ReviewTrace.cjs','scripts/Test-ReviewWorker.py',
         'scripts/Test-Workflows.ps1','scripts/WORKFLOW-TESTS.md','scripts/Publish-ReviewFixes.ps1'
     )
     foreach($cannaReviewFile in $cannaReviewFiles){if(!(Test-Path -LiteralPath (Join-Path $cannaReviewStage $cannaReviewFile))){throw 'Staged publication file missing'}}

@@ -14,9 +14,9 @@ try {
     $cannaCommit = Invoke-CannaApi "git/commits/$($cannaRef.object.sha)"
     $cannaGameFile = Invoke-CannaApi 'contents/bopl-battle/game.json?ref=main'
     $cannaGame = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($cannaGameFile.content)) | ConvertFrom-Json
-    $cannaModFile = Join-Path $cannaRoot 'mods\Anvil\build\Canna-Anvil-1.0.6.zip'
+    $cannaModFile = Join-Path $cannaRoot 'mods\Anvil\build\Canna-Anvil-1.0.7.zip'
     $cannaHash = (Get-FileHash -LiteralPath $cannaModFile -Algorithm SHA256).Hash.ToLowerInvariant()
-    $cannaMod = @{ name = 'Canna Anvil'; version = '1.0.6'; description = 'Larger steel anvil with a quick 0.067-second slime morph and five-second duration. HUD circle with native team fill and border colors, transparent picker artwork and native flat-sided box hull fitted to its artwork, low bounce and settling friction. Standard gravity, native inherited momentum and free rotation. Half the mass of 1.0.3. Requires AbilityScrollBar for the expanded picker. All players need this version; family online verification is pending.'; file = 'Mods/Canna-Anvil-1.0.6.zip'; sha256 = $cannaHash; dependencies = @('AbilityScrollBar') }
+    $cannaMod = @{ name = 'Canna Anvil'; version = '1.0.7'; description = 'Fixes Magnet interrupting simulation when holding Anvil: native wall correction uses its registered box. Passed 70 offline native checks; full multiplayer match remains unverified. Steel anvil with a quick 0.067-second slime morph and five-second duration. HUD circle with native team fill and border colors, transparent picker artwork and native flat-sided box hull fitted to its artwork, low bounce and settling friction. Standard gravity, native inherited momentum and free rotation. Half the mass of 1.0.3. Requires AbilityScrollBar for the expanded picker. All players need this version; family online verification is pending.'; file = 'Mods/Canna-Anvil-1.0.7.zip'; sha256 = $cannaHash; dependencies = @('AbilityScrollBar') }
     $cannaScrollFile=Join-Path $cannaRoot 'mods/FamilyCatalog/build/YuralGonnadi-AbilityScrollBar-1.0.1.zip'
     $cannaScroll=@{name='AbilityScrollBar';version='1.0.1';description='Allows the expanded native ability picker to scroll with the wheel and follow selection. Original mod by YuralGonnadi.';file='Mods/YuralGonnadi-AbilityScrollBar-1.0.1.zip';sha256=(Get-FileHash -LiteralPath $cannaScrollFile -Algorithm SHA256).Hash.ToLowerInvariant()}
     $cannaGame.mods=@($cannaGame.mods|Where-Object {$_.name -ne 'AbilityScrollBar'})+@($cannaScroll)
@@ -24,7 +24,7 @@ try {
     $cannaUploads = @(
         @{ path = 'bopl-battle/Mods/YuralGonnadi-AbilityScrollBar-1.0.1.zip'; bytes = [IO.File]::ReadAllBytes($cannaScrollFile) },
         @{ path = 'bopl-battle/Mods/AbilityScrollBar-SOURCE.md'; bytes = [Text.Encoding]::UTF8.GetBytes("Original unmodified AbilityScrollBar 1.0.1 by YuralGonnadi.`nSource: https://thunderstore.io/c/bopl-battle/p/YuralGonnadi/AbilityScrollBar/`nThe upstream package README incorrectly describes a gravity bubble; the DLL is the ability scrolling mod.`n") },
-        @{ path = 'bopl-battle/Mods/Canna-Anvil-1.0.6.zip'; bytes = [IO.File]::ReadAllBytes($cannaModFile) },
+        @{ path = 'bopl-battle/Mods/Canna-Anvil-1.0.7.zip'; bytes = [IO.File]::ReadAllBytes($cannaModFile) },
         @{ path = 'bopl-battle/Mods/Anvil-README.md'; bytes = [IO.File]::ReadAllBytes((Join-Path $cannaRoot 'mods\Anvil\README.md')) },
         @{ path = 'bopl-battle/game.json'; bytes = [Text.Encoding]::UTF8.GetBytes(($cannaGame | ConvertTo-Json -Depth 20)) }
     )
@@ -38,8 +38,9 @@ try {
         $cannaEntries += @{ path = $cannaUpload.path; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = 'Give Anvil a native flat-sided hull with verified settling landings'; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
+    $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = 'Fix Anvil Magnet collider dispatch (1.0.7)'; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     $null = Invoke-CannaApi 'git/refs/heads/main' 'PATCH' @{ sha = $cannaNewCommit.sha; force = $false }
+    [IO.File]::WriteAllText((Join-Path $cannaRoot "target/anvil-107-github-receipt.json"),(@{commit=$cannaNewCommit.sha;archive_sha256=$cannaHash;version="1.0.7"}|ConvertTo-Json),[Text.UTF8Encoding]::new($false))
     "Published anvil mod and catalog: $($cannaNewCommit.sha)"
 } catch {
     'Anvil mod publication failed.'

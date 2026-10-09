@@ -525,7 +525,6 @@ pub fn record_framework(game: &InstalledGame, files: &[(PathBuf, Vec<u8>)]) -> R
     }
     save(game, &state)
 }
-#[cfg(test)]
 pub fn has_parked_managed(game: &InstalledGame) -> Result<bool> {
     Ok(load(game)?
         .inactive

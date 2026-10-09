@@ -14,6 +14,7 @@ namespace Canna.Anvil
     public class Audit : BaseUnityPlugin
     {
         internal static bool Active;
+        internal static bool MagnetHolding;
         internal static int Stage;
         internal static float Next=8;
         internal static string Folder;
@@ -28,6 +29,15 @@ namespace Canna.Anvil
         }
         internal static void Check(bool condition,string message)
         {if(!condition)throw new Exception(message);File.AppendAllText(Path.Combine(Folder,"checks.txt"),"PASS "+message+"\n");}
+    }
+    [HarmonyPatch(typeof(Player),"AbilityButtonIsDown")]
+    static class AuditMagnetInput
+    {
+        static bool Prefix(Player __instance,ref bool __result)
+        {
+            if(!Audit.Active || !Audit.MagnetHolding || __instance.Id!=2)return true;
+            __result=true;return false;
+        }
     }
     [HarmonyPatch]
     static class AuditSuppress
@@ -88,12 +98,17 @@ namespace Canna.Anvil
                     player.Scale=Fix.One;player.Color=Plugin.Prefab.GetComponent<SpriteRenderer>().sharedMaterial;
                     player.Abilities=new List<GameObject>{Plugin.Prefab,Plugin.Prefab,Plugin.Prefab};
                     player.AbilityIcons=new List<Sprite>{Art.Icon,Art.Icon,Art.Icon};
+                    player.Abilities[1]=stock.associatedGameObject;player.AbilityIcons[1]=stock.sprite;
                     player.CanUseAbilities=true;player.ignoreAllInputs=true;player.IsLocalPlayer=false;
                     Player victim=new Player(2,1);victim.Scale=Fix.One;victim.Color=player.Color;
                     victim.Abilities=new List<GameObject>(player.Abilities);victim.AbilityIcons=new List<Sprite>(player.AbilityIcons);victim.ignoreAllInputs=true;victim.IsLocalPlayer=false;
                     if(Array.IndexOf(Environment.GetCommandLineArgs(),"--canna-anvil-drill-audit")>=0){
                         NamedSprite drill=list.sprites.Find(delegate(NamedSprite e){return e.associatedGameObject!=null && e.associatedGameObject.GetComponent<Drill>()!=null;});
                         victim.Abilities[0]=drill.associatedGameObject;victim.AbilityIcons[0]=drill.sprite;
+                    }
+                    if(Array.IndexOf(Environment.GetCommandLineArgs(),"--canna-anvil-magnet-audit")>=0){
+                        NamedSprite magnet=list.sprites.Find(delegate(NamedSprite e){return e.associatedGameObject!=null && e.associatedGameObject.GetComponent<MagnetGun>()!=null;});
+                        victim.Abilities[0]=magnet.associatedGameObject;victim.AbilityIcons[0]=magnet.sprite;
                     }
                     PlayerHandler.Get().SetPlayerList(new List<Player>{player,victim});
                     AccessTools.Field(typeof(Host),"recordReplay").SetValue(null,false);
@@ -173,6 +188,8 @@ namespace Canna.Anvil
                     victimSlime.Spawn();
                     victimSlime.GetComponent<FixTransform>().position=new Vec2((Fix)20L,(Fix)50L);
                     PlayerCollision collisionHandler=victimSlime.GetPlayerCollision();
+                    if(Array.IndexOf(Environment.GetCommandLineArgs(),"--canna-anvil-magnet-audit")>=0)
+                        TestMagnet(victimSlime,victim);
                     if(Array.IndexOf(Environment.GetCommandLineArgs(),"--canna-anvil-drill-audit")>=0){
                         victim.CanUseAbilities=true;
                         AccessTools.Field(typeof(PlayerPhysics),"isGrounded").SetValue(victimSlime.GetComponent<PlayerPhysics>(),false);
@@ -203,6 +220,8 @@ namespace Canna.Anvil
                 {
                     BounceBall ball=Audit.Ability.GetComponent<BounceBall>();
                     TestFlatLandings(ball);
+                    if(Array.IndexOf(Environment.GetCommandLineArgs(),"--canna-anvil-magnet-audit")>=0)
+                        TestWallCorrection(ball);
                     AccessTools.Field(typeof(BounceBall),"IsExiting").SetValue(ball,true);
                     AccessTools.Field(typeof(BounceBall),"timeSinceExitStarted").SetValue(ball,(Fix)AccessTools.Field(typeof(BounceBall),"exitTime").GetValue(ball)/(Fix)2L);
                     Audit.Ability.GetComponent<AnvilState>().Paint();
@@ -211,6 +230,18 @@ namespace Canna.Anvil
                     ball.LateUpdateSim((Fix)1L/(Fix)60L);
                     Audit.Check(!Audit.Ability.gameObject.activeSelf,"Native exit deactivates Anvil");
                     Audit.Check(!((bool)AccessTools.Field(typeof(SlimeController),"isInAbility").GetValue(Audit.Slime)),"Native exit returns player to slime");
+                    if(Array.IndexOf(Environment.GetCommandLineArgs(),"--canna-anvil-magnet-audit")>=0){
+                        PlayerHandler.Get().GetPlayer(1).CanUseAbilities=true;
+                        Audit.Slime.Spawn();Audit.Slime.GetComponent<FixTransform>().position=new Vec2(Fix.Zero,(Fix)50L);
+                        AccessTools.Method(typeof(SlimeController),"EnterAbility").Invoke(Audit.Slime,new object[]{1,false});
+                        BounceBall rock=PlayerHandler.Get().GetPlayer(1).CurrentAbilities[1].GetComponent<BounceBall>();
+                        DPhysicsCircle stockCircle=rock.GetComponent<DPhysicsCircle>();
+                        Audit.Check(rock.GetComponent<AnvilState>()==null && stockCircle.shape==Shape.Circle,"Stock Rock retains native circle hull");
+                        DetPhysics.Get().MoveObjectOutOfWalls((IPhysicsCollider)stockCircle);
+                        DetPhysics.Get().MoveObjectOutOfWalls(stockCircle);
+                        Audit.Check(rock.gameObject.activeInHierarchy,"Both wall correction overloads leave native Rock working");
+                        rock.ExitAbility(new AbilityExitInfo());
+                    }
                     File.WriteAllText(Path.Combine(Audit.Folder,"complete.txt"),"Anvil registration, native entry, physics, animation and exit verified.");
                     Audit.Stage=4;Audit.Next=Time.unscaledTime+.3f;return;
                 }
@@ -218,6 +249,60 @@ namespace Canna.Anvil
             }
             catch(Exception error)
             {File.WriteAllText(Path.Combine(Audit.Folder,"failure.txt"),error.ToString());Application.Quit();Audit.Next=float.MaxValue;}
+        }
+        static void TestWallCorrection(BounceBall ball)
+        {
+            BoplBody body=ball.GetComponent<BoplBody>();DPhysicsBox box=ball.GetComponent<DPhysicsBox>();
+            for(int pass=0;pass<2;pass++){
+                body.position=Vec2.zero;body.rotation=Fix.Zero;body.Scale=Fix.One;box.UpdatePhysicsPositions();
+                Vec2 before=body.position;
+                if(pass==0)DetPhysics.Get().MoveObjectOutOfWalls(ball.GetComponent<IPhysicsCollider>());
+                else DetPhysics.Get().MoveObjectOutOfWalls(ball.GetComponent<DPhysicsCircle>());
+                Audit.Check(body.position!=before && body.position.y>Fix.One,"Wall correction actually separates Anvil from native terrain via overload "+pass);
+                box.UpdatePhysicsPositions();
+            }
+        }
+        static void TestMagnet(SlimeController slime,Player player)
+        {
+            player.CanUseAbilities=true;
+            AccessTools.Field(typeof(PlayerPhysics),"isGrounded").SetValue(slime.GetComponent<PlayerPhysics>(),false);
+            AccessTools.Method(typeof(SlimeController),"EnterAbility").Invoke(slime,new object[]{0,false});
+            MagnetGun magnet=player.CurrentAbilities[0].GetComponent<MagnetGun>();
+            Audit.Check(magnet!=null && magnet.gameObject.activeInHierarchy,"Native opponent enters Magnet");
+            BoplBody anvil=Audit.Ability.GetComponent<BoplBody>();
+            DPhysicsCircle facade=anvil.GetComponent<DPhysicsCircle>();
+            DPhysicsBox box=anvil.GetComponent<DPhysicsBox>();
+            IPhysicsCollider first=anvil.GetComponent<IPhysicsCollider>();
+            Audit.Check(first is DPhysicsCircle && first.shape==Shape.Box,"Magnet regression uses the circle facade reporting a box");
+            // This is the exact dispatch called by MagnetGun.UpdateSim when holding Rock.
+            DetPhysics.Get().MoveObjectOutOfWalls(first);
+            Audit.Check(true,"Magnet interface wall correction accepts Anvil without an invalid cast");
+            DetPhysics.Get().MoveObjectOutOfWalls(facade);
+            Audit.Check(true,"Concrete circle wall correction uses Anvil box without circle-list lookup");
+            AccessTools.Field(typeof(MagnetGun),"inputVector").SetValue(magnet,Vec2.right);
+            Vec2 fire=(Vec2)AccessTools.Method(typeof(MagnetGun),"CurrentFirePoint").Invoke(magnet,null);
+            anvil.position=fire;anvil.velocity=Vec2.zero;box.UpdatePhysicsPositions();
+            bool grabbed=(bool)AccessTools.Method(typeof(MagnetGun),"TryPickupNearbyItems").Invoke(magnet,null);
+            Audit.Check(grabbed && object.ReferenceEquals(AccessTools.Field(typeof(MagnetGun),"heldItem").GetValue(magnet),anvil),"Native Magnet picks up Anvil");
+            FieldInfo state=AccessTools.Field(typeof(MagnetGun),"state");
+            state.SetValue(magnet,Enum.ToObject(state.FieldType,3)); // native holding state
+            Audit.MagnetHolding=true;
+            for(int tick=0;tick<12;tick++){
+                magnet.UpdateSim((Fix)1L/(Fix)60L);
+                Audit.Check(object.ReferenceEquals(AccessTools.Field(typeof(MagnetGun),"heldItem").GetValue(magnet),anvil),"Magnet retains Anvil on native holding tick "+tick);
+            }
+            Audit.Check(anvil.IsBeingHeld() && anvil.magnetGunHolder==magnet,"Magnet native ownership and hold lifecycle retained");
+            Audit.MagnetHolding=false;
+            magnet.UpdateSim((Fix)1L/(Fix)60L);
+            Audit.Check(AccessTools.Field(typeof(MagnetGun),"heldItem").GetValue(magnet)==null,"Native Magnet clears held item on input release");
+            anvil.UpdateSim((Fix)1L/(Fix)60L);anvil.UpdateSim((Fix)1L/(Fix)60L);
+            Audit.Check(!anvil.IsBeingHeld() && anvil.magnetGunHolder==null,"Native Magnet releases Anvil on shoot");
+            anvil.position=new Vec2(Fix.Zero,(Fix)50L);box.UpdatePhysicsPositions();
+            Updater.TickSimulation((Fix)1L/(Fix)60L);
+            Audit.Check(anvil.velocity.x>Fix.Zero,"Native Magnet launches Anvil with forward velocity");
+            Audit.Check(Audit.Ability.gameObject.activeInHierarchy && PlayerHandler.Get().GetPlayer(1).IsAlive,"Anvil player survives Magnet pickup and launch");
+            AccessTools.Method(typeof(MagnetGun),"EmptyExitAbility").Invoke(magnet,null);
+            slime.Spawn();slime.GetComponent<FixTransform>().position=new Vec2((Fix)20L,(Fix)50L);
         }
         static void TestFlatLandings(BounceBall ball)
         {

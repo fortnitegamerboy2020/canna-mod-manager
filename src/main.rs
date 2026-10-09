@@ -28,6 +28,7 @@ mod rebound_support;
 mod repository;
 mod runtime;
 mod runtime_cache;
+mod runtime_health;
 mod shared_packs;
 mod skin_catalog;
 mod skins;
@@ -1274,6 +1275,13 @@ impl Canna {
                 self.stop_game(id);
             }
         }
+        if let Some(pack)=self.pack_ui.health_pack.take() {
+            let id=pack.game.app_id;
+            if let Some(game)=self.games.iter().find(|g|g.app_id==id) {
+                self.console.record(&runtime_health::report(game,Some(&pack)),&self.token);
+                self.console_page=true;self.console.game_id=id;
+            }
+        }
         self.run_runtime(ctx);
         if let Some(id) = self.pack_ui.console_game.take() {
             self.console_page = true;
@@ -1535,16 +1543,7 @@ impl Canna {
                                 .find(|g| g.app_id == id)
                                 .map(|g| g.name.as_str())
                                 .unwrap_or("game");
-                            if ui
-                                .add(
-                                    egui::Button::new(
-                                        RichText::new("■").color(Color32::from_rgb(232, 104, 107)),
-                                    )
-                                    .min_size(egui::vec2(48.0, 48.0)),
-                                )
-                                .on_hover_text(format!("Stop {name}"))
-                                .clicked()
-                            {
+                            if chrome::Chrome::close_game(ui, name).clicked() {
                                 self.account.hide();
                                 self.stop_game(id);
                             }

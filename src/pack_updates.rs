@@ -77,10 +77,26 @@ pub fn select(pack: &Modpack, games: &[GameInfo]) -> Result<(Modpack, usize)> {
                         || (identity(item).is_none() && item.file == m.file))
             })
             .collect();
-        if candidates.len() != 1 {
-            continue;
-        }
-        let next = candidates[0];
+        // Approved catalogs can retain historical releases of one project.
+        // Pick a unique highest numeric release; conflicting highest releases
+        // and non-numeric multi-release catalogs still require a manual choice.
+        let next = if candidates.len() == 1 {
+            candidates[0]
+        } else {
+            let mut versions: Vec<_> = candidates
+                .iter()
+                .filter_map(|m| numeric(&m.version).map(|v| (v, *m)))
+                .collect();
+            if versions.len() != candidates.len() || versions.is_empty() {
+                continue;
+            }
+            versions.sort_by(|a, b| a.0.cmp(&b.0));
+            let (highest, next) = versions.last().unwrap();
+            if versions.iter().filter(|(v, _)| v == highest).count() != 1 {
+                continue;
+            }
+            *next
+        };
         if next.version == item.version && next.sha256 == item.sha256 {
             continue;
         }
@@ -89,7 +105,7 @@ pub fn select(pack: &Modpack, games: &[GameInfo]) -> Result<(Modpack, usize)> {
         {
             continue;
         }
-        if next.sha256.len() != 64 {
+        if next.sha256.len() != 64 || !next.sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
             continue;
         }
         *item = next.clone();
@@ -147,6 +163,24 @@ mod tests {
             },
             items,
         )
+    }
+    #[test]
+    fn historical_project_releases_select_unique_highest_but_conflicting_highest_is_manual() {
+        let old = item("same-project", "1.0.0");
+        let original = pack(vec![old.clone()]);
+        let mut game = crate::model::bopl();
+        game.mods = vec![
+            item("same-project", "1.2.0"),
+            old,
+            item("same-project", "1.1.0"),
+        ];
+        let (next, count) = select(&original, &[game.clone()]).unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(next.mods[0].version, "1.2.0");
+        let mut conflict = item("same-project", "1.2.0");
+        conflict.sha256 = "b".repeat(64);
+        game.mods.push(conflict);
+        assert_eq!(select(&original, &[game]).unwrap().1, 0);
     }
     #[test]
     fn prepare_repairs_nested_dependencies_even_with_version_updates_disabled() {
@@ -248,7 +282,7 @@ mod tests {
         let mut game = crate::model::bopl();
         for candidates in [
             vec![item("one", "1.0.0")],
-            vec![item("one", "3.0.0"), item("one", "4.0.0")],
+            vec![item("one", "3.0.0"), item("one", "3.0.0")],
             vec![{
                 let mut m = item("one", "3.0.0");
                 m.sha256.clear();
