@@ -389,11 +389,12 @@ const arcadeSeen=new Map();
 const PLINKO_TABLES={low:[2,1.5,1.2,1.1,1,1,.8,1,1,1.1,1.2,1.5,2],high:[500,50,10,3,1,.5,.2,.5,1,3,10,50,500]};
 const WHEEL_SEGMENTS=[0,1,0,2,0,1,0,5,0,1,0,2,0,1,0,10,0,1,0,1];
 function plinkoFrames(path){
- const frames=[{transform:'translate(180px, 5px)',offset:0}],flight=.21,first=.12,last=.25,total=first+11*flight+last;
- let x=180,y=12.5,elapsed=first;for(let i=1;i<=6;i++){const t=i/6;frames.push({transform:`translate(180px, ${5+7.5*t*t}px)`,offset:first*t/total});}
+ const gravity=1400,bounceVelocity=-70,fallTime=height=>(-bounceVelocity+Math.sqrt(bounceVelocity*bounceVelocity+2*gravity*height))/gravity;
+ const frames=[{transform:'translate(180px, 5px)',offset:0}],flight=fallTime(17),first=Math.sqrt(15/gravity),last=fallTime(30.5),total=first+11*flight+last;
+ let x=180,y=12.5,elapsed=first;for(let i=1;i<=6;i++){const t=first*i/6;frames.push({transform:`translate(180px, ${5+.5*gravity*t*t}px)`,offset:t/total});}
  for(let row=0;row<12;row++){
-  const dt=row===11?last:flight,dy=row===11?235-y:17,v=-70,g=2*(dy-v*dt)/(dt*dt),direction=path[row]?1:-1;
-  for(let i=1;i<=10;i++){const t=dt*i/10;frames.push({transform:`translate(${x+direction*12.5*t/dt}px, ${y+v*t+.5*g*t*t}px)`,offset:Math.min(1,(elapsed+t)/total)});}
+  const dt=row===11?last:flight,dy=row===11?230-y:17,direction=path[row]?1:-1;
+  for(let i=1;i<=10;i++){const t=dt*i/10;frames.push({transform:`translate(${x+direction*12.5*t/dt}px, ${y+bounceVelocity*t+.5*gravity*t*t}px)`,offset:Math.min(1,(elapsed+t)/total)});}
   x+=direction*12.5;y+=dy;elapsed+=dt;
  }
  frames.at(-1).offset=1;return {frames,duration:total*1000,x,y};
