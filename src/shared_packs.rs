@@ -127,6 +127,9 @@ fn publish(mut pack: Modpack, update: bool) -> Result<Reply> {
     local.id = pack.id;
     local.group = pack.group;
     local.theme = pack.theme;
+    // Imported text configs remain local until server configuration sharing is available.
+    local.imported_configs = pack.imported_configs;
+    local.auto_update = pack.auto_update;
     local.save()?;
     Ok(Reply::Published(Box::new(local), Box::new(info)))
 }
@@ -227,6 +230,9 @@ impl Sharing {
             }
         }
         let signed_in = !crate::website::session().is_empty();
+        if !pack.imported_configs.is_empty() {
+            ui.label("Imported settings are included in file exports. Shared links carry mod selections; send the .canna.zip to include these settings.");
+        }
         let busy = self.receiver.is_some();
         ui.horizontal_wrapped(|ui| {
             if ui

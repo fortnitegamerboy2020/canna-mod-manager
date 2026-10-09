@@ -271,9 +271,7 @@ impl Chrome {
             );
         }
         let label = format!("Close {game_name}");
-        response.widget_info(|| {
-            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label)
-        });
+        response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
         response
             .on_hover_cursor(egui::CursorIcon::PointingHand)
             .on_hover_text(format!("{label}\nStops the game launched by Canna."))

@@ -15,6 +15,8 @@ mod minecraft_auth;
 mod model;
 mod modpacks;
 mod owned_game;
+mod pack_configs;
+mod pack_import;
 mod pack_ui;
 mod pack_updates;
 mod play_backup;
@@ -78,7 +80,7 @@ enum Event {
     Update(Result<Option<updater::Ready>, String>),
     ConsoleData(Vec<(u32, console::Snapshot)>),
     Launched(u32, bool, std::time::SystemTime, owned_game::OwnedGame),
-    PackPrepared(modpacks::Modpack),
+    PackPrepared(Box<modpacks::Modpack>),
     RuntimeProgress(String),
     Runtime(Result<String, String>),
     Scanned(Scan),
@@ -530,7 +532,7 @@ impl Canna {
                         self.console.update(id, snapshot);
                     }
                 }
-                Event::PackPrepared(pack) => self.pack_ui.observe_prepared_pack(pack),
+                Event::PackPrepared(pack) => self.pack_ui.observe_prepared_pack(*pack),
                 Event::RuntimeProgress(message) => {
                     self.console.record(&message, &self.token);
                     self.runtime_status = message;
@@ -1109,7 +1111,7 @@ impl Canna {
                             runtime::prepare_install(&game, &pack, &token, options, &progress)?;
                         prepared.cache_downloads(&progress)?;
                         pack.save()?;
-                        let _ = tx.send(Event::PackPrepared(pack));
+                        let _ = tx.send(Event::PackPrepared(Box::new(pack)));
                         Ok("Downloads prepared. Launch modded activates the selected mods.".into())
                     }
                     pack_ui::RuntimeAction::Launch(pack, modded) => {
@@ -1118,7 +1120,7 @@ impl Canna {
                             let prepared =
                                 runtime::prepare_install(&game, &pack, &token, options, &progress)?;
                             pack.save()?;
-                            let _ = tx.send(Event::PackPrepared(pack));
+                            let _ = tx.send(Event::PackPrepared(Box::new(pack)));
                             let applied = prepared.effective_pack().clone();
                             play_backup::before_change(&game, &applied)?;
                             runtime::install_prepared(&game, prepared, &token, &progress)
@@ -1155,7 +1157,7 @@ impl Canna {
                             let prepared =
                                 runtime::prepare_install(&game, &pack, &token, options, &progress)?;
                             pack.save()?;
-                            let _ = tx.send(Event::PackPrepared(pack));
+                            let _ = tx.send(Event::PackPrepared(Box::new(pack)));
                             let applied = prepared.effective_pack().clone();
                             play_backup::before_change(&game, &applied)?;
                             runtime::install_prepared(&game, prepared, &token, &progress)
@@ -1275,11 +1277,13 @@ impl Canna {
                 self.stop_game(id);
             }
         }
-        if let Some(pack)=self.pack_ui.health_pack.take() {
-            let id=pack.game.app_id;
-            if let Some(game)=self.games.iter().find(|g|g.app_id==id) {
-                self.console.record(&runtime_health::report(game,Some(&pack)),&self.token);
-                self.console_page=true;self.console.game_id=id;
+        if let Some(pack) = self.pack_ui.health_pack.take() {
+            let id = pack.game.app_id;
+            if let Some(game) = self.games.iter().find(|g| g.app_id == id) {
+                self.console
+                    .record(&runtime_health::report(game, Some(&pack)), &self.token);
+                self.console_page = true;
+                self.console.game_id = id;
             }
         }
         self.run_runtime(ctx);

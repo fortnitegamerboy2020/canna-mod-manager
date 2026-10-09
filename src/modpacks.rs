@@ -38,6 +38,8 @@ pub struct Modpack {
     pub repository: Source,
     pub mods: Vec<ModInfo>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub imported_configs: Vec<crate::pack_configs::Config>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ignored_dependencies: Vec<String>,
     #[serde(default = "default_auto_update")]
     pub auto_update: bool,
@@ -181,12 +183,18 @@ impl Modpack {
             },
             repository,
             mods,
+            imported_configs: Vec::new(),
             ignored_dependencies: Vec::new(),
             auto_update: true,
             shared: None,
         }
     }
     pub fn validate(&self) -> Result<()> {
+        crate::pack_configs::validate(&self.imported_configs)?;
+        anyhow::ensure!(
+            self.imported_configs.is_empty() || self.game.framework == "bepinex",
+            "Imported configs require a BepInEx game"
+        );
         if let Some(shared) = &self.shared {
             anyhow::ensure!(
                 shared.id.len() == 36
@@ -407,10 +415,9 @@ impl Modpack {
         Self::import_into(path, &directory())
     }
     fn import_into(path: &Path, folder: &Path) -> Result<Self> {
-        let mut pack = if path
-            .extension()
-            .is_some_and(|s| s.eq_ignore_ascii_case("zip"))
-        {
+        let mut magic = [0; 2];
+        let zip = std::fs::File::open(path)?.read(&mut magic)? == 2 && &magic == b"PK";
+        let mut pack = if zip {
             let mut bytes = Vec::new();
             std::fs::File::open(path)?
                 .take(128 * 1024 * 1024 + 1)

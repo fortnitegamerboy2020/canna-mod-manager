@@ -489,6 +489,8 @@ pub struct PreparedInstall {
     game_sha256: Option<String>,
     config_sha256: Option<Vec<(PathBuf, String)>>,
     rebound_support_sha256: Option<String>,
+    imported_configs: Vec<crate::pack_configs::Config>,
+    imported_config_source: Option<Vec<(PathBuf, String)>>,
 }
 impl PreparedInstall {
     pub fn effective_pack(&self) -> &Modpack {
@@ -564,6 +566,8 @@ pub(crate) fn prepare_install_with_configs(
             game_sha256: None,
             config_sha256: None,
             rebound_support_sha256: None,
+            imported_configs: vec![],
+            imported_config_source: None,
         });
     }
     let translate = options.translate(game, pack)?;
@@ -591,6 +595,23 @@ pub(crate) fn prepare_install_with_configs(
         rebound_support_sha256: support
             .as_ref()
             .map(|bytes| format!("{:x}", Sha256::digest(bytes))),
+        imported_configs: if configs.is_none() {
+            crate::pack_configs::pending(game, pack)?
+        } else {
+            vec![]
+        },
+        imported_config_source: None,
+    };
+    let imported_effective = if !prepared.imported_configs.is_empty() {
+        let current = crate::ducttape::current_configs(game)?;
+        prepared.imported_config_source =
+            Some(crate::ducttape::configuration_fingerprint(&current)?);
+        Some(crate::pack_configs::merge(
+            current,
+            &prepared.imported_configs,
+        ))
+    } else {
+        None
     };
     {
         let files = prepared.files.as_mut().unwrap();
@@ -701,7 +722,7 @@ pub(crate) fn prepare_install_with_configs(
             prepared.files.take().unwrap(),
             support.as_deref().unwrap(),
             prepared.framework.as_deref(),
-            configs,
+            configs.or(imported_effective.as_deref()),
             progress,
         )?;
         prepared.pack = resolved.pack;
@@ -917,6 +938,23 @@ pub fn launch_current(
     )
 }
 pub fn install_prepared(
+    game: &InstalledGame,
+    prepared: PreparedInstall,
+    token: &str,
+    progress: &dyn Fn(&str),
+) -> Result<()> {
+    if let Some(expected) = &prepared.imported_config_source {
+        anyhow::ensure!(
+            crate::ducttape::configuration_hashes(game)? == *expected,
+            "Config changed since imported settings were prepared; retry"
+        );
+    }
+    let configs = prepared.imported_configs.clone();
+    crate::pack_configs::activate(game, &configs, || {
+        install_prepared_inner(game, prepared, token, progress)
+    })
+}
+fn install_prepared_inner(
     game: &InstalledGame,
     prepared: PreparedInstall,
     token: &str,
@@ -1190,10 +1228,22 @@ pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::O
 
 fn ensure_loader_ready(root: &Path) -> Result<()> {
     let il2cpp = root.join("GameAssembly.dll").is_file();
-    let core = root.join(if il2cpp { "BepInEx/core/BepInEx.Unity.IL2CPP.dll" } else { "BepInEx/core/BepInEx.dll" });
+    let core = root.join(if il2cpp {
+        "BepInEx/core/BepInEx.Unity.IL2CPP.dll"
+    } else {
+        "BepInEx/core/BepInEx.dll"
+    });
     no_links(&core)?;
-    anyhow::ensure!(core.is_file(), "The loader bootstrap exists but the matching BepInEx core is missing. Open Setup health, then repair the framework with the game closed; manual files are preserved.");
-    anyhow::ensure!(["winhttp.dll", "version.dll"].iter().any(|p|root.join(p).is_file()), "The BepInEx bootstrap DLL is missing. Launch modded from a saved modpack to prepare its framework.");
+    anyhow::ensure!(
+        core.is_file(),
+        "The loader bootstrap exists but the matching BepInEx core is missing. Open Setup health, then repair the framework with the game closed; manual files are preserved."
+    );
+    anyhow::ensure!(
+        ["winhttp.dll", "version.dll"]
+            .iter()
+            .any(|p| root.join(p).is_file()),
+        "The BepInEx bootstrap DLL is missing. Launch modded from a saved modpack to prepare its framework."
+    );
     Ok(())
 }
 
@@ -1335,6 +1385,8 @@ mod tests {
             game_sha256: Some(game_hash),
             config_sha256: None,
             rebound_support_sha256: Some("c".repeat(64)),
+            imported_configs: vec![],
+            imported_config_source: None,
         };
         bind_rebound_launch(&mut prepared).unwrap();
         (root, game, prepared)
@@ -1809,6 +1861,8 @@ mod tests {
                 }),
                 config_sha256: Some(vec![]),
                 rebound_support_sha256: None,
+                imported_configs: vec![],
+                imported_config_source: None,
             };
             let error = install_prepared(&game, prepared, "", &|_| {}).unwrap_err();
             assert!(error.to_string().contains(if changed_game {
@@ -1860,6 +1914,8 @@ mod tests {
             game_sha256: Some(crate::ducttape::game_hash(&game).unwrap()),
             config_sha256: Some(crate::ducttape::configuration_fingerprint(&snapshot).unwrap()),
             rebound_support_sha256: None,
+            imported_configs: vec![],
+            imported_config_source: None,
         };
         // This is the setup failure's actual snapshot/verification sequence.
         prepared.verify_inputs(&game).unwrap();
@@ -1934,6 +1990,8 @@ mod tests {
             game_sha256: None,
             config_sha256: Some(crate::ducttape::configuration_fingerprint(&recovered).unwrap()),
             rebound_support_sha256: None,
+            imported_configs: vec![],
+            imported_config_source: None,
         };
         assert!(prepared.verify_inputs(&game).is_err());
         // Recovery preflights the requested snapshot before replacing the active config tree.
@@ -2311,6 +2369,8 @@ mod tests {
                     .unwrap(),
                 ),
                 rebound_support_sha256: None,
+                imported_configs: vec![],
+                imported_config_source: None,
             };
             install_prepared(&game, prepared(Some(framework.clone())), "", &|_| {}).unwrap();
             assert!(

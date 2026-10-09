@@ -356,7 +356,7 @@ impl Default for Browser {
         }
     }
 }
-fn client() -> Result<reqwest::blocking::Client> {
+pub(crate) fn client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .redirect(reqwest::redirect::Policy::none())
         .timeout(Duration::from_secs(180))
@@ -381,7 +381,7 @@ fn branch_compatible(item: &Value, installed: Option<&crate::steam::SteamVersion
             .is_none_or(|a| a.is_empty() || a.iter().any(|x| x.as_str() == Some(value)))
     })
 }
-fn request(
+pub(crate) fn request(
     client: &reqwest::blocking::Client,
     token: &str,
     method: reqwest::Method,
@@ -638,7 +638,7 @@ fn artwork(ui: &mut egui::Ui, item: &Value) {
         crate::ui_helpers::mod_art(ui, &info, egui::vec2(56.0, 56.0));
     }
 }
-fn api(path: &str) -> reqwest::Url {
+pub(crate) fn api(path: &str) -> reqwest::Url {
     reqwest::Url::parse(&format!("{API}{path}")).unwrap()
 }
 fn text<'a>(v: &'a Value, key: &str) -> &'a str {

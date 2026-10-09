@@ -33,6 +33,7 @@ pub struct PackUi {
     lab: crate::play_lab::Lab,
 
     sharing: crate::shared_packs::Sharing,
+    importer: crate::pack_import::Importer,
 
     pub console_game: Option<u32>,
     pub health_pack: Option<Modpack>,
@@ -761,6 +762,7 @@ impl PackUi {
             lab: Default::default(),
 
             sharing: Default::default(),
+            importer: Default::default(),
 
             console_game: None,
             health_pack: None,
@@ -855,6 +857,14 @@ impl PackUi {
         artwork: &BTreeMap<u32, egui::TextureHandle>,
     ) -> Option<Source> {
         if let Some(pack) = self.sharing.poll(ui.ctx()) {
+            self.upsert(pack);
+        }
+        if let Some(pack) = self.importer.show(ui.ctx(), catalog) {
+            self.selected = Some(pack.id.clone());
+            self.status = format!(
+                "Imported {}. Launch modded prepares and activates the pack.",
+                pack.name
+            );
             self.upsert(pack);
         }
 
@@ -1487,8 +1497,8 @@ impl PackUi {
                 if option(
                     ui,
                     "02",
-                    "Import a family pack",
-                    "Open a .canna.zip bundle or .canna.json manifest.",
+                    "Import an existing pack",
+                    "Open a Canna pack, r2modman .r2z profile or Thunderstore ZIP.",
                 )
                 .clicked()
                 {
@@ -1886,21 +1896,11 @@ impl PackUi {
                 self.chooser = false;
 
                 if let Some(path) = rfd::FileDialog::new()
-                    .set_title("Import Canna modpack")
-                    .add_filter("Canna modpack", &["json", "zip"])
+                    .set_title("Import Canna, r2modman or Thunderstore pack")
+                    .add_filter("Modpack or profile", &["json", "zip", "r2z"])
                     .pick_file()
                 {
-                    match Modpack::import(&path) {
-                        Ok(pack) => {
-                            self.selected = Some(pack.id.clone());
-
-                            self.status = format!("Imported {}", pack.name);
-
-                            self.upsert(pack);
-                        }
-
-                        Err(e) => self.status = format!("Could not import: {e}"),
-                    }
+                    self.importer.start(path, selected_game, ui.ctx());
                 }
             }
 
