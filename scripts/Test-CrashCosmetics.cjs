@@ -18,13 +18,13 @@ for(const item of catalog.items)if(item.poster_filename)assets.set(item.id+'-pos
   });
   await page.goto('https://canna-fixture.invalid/gambling');
   await page.setContent(fs.readFileSync('server/web/index.html','utf8').replace(/<script[^>]*>[\s\S]*?<\/script>/g,''));
-  await page.evaluate(({items,allItems})=>{
+  await page.evaluate(({items,allItems,pausedCollections})=>{
    window.$=id=>document.getElementById(id);$('space').removeAttribute('data-booting');$('bootstatus').hidden=true;
    for(const section of document.querySelectorAll('#space>section'))section.hidden=section.id!=='gamblingview';$('gamblingview').hidden=false;
    window.currentUser={id:1,username:'Neon Cryptid',admin:false,kash:1000};window.button=(text,fn)=>{const b=document.createElement('button');b.type='button';b.textContent=text;b.addEventListener('click',()=>window.action(fn));return b;};window.action=fn=>Promise.resolve().then(fn).catch(e=>{window.lastActionError=e.message;});window.message=()=>{};window.navigatePage=async()=>{};window.memberRoleLabel=()=> 'MEMBER';window.loadNotifications=async()=>{};
    window.posts=[];window.reads=[];window.holdPoll=false;window.heldPolls=[];window.latency=200;window.holdAfterPost=false;window.loseReply=false;window.receipts=new Map();
    window.rules={paused:false,games:['crash','blackjack','roulette','dice','slots','cases'].map(game=>({game,enabled:true,min_stake:1,max_stake:1000000,payout_percent:100})),crates:['bo2-calling-cards','mw2-calling-cards','avatar-frames','cod-emblems','username-effects'].map(case_id=>({case_id,cost:100}))};
-   window.fixtureCatalog={version:'c'.repeat(64),catalog:allItems.map(i=>({...i,paused:i.collection==='mw2'})),cases:['bo2-calling-cards','mw2-calling-cards','avatar-frames','cod-emblems','username-effects'].map(id=>({id,name:id,cost:100,collection:id==='username-effects'?'username-effects':id==='avatar-frames'?'frames':id==='cod-emblems'?null:id.slice(0,3),kind:id==='cod-emblems'?'emblem':id==='username-effects'?'name_effect':id==='avatar-frames'?'frame':'banner',items:allItems.filter(i=>id==='cod-emblems'?i.kind==='emblem':id==='username-effects'?i.kind==='name_effect':id==='avatar-frames'?i.kind==='frame':id==='bo2-calling-cards'?i.collection==='bo2':false).map(i=>({id:i.id,odds_percent:100})),available:id!=='mw2-calling-cards',paused:id==='mw2-calling-cards'}))};
+   window.fixtureCatalog={version:'c'.repeat(64),catalog:allItems.map(i=>({...i,paused:pausedCollections.includes(i.collection)})),cases:['bo2-calling-cards','mw2-calling-cards','avatar-frames','cod-emblems','username-effects'].map(id=>({id,name:id,cost:100,collection:id==='username-effects'?'username-effects':id==='avatar-frames'?'frames':id==='cod-emblems'?null:id.slice(0,3),kind:id==='cod-emblems'?'emblem':id==='username-effects'?'name_effect':id==='avatar-frames'?'frame':'banner',items:allItems.filter(i=>id==='cod-emblems'?i.kind==='emblem':id==='username-effects'?i.kind==='name_effect':id==='avatar-frames'?i.kind==='frame':id==='bo2-calling-cards'?i.collection==='bo2':id==='mw2-calling-cards'?i.collection==='mw2'&&!pausedCollections.includes('mw2'):false).map(i=>({id:i.id,odds_percent:100})),available:id!=='mw2-calling-cards'||!pausedCollections.includes('mw2'),paused:id==='mw2-calling-cards'&&pausedCollections.includes('mw2')}))};
    window.state={member_id:1,wallet:{balance:1000,daily_available:false},server_time_ms:Date.now(),crash:{id:9,phase:'running',mode:'random',paused:false,betting_ends_ms:Date.now()-5000,multiplier:1.64,history:[],bet:{round_id:9,stake:100,auto_cashout:null,status:'pending'},participants:[],participant_count:0},rules,blackjack:null,recent_games:[],cosmetics:{catalog_version:fixtureCatalog.version,owned:items.map(i=>({id:i.id,count:1})),equipped:{frame:items[0].id,banner:null,emblem:items[1].id,name_effect:items[2].id}}};
    window.api=async(path,options={})=>{
     reads.push(path);if(path==='gambling/cosmetics/catalog')return{json:async()=>structuredClone(fixtureCatalog)};
@@ -46,7 +46,7 @@ for(const item of catalog.items)if(item.poster_filename)assets.set(item.id+'-pos
    };
    state.crash.participants=Array.from({length:200},(_,i)=>({user_id:i+1,username:i?'Synthetic player '+(i+1):currentUser.username,display_name:i?'Synthetic player '+(i+1):currentUser.username,profile_url:'/members/'+(i+1),stake:100,status:'pending'}));state.crash.participant_count=200;
    window.ownedFixture=items;
-  },{items,allItems:catalog.items});
+  },{items,allItems:catalog.items,pausedCollections:catalog.paused_collections||[]});
   for(const file of ['profiles.js','gambling.js'])await page.addScriptTag({content:fs.readFileSync('server/web/'+file,'utf8')});
   await page.evaluate(async()=>{await loadGambling();});
   assert.equal(await page.locator('#case-list .casecard').count(),5);
@@ -68,7 +68,7 @@ for(const item of catalog.items)if(item.poster_filename)assets.set(item.id+'-pos
   await page.evaluate(()=>{applyProfileCosmetics({username:currentUser.username,avatar:false,cosmetics:{frame:ownedFixture[0],emblem:ownedFixture[1],name_effect:ownedFixture[2]}});renderProfileCosmeticActions(true,{cosmetics:{name_effect:ownedFixture[2]}});selectGamblingTab('collection');});
   assert.equal(await page.locator('#profilename').getAttribute('data-username-effect'),'aurora');assert.equal(await page.locator('#profilename .username-emblem').count(),1);
   assert.equal(await page.locator('#cosmetic-source option[value="cod-ranks"]').count(),1);
-  await page.locator('#cosmetic-kind').selectOption('name_effect');assert.equal(await page.locator('#cosmetic-collection .cosmeticcard').count(),6);
+  await page.locator('#cosmetic-kind').selectOption('name_effect');assert.equal(await page.locator('#cosmetic-collection .cosmeticcard').count(),18);
   assert.equal(await page.locator('#cosmetic-collection .nameeffectpreview strong').first().evaluate(n=>getComputedStyle(n).animationName),'canna-name-flow');
   await page.locator('#cosmetic-collection .nameeffectpreview strong').first().scrollIntoViewIfNeeded();await page.waitForTimeout(100);const gradientBefore=await page.locator('#cosmetic-collection .nameeffectpreview strong').first().evaluate(n=>getComputedStyle(n).backgroundPosition);await page.waitForTimeout(300);assert.notEqual(await page.locator('#cosmetic-collection .nameeffectpreview strong').first().evaluate(n=>getComputedStyle(n).backgroundPosition),gradientBefore,'Visible username gradient must animate');
   await page.emulateMedia({reducedMotion:'reduce'});assert.equal(await page.locator('#cosmetic-collection .nameeffectpreview strong').first().evaluate(n=>getComputedStyle(n).animationName),'none');
@@ -100,7 +100,7 @@ for(const item of catalog.items)if(item.poster_filename)assets.set(item.id+'-pos
   const beforeLost=await page.evaluate(()=>state.wallet.balance);await page.evaluate(()=>loseReply=true);await page.locator('[data-crate="username-effects"]').getByRole('button',{name:'Open crate · 100 Kash',exact:true}).click();await page.waitForFunction(()=>!!gamblingPendingMutation&&!gamblingBusy);
   const pendingId=await page.evaluate(()=>gamblingPendingMutation.payload.request_id);await page.locator('#gambling-retry').click();await page.waitForFunction(()=>!gamblingBusy&&!gamblingPendingMutation&&!!caseReel);await page.locator('#case-result').getByRole('button',{name:'Skip animation',exact:true}).click();
   assert.equal(await page.evaluate(()=>state.wallet.balance),beforeLost-100,'Retry charged a second crate');assert.equal(await page.evaluate(id=>posts.filter(p=>p.payload.request_id===id).length,pendingId),2);
-  for(const [caseId,kind] of [['avatar-frames','frame'],['bo2-calling-cards','banner']]){
+  for(const [caseId,kind] of [['avatar-frames','frame'],['bo2-calling-cards','banner'],['mw2-calling-cards','banner']]){
    await page.locator(`[data-crate="${caseId}"]`).getByRole('button',{name:'Open crate · 100 Kash',exact:true}).click();await page.waitForFunction(()=>!!caseReel&&!gamblingBusy);
    const expected=await page.evaluate(id=>fixtureCatalog.cases.find(c=>c.id===id).items[0].id,caseId);assert.equal(await page.locator('.case-reel-item').nth(30).getAttribute('data-cosmetic-id'),expected);
    if(kind==='banner'){await page.waitForTimeout(300);await page.locator('#case-result').screenshot({path:`target/calling-card-reel-${width}.png`});}
@@ -108,6 +108,14 @@ for(const item of catalog.items)if(item.poster_filename)assets.set(item.id+'-pos
   }
 
 
+  // An owned, previously paused card can be selected and drawn with the
+  // integrated lossless asset and new checksum in the real profile renderer.
+  await page.evaluate(async()=>{const card=fixtureCatalog.catalog.find(i=>i.id==='mw2-allpro-title-7f747f6a');state.cosmetics.owned.push({id:card.id,count:2});await loadGambling();await loadGambling();await equipCosmetic('banner',card.id);applyProfileCosmetics({username:currentUser.username,avatar:false,cosmetics:{banner:card}});$('profilesview').hidden=false;$('profilecard').hidden=false;$('gamblingview').hidden=true;});
+  const allProBanner=page.locator('#profilebanner img');await allProBanner.waitFor();await allProBanner.evaluate(i=>i.decode());
+  assert.match(await allProBanner.getAttribute('src'),/mw2-allpro-title-7f747f6a\?v=[a-f0-9]{64}$/);
+  assert.deepEqual(await allProBanner.evaluate(i=>[i.naturalWidth,i.naturalHeight]),[700,152]);
+  await page.locator('#profilebanner').screenshot({path:`target/all-pro-profile-${width}.png`});
+  await page.evaluate(()=>{$('profilesview').hidden=true;$('gamblingview').hidden=false;});
   await page.evaluate(()=>{applyProfileCosmetics({username:currentUser.username,avatar:false,cosmetics:{frame:ownedFixture[0],emblem:ownedFixture[1],name_effect:fixtureCatalog.catalog.find(i=>i.id==='name-effect-rainbow')}});$('profilename').textContent=currentUser.username;applyUsernameCosmetics($('profilename'),{emblem:ownedFixture[1],name_effect:fixtureCatalog.catalog.find(i=>i.id==='name-effect-rainbow')});$('profilesview').hidden=false;$('profilecard').hidden=false;$('gamblingview').hidden=true;for(const id of ['editprofile','avatarform','ratingform','profilecommentform','loggeddevices'])$(id).hidden=true;});
   await page.locator('#profilecard').screenshot({path:`target/profile-cosmetics-${width}.png`});
   await page.evaluate(()=>{$('profilesview').hidden=true;$('gamblingview').hidden=false;});

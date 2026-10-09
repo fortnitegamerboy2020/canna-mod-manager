@@ -1,6 +1,8 @@
 # Canna Mod Manager
 
-Community 0.3.73 adds a CS-style cosmetic crate reel, 328 Call of Duty cosmetic emblems and six animated username gradients. Crash cashout estimates now update live with bounded RTT correction, and confirmed bets/balances no longer wait for secondary refreshes. Server-confirmed outcomes remain authoritative. MW2 calling cards stay paused because the supplied artwork remains 188x40.
+Community 0.3.74 adds Keno, Plinko, Wheel and Baccarat; nine individually priced crates with owner rarity controls; 18 live username gradients; favorites, duplicate recycling and five saved looks. All 635 calling cards now use reviewed 4× reconstructed artwork, including corrected animation loops; MW2 resumes. Desktop 0.2.48 adds Setup health and fixes approved updates when historical versions remain in the catalog. Real installation/startup/vanilla-restoration tests passed for MoreCompany on Lethal Company, AbilityScrollBar/Anvil on Bopl Battle and CR/Bliss on ROUNDS. They do not verify full gameplay or new multiplayer combinations.
+
+Community 0.3.73 adds a CS-style cosmetic crate reel, 328 Call of Duty cosmetic emblems and six animated username gradients. Crash cashout estimates now update live with bounded RTT correction, and confirmed bets/balances no longer wait for secondary refreshes. Server-confirmed outcomes remain authoritative. MW2 was paused in that release while higher-quality artwork was prepared.
 
 
 Community 0.3.72 updates Help for the released Canna Anvil 1.0.7 Magnet fix. The fix passed 70 offline native-game checks; full multiplayer testing remains unverified. Desktop stays at 0.2.47. Community 0.3.71 removed the long rules paragraph from Gambling.
@@ -444,7 +446,7 @@ storage, review gating and cache restoration checks remain required.
 
 Open a desktop modpack and use **Share with link**. The server stores a validated manifest referencing its existing mod files; the member-only page displays the pack, game, creator and included versions. Local files are uploaded for manual review before installation is enabled. **Publish pack update** advances the same link using an expected revision; only the creator can publish. Recipients use **Check pack updates**, review the changes and explicitly accept them before applying the pack. One previous local manifest is retained for recovery. Claimed website transfers preserve their exact revision even when the creator publishes concurrently. Credentials, device identifiers and arbitrary manifest fields are not published. The full game registry now fits the offline catalog cache.
 
-MW2 calling cards are paused in Community0.3.68 due to source artwork quality.
+MW2 was paused in Community 0.3.68 due to source artwork quality and resumes with the reconstructed artwork in 0.3.74.
 The MW2 crate and new equips are disabled; mixed cases exclude MW2 drops.
 Paused artwork is hidden in collections/profiles. Ownership and existing stored
 selections are retained; BO2 and avatar-frame cosmetics remain active.
@@ -469,6 +471,6 @@ Beta invitations (Community 0.3.69): owner and Beta member friend links can gran
 
 Community 0.3.70 analysis update: game filters and readable labels, bounded C# caller/destination traces, grouped evidence, more retained source previews, and failed-rescan evidence retention. Static tracing does not establish safety. Findings remain subject to staff review.
 
-Local dependency-installation fix (unpublished): approved required catalog packages are selected recursively when adding/saving mods and preparing existing packs, including pinned-version packs. Manual disable/local choices stay intact; new removals persist as exclusions until explicitly selected again. Website-ticket bytes recover metadata only from an exact approved name/version/game/hash match. Dependencies remain externally cached until Launch modded. Missing or ambiguous packages are reported, not guessed. Older saved packs have no historical removal exclusions.
+Dependency-installation fix (Desktop 0.2.47): approved required catalog packages are selected recursively when adding/saving mods and preparing existing packs, including pinned-version packs. Manual disable/local choices stay intact; new removals persist as exclusions until explicitly selected again. Website-ticket bytes recover metadata only from an exact approved name/version/game/hash match. Dependencies remain externally cached until Launch modded. Missing or ambiguous packages are reported, not guessed. Older saved packs have no historical removal exclusions.
 
-Local loader-alias fix (unpublished): framework aliases select fully approved loader records before legacy asset aliases, skip newer unreviewed releases and retain full dependency/scan checks. This fixes fresh-install Bopl loader 403 failures without changing approval records. Desktop errors now include bounded server denial explanations.
+Loader-alias fix (Desktop 0.2.47): framework aliases select fully approved loader records before legacy asset aliases, skip newer unreviewed releases and retain full dependency/scan checks. This fixes fresh-install Bopl loader 403 failures without changing approval records. Desktop errors now include bounded server denial explanations.

@@ -205,7 +205,7 @@ async fn new_crates_select_their_kind_and_replay_without_second_charge() {
         assert_eq!(first["count"], 1);
     }
     let db = app.db.lock().unwrap();
-    assert_eq!(wallet(&db, 1).unwrap().0, 800);
+    assert_eq!(wallet(&db, 1).unwrap().0, 865); // 60-Kash emblems + 75-Kash effects
     assert_eq!(
         db.query_row(
             "SELECT SUM(count) FROM gambling_cosmetics WHERE user_id=1",

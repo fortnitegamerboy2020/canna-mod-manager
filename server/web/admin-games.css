@@ -76,3 +76,15 @@
 .case-reel-marker::before{content:"";position:absolute;top:0;left:-7px;border-left:8px solid transparent;border-right:8px solid transparent;border-top:12px solid #ebca7c}
 .case-result>.game-footnote{display:block;margin:10px 0}.case-result>div[hidden]{display:none}
 @media(max-width:760px){.case-result{padding:14px}.case-reel-item{flex-basis:134px;min-height:168px}.case-reel::before,.case-reel::after{width:18px}}
+/* Instant arcade games and collection tools */
+.kenogrid{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:6px;max-width:580px}
+.kenogrid button{padding:9px 3px;min-width:0}.kenogrid button[aria-pressed=true]{background:#a5de8b;color:#10201a;box-shadow:inset 0 0 0 2px #d6ffbd}
+.arcadevisual.keno{display:flex;flex-wrap:wrap;gap:9px;align-items:center;justify-content:center}
+.kenoball{display:grid;place-items:center;border-radius:50%;width:42px;height:42px;font-size:18px;background:#293f39;border:1px solid #648a7c}.kenoball[data-hit=true]{background:#a2db86;color:#13251b}
+.baccarathand{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;margin:12px}.baccarathand small{font-size:14px}.baccarathand strong{font-size:20px}
+.baccaratcard{padding:14px;background:#ecf4e7;color:#1b3026;border-radius:8px;font-size:26px;min-width:38px}
+.prizewheel{border:12px solid #7fad71;border-radius:50%;width:140px;height:140px;display:grid;place-items:center;margin:12px auto;background:conic-gradient(#25443b 0deg 18deg,#4d6844 18deg 36deg,#25443b 36deg 54deg,#76824c 54deg 72deg);box-shadow:0 0 0 4px #17271f}
+.arcadevisual.plinko{display:flex;flex-direction:column;letter-spacing:normal;gap:12px}.arcadevisual.plinko svg{display:block;flex:none;width:min(100%,500px);height:auto;margin:auto}.arcadevisual.plinko strong{font-size:18px;letter-spacing:normal}.arcadevisual.baccarat{display:flex;flex-direction:column;letter-spacing:normal}.arcadevisual.wheel{display:flex;flex-direction:column;letter-spacing:normal}.arcadevisual.keno{letter-spacing:normal}
+.rarityodds{display:flex;gap:5px;flex-wrap:wrap;margin:10px 0}.rarityodds span{font-size:12px;padding:4px 7px;border-radius:5px;background:#23352e;border:1px solid #486052}.rarityodds [data-rarity=rare]{border-color:#80b5ec}.rarityodds [data-rarity=epic]{border-color:#bd93ea}.rarityodds [data-rarity=legendary]{border-color:#e9be66}
+#cosmetic-styles .row{margin:8px 0}#cosmetic-styles input{max-width:210px}#cosmetic-paging{margin:12px 0}.collectiontools select{max-width:220px}
+@media(max-width:480px){.kenogrid{grid-template-columns:repeat(5,minmax(0,1fr))}.baccarathand{gap:5px}.baccaratcard{padding:10px;min-width:28px}.houserules{grid-template-columns:1fr}#cosmetic-styles input{max-width:100%}}

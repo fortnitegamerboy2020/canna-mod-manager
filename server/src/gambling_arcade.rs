@@ -1,12 +1,28 @@
 //! Server-selected instant games and owner controls. All writes run inside once().
 use super::*;
 
-const GAMES: [&str; 6] = ["crash", "blackjack", "roulette", "dice", "slots", "cases"];
+#[path = "gambling_new_games.rs"]
+mod new_games;
+const INSTANT_GAMES: [&str; 7] = [
+    "roulette", "dice", "slots", "keno", "plinko", "wheel", "baccarat",
+];
+const GAMES: [&str; 10] = [
+    "crash",
+    "blackjack",
+    "roulette",
+    "dice",
+    "slots",
+    "keno",
+    "plinko",
+    "wheel",
+    "baccarat",
+    "cases",
+];
 
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS gambling_house(id INTEGER PRIMARY KEY CHECK(id=1),paused INTEGER NOT NULL DEFAULT 0,daily_limit INTEGER NOT NULL DEFAULT 200 CHECK(daily_limit BETWEEN 1 AND 500)); INSERT OR IGNORE INTO gambling_house(id) VALUES(1);
         CREATE TABLE IF NOT EXISTS gambling_game_rules(game TEXT PRIMARY KEY,enabled INTEGER NOT NULL DEFAULT 1,min_stake INTEGER NOT NULL DEFAULT 1,max_stake INTEGER NOT NULL DEFAULT 1000000,payout_percent INTEGER NOT NULL DEFAULT 100);
-        CREATE TABLE IF NOT EXISTS gambling_crate_prices(case_id TEXT PRIMARY KEY,cost INTEGER NOT NULL CHECK(cost BETWEEN 1 AND 1000000));")?;
+        CREATE TABLE IF NOT EXISTS gambling_crate_rarity(case_id TEXT NOT NULL,rarity TEXT NOT NULL,factor INTEGER NOT NULL CHECK(factor BETWEEN 0 AND 1000),PRIMARY KEY(case_id,rarity)); CREATE TABLE IF NOT EXISTS gambling_crate_prices(case_id TEXT PRIMARY KEY,cost INTEGER NOT NULL CHECK(cost BETWEEN 1 AND 1000000));")?;
     for game in GAMES {
         db.execute(
             "INSERT OR IGNORE INTO gambling_game_rules(game,payout_percent) VALUES(?1,?2)",
@@ -81,7 +97,62 @@ pub fn case_cost(db: &Connection, case_id: &str) -> ApiResult<i64> {
             |r| r.get(0),
         )
         .optional()?
-        .unwrap_or(catalog()?["case"]["price"].as_i64().unwrap()))
+        .unwrap_or(default_case_cost(case_id)))
+}
+
+pub(super) const RARITIES: [&str; 5] = ["common", "uncommon", "rare", "epic", "legendary"];
+pub(super) fn rarity_factors(
+    db: &Connection,
+    id: &str,
+) -> ApiResult<std::collections::BTreeMap<String, i64>> {
+    RARITIES
+        .into_iter()
+        .map(|r| {
+            Ok((
+                r.into(),
+                db.query_row(
+                    "SELECT factor FROM gambling_crate_rarity WHERE case_id=?1 AND rarity=?2",
+                    params![id, r],
+                    |row| row.get(0),
+                )
+                .optional()?
+                .unwrap_or(100),
+            ))
+        })
+        .collect()
+}
+pub(super) fn weighted_pool<'a>(
+    db: &Connection,
+    catalog: &'a Value,
+    id: &str,
+) -> ApiResult<(Vec<(&'a Value, u64)>, u64)> {
+    let (pool, _) = case_pool(catalog, id)?;
+    let factors = rarity_factors(db, id)?;
+    let weighted: Vec<_> = pool
+        .into_iter()
+        .filter_map(|item| {
+            let w = item["weight"].as_u64().unwrap()
+                * factors
+                    .get(item["rarity"].as_str().unwrap_or("common"))
+                    .copied()
+                    .unwrap_or(100) as u64;
+            (w > 0).then_some((item, w))
+        })
+        .collect();
+    let sum = weighted.iter().map(|(_, w)| w).sum();
+    Ok((weighted, sum))
+}
+
+pub(super) fn default_case_cost(id: &str) -> i64 {
+    match id {
+        "username-effects" => 75,
+        "cod-emblems" => 60,
+        "bo2-animated" => 250,
+        "mw2-canna" => 175,
+        "premium-cosmetics" => 350,
+        "rank-emblems" => 90,
+        _ => 100,
+    }
 }
 
 pub fn rules_view(db: &Connection) -> ApiResult<Value> {
@@ -92,22 +163,15 @@ pub fn rules_view(db: &Connection) -> ApiResult<Value> {
         .into_iter()
         .map(|game| rule(db, game))
         .collect::<ApiResult<Vec<_>>>()?;
-    let crates = [
-        "bo2-calling-cards",
-        "mw2-calling-cards",
-        "avatar-frames",
-        "cod-emblems",
-        "username-effects",
-        "canna-case",
-    ]
-    .into_iter()
-    .map(|id| Ok(json!({"case_id":id,"cost":case_cost(db,id)?})))
+    let crates = CASE_IDS.iter().copied().chain(std::iter::once("canna-case"))
+
+    .map(|id| Ok(json!({"case_id":id,"cost":case_cost(db,id)?,"rarity_factors":rarity_factors(db,id)?})))
     .collect::<ApiResult<Vec<_>>>()?;
     Ok(json!({"paused":all,"daily_limit":daily_limit(db)?,"games":games,"crates":crates}))
 }
 
 pub fn recent(db: &Connection, actor: i64) -> ApiResult<Value> {
-    let results = db.prepare("SELECT response,created FROM gambling_requests WHERE user_id=?1 AND kind IN ('roulette','dice','slots') ORDER BY created DESC,rowid DESC LIMIT 20")?.query_map([actor], |r| Ok((r.get::<_,String>(0)?, r.get::<_,i64>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
+    let results = db.prepare("SELECT response,created FROM gambling_requests WHERE user_id=?1 AND kind IN ('roulette','dice','slots','keno','plinko','wheel','baccarat') ORDER BY created DESC,rowid DESC LIMIT 20")?.query_map([actor], |r| Ok((r.get::<_,String>(0)?, r.get::<_,i64>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
     Ok(json!(
         results
             .into_iter()
@@ -122,7 +186,7 @@ pub fn recent(db: &Connection, actor: i64) -> ApiResult<Value> {
 }
 
 pub fn metrics(db: &Connection) -> ApiResult<Value> {
-    let (games,staked,paid):(i64,i64,i64) = db.query_row("SELECT count(*),COALESCE(sum(json_extract(response,'$.stake')),0),COALESCE(sum(json_extract(response,'$.payout')),0) FROM gambling_requests WHERE kind IN ('roulette','dice','slots') AND created>=?1", [now()-86400], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+    let (games,staked,paid):(i64,i64,i64) = db.query_row("SELECT count(*),COALESCE(sum(json_extract(response,'$.stake')),0),COALESCE(sum(json_extract(response,'$.payout')),0) FROM gambling_requests WHERE kind IN ('roulette','dice','slots','keno','plinko','wheel','baccarat') AND created>=?1", [now()-86400], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
     let hands: i64 = db.query_row(
         "SELECT count(*) FROM gambling_blackjack WHERE status='playing'",
         [],
@@ -152,6 +216,8 @@ pub struct RulesInput {
 pub struct CratePrice {
     case_id: String,
     cost: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    rarity_factors: Option<std::collections::BTreeMap<String, i64>>,
 }
 
 pub async fn admin_rules(
@@ -162,11 +228,9 @@ pub async fn admin_rules(
     let actor = community::owner(&app, &headers)?;
     if !(1..=500).contains(&input.daily_limit)
         || input.games.len() != GAMES.len()
-        || input.crates.len() > 6
+        || input.crates.len() > CASE_IDS.len() + 1
     {
-        return Err(bad(
-            "Choose all six game rules and a daily limit from 1 to 500",
-        ));
+        return Err(bad("Choose all game rules and a daily limit from 1 to 500"));
     }
     let mut seen = std::collections::HashSet::new();
     for r in &input.games {
@@ -176,8 +240,7 @@ pub async fn admin_rules(
             || r.min_stake > r.max_stake
             || r.max_stake > MAX_STAKE
             || !(25..=150).contains(&r.payout_percent)
-            || (!matches!(r.game.as_str(), "roulette" | "dice" | "slots")
-                && r.payout_percent != 100)
+            || (!INSTANT_GAMES.contains(&r.game.as_str()) && r.payout_percent != 100)
         {
             return Err(bad(
                 "Invalid game rules: use unique games, stakes 1–1000000 and arcade payout factors 25–150 percent",
@@ -187,6 +250,31 @@ pub async fn admin_rules(
     let mut crates = std::collections::HashSet::new();
     for c in &input.crates {
         case_definition(&c.case_id)?;
+        if let Some(factors) = &c.rarity_factors {
+            if factors.len() != 5
+                || RARITIES.iter().any(|r| !factors.contains_key(*r))
+                || factors.values().any(|n| !(0..=1000).contains(n))
+                || factors.values().all(|n| *n == 0)
+            {
+                return Err(bad(
+                    "Supply five rarity factors from 0 to 1000, with at least one enabled tier",
+                ));
+            }
+            let (pool, _) = case_pool(catalog()?, &c.case_id)?;
+            if !pool.is_empty()
+                && pool.iter().all(|item| {
+                    factors
+                        .get(item["rarity"].as_str().unwrap_or("common"))
+                        .copied()
+                        .unwrap_or(100)
+                        == 0
+                })
+            {
+                return Err(bad(
+                    "These rarity factors exclude every cosmetic in this crate",
+                ));
+            }
+        }
         if !crates.insert(&c.case_id) || !(1..=MAX_STAKE).contains(&c.cost) {
             return Err(bad(
                 "Crate prices must be unique and from 1 to 1000000 Kash",
@@ -209,6 +297,13 @@ pub async fn admin_rules(
     for c in &input.crates {
         tx.execute("INSERT INTO gambling_crate_prices VALUES(?1,?2) ON CONFLICT(case_id) DO UPDATE SET cost=excluded.cost",params![c.case_id,c.cost])?;
     }
+    for c in &input.crates {
+        if let Some(factors) = &c.rarity_factors {
+            for (rarity, factor) in factors {
+                tx.execute("INSERT INTO gambling_crate_rarity VALUES(?1,?2,?3) ON CONFLICT(case_id,rarity) DO UPDATE SET factor=excluded.factor",params![c.case_id,rarity,factor])?;
+            }
+        }
+    }
     let rules = rules_view(&tx)?;
     record(&tx, actor, "gambling_rules", &rules)?;
     tx.commit()?;
@@ -227,6 +322,8 @@ pub struct ArcadeInput {
     number: Option<i64>,
     #[serde(default)]
     under: Option<i64>,
+    #[serde(default)]
+    picks: Option<Vec<i64>>,
 }
 
 const RED: [i64; 18] = [
@@ -254,6 +351,20 @@ fn slot_factor(reels: [usize; 3]) -> i64 {
     }
 }
 fn result(input: &ArcadeInput, factor: i64, rng: &mut impl Rng) -> ApiResult<Value> {
+    if !matches!(
+        input.game.as_str(),
+        "keno" | "plinko" | "wheel" | "baccarat"
+    ) && input.picks.is_some()
+    {
+        return Err(bad("This game does not accept number picks"));
+    }
+    if matches!(
+        input.game.as_str(),
+        "keno" | "plinko" | "wheel" | "baccarat"
+    ) && (input.number.is_some() || input.under.is_some())
+    {
+        return Err(bad("Unexpected number or chance for this game"));
+    }
     let (base, payload) = match input.game.as_str() {
         "roulette" => {
             let choice = input.choice.as_deref().unwrap_or("");
@@ -309,7 +420,13 @@ fn result(input: &ArcadeInput, factor: i64, rng: &mut impl Rng) -> ApiResult<Val
                 json!({"reels":reels,"base_multiplier":payout,"won":payout>0}),
             )
         }
-        _ => return Err(bad("Choose roulette, dice or slots")),
+        "keno" | "plinko" | "wheel" | "baccarat" => {
+            let (payout, payload) = new_games::result(input, factor, rng)?;
+            return Ok(
+                json!({"game":input.game,"stake":input.stake,"payout":payout,"payout_percent":factor,"result":payload}),
+            );
+        }
+        _ => return Err(bad("Choose a supported arcade game")),
     };
     Ok(
         json!({"game":input.game,"stake":input.stake,"payout":base*factor/100,"payout_percent":factor,"result":payload}),
@@ -322,15 +439,15 @@ pub async fn play(
     axum::Json(input): axum::Json<ArcadeInput>,
 ) -> ApiResult<axum::Json<Value>> {
     let actor = mutation_actor(&app, &headers)?;
-    if !matches!(input.game.as_str(), "roulette" | "dice" | "slots") {
-        return Err(bad("Choose roulette, dice or slots"));
+    if !INSTANT_GAMES.contains(&input.game.as_str()) {
+        return Err(bad("Choose a supported arcade game"));
     }
     once(
         &app,
         actor,
         &input.request_id,
         &input.game,
-        &json!({"game":input.game,"stake":input.stake,"choice":input.choice,"number":input.number,"under":input.under}),
+        &json!({"game":input.game,"stake":input.stake,"choice":input.choice,"number":input.number,"under":input.under,"picks":input.picks}),
         |db| {
             let factor = new_game(db, &input.game, input.stake)?;
             let mut outcome = result(&input, factor, &mut OsRng)?;
@@ -346,6 +463,143 @@ pub async fn play(
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+
+    #[tokio::test]
+    async fn new_arcade_games_replay_once_and_obey_limits_and_owner_rarity_controls() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "expanded-owner", true);
+        let member = account(&app, "expanded-member", false);
+        {
+            let db = app.db.lock().unwrap();
+            wallet(&db, 2).unwrap();
+            db.execute("UPDATE bot_wallets SET balance=1000 WHERE user_id=2", [])
+                .unwrap();
+        }
+        for game in ["keno", "plinko", "wheel", "baccarat"] {
+            let mut input = json!({"request_id":format!("new-{game}"),"game":game,"stake":10});
+            if game == "keno" {
+                input["picks"] = json!([1, 2, 3, 4]);
+            }
+            if game == "plinko" {
+                input["choice"] = json!("high");
+            }
+            if game == "baccarat" {
+                input["choice"] = json!("banker");
+            }
+            let first = value(
+                call(
+                    app.clone(),
+                    "POST",
+                    "/api/v1/gambling/arcade/play",
+                    input.clone(),
+                    Some(&member),
+                )
+                .await,
+            )
+            .await;
+            assert_eq!(first["ok"], true);
+            assert_eq!(first["game"], game);
+            assert_eq!(
+                value(
+                    call(
+                        app.clone(),
+                        "POST",
+                        "/api/v1/gambling/arcade/play",
+                        input.clone(),
+                        Some(&member)
+                    )
+                    .await
+                )
+                .await,
+                first
+            );
+            input["stake"] = json!(11);
+            assert_eq!(
+                call(
+                    app.clone(),
+                    "POST",
+                    "/api/v1/gambling/arcade/play",
+                    input,
+                    Some(&member)
+                )
+                .await
+                .status(),
+                StatusCode::CONFLICT
+            );
+        }
+        let mut rules = rules_view(&app.db.lock().unwrap()).unwrap();
+        assert_eq!(rules["games"].as_array().unwrap().len(), 10);
+        let crates = rules["crates"].as_array_mut().unwrap();
+        let crate_rule = crates
+            .iter_mut()
+            .find(|c| c["case_id"] == "username-effects")
+            .unwrap();
+        crate_rule["cost"] = json!(75);
+        crate_rule["rarity_factors"] =
+            json!({"common":0,"uncommon":0,"rare":0,"epic":0,"legendary":100});
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/admin/gambling/rules",
+                rules.clone(),
+                Some(&member)
+            )
+            .await
+            .status(),
+            StatusCode::FORBIDDEN
+        );
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/admin/gambling/rules",
+                rules.clone(),
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        let opened = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/cases/open",
+                json!({"request_id":"legendary-case","case_id":"username-effects"}),
+                Some(&member),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(opened["item"]["rarity"], "legendary");
+        assert_eq!(opened["cost"], 75);
+        rules["daily_limit"] = json!(1);
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/admin/gambling/rules",
+                rules,
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::OK
+        );
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/arcade/play",
+                json!({"request_id":"over-limit","game":"wheel","stake":1}),
+                Some(&member)
+            )
+            .await
+            .status(),
+            StatusCode::TOO_MANY_REQUESTS
+        );
+    }
 
     #[test]
     fn complete_wheel_and_slot_outcomes_match_published_odds() {

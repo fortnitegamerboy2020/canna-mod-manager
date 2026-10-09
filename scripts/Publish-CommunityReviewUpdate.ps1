@@ -1,6 +1,6 @@
 param(
     [string]$SourceRoot = (Split-Path $PSScriptRoot -Parent),
-    [ValidateSet('0.3.58', '0.3.59', '0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73')][string]$Version = '0.3.73',
+    [ValidateSet('0.3.58', '0.3.59', '0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73', '0.3.74')][string]$Version = '0.3.74',
     [switch]$CheckOnly,
     [string]$ReceiptFile = '',
     [string]$ResumeReceipt = '',
@@ -13,6 +13,11 @@ $cannaCommunityPublisher = [IO.Path]::GetFullPath($PSCommandPath)
 $cannaCommunityToken = $null
 $cannaCommunityHeaders = $null
 $cannaCommunityPhase = 'local preflight'
+$cannaCommunityMaximumBytes = if ($Version -eq '0.3.74') { 256MB } else { 32MB }
+function Get-CannaCommunityFileLimit([string]$Relative) {
+    if ($Version -eq '0.3.74' -and $Relative -match '^server/web/cosmetics/[a-z0-9-]+\.webp$') { return 16MB }
+    return 8MB
+}
 $cannaCommunityReceipt = $null
 $cannaCommunityApi = 'https://api.github.com/repos/fortnitegamerboy2020/canna-mod-manager'
 $cannaCommunityUtf8 = [Text.UTF8Encoding]::new($false, $true)
@@ -54,8 +59,9 @@ function Get-CannaCommunityFiles {
     # credentials, target outputs and arbitrary deployment files are never globbed.
     $cannaCommunityFiles = @('server/Cargo.toml', 'server/Cargo.lock', 'server/README.md',
         'server/src/fixtures/rounds-dependencies.json', 'server/src/fixtures/rebound-dependencies.json', 'scripts/Publish-CommunityReviewUpdate.ps1')
-    if ($Version -eq '0.3.73') { $cannaCommunityFiles += @('scripts/Import-CosmeticPacks.py', 'scripts/Test-CrashCosmetics.cjs', 'scripts/Test-Arcade.cjs') }
-    if ($Version -in @('0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73')) { $cannaCommunityFiles += 'README.md' }
+    if ($Version -in @('0.3.73', '0.3.74')) { $cannaCommunityFiles += @('scripts/Import-CosmeticPacks.py', 'scripts/Test-CrashCosmetics.cjs', 'scripts/Test-Arcade.cjs') }
+    if ($Version -eq '0.3.74') { $cannaCommunityFiles += @('scripts/Add-UsernameEffects.py', 'scripts/Upscale-CallingCards.py', 'scripts/Install-CallingCardUpscales.py', 'scripts/Test-OvernightArcade.cjs') }
+    if ($Version -in @('0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73', '0.3.74')) { $cannaCommunityFiles += 'README.md' }
     $cannaCommunitySourceDirectory = Join-Path $cannaCommunityRoot 'server/src'
     $cannaCommunityPending = [Collections.Generic.Stack[string]]::new()
     $cannaCommunityPending.Push($cannaCommunitySourceDirectory)
@@ -90,7 +96,7 @@ function Get-CannaCommunityFiles {
     foreach ($cannaCommunityWebFile in $cannaCommunityWebFiles) { $cannaCommunityFiles += 'server/web/' + $cannaCommunityWebFile }
     # Only the exact reviewed catalog grants permission to include cosmetic bytes.
     $cannaCommunityCatalog = [IO.File]::ReadAllText((Resolve-CannaCommunityFile 'server/web/cosmetics/catalog.json'), $cannaCommunityUtf8) | ConvertFrom-Json
-    $cannaCommunityExpectedCosmetics = if ($Version -eq '0.3.73') { 988 } elseif ($Version -in @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73')) { 654 } else { 315 }
+    $cannaCommunityExpectedCosmetics = if ($Version -eq '0.3.74') { 1000 } elseif ($Version -eq '0.3.73') { 988 } elseif ($Version -in @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73', '0.3.74')) { 654 } else { 315 }
     if (@($cannaCommunityCatalog.items).Count -ne $cannaCommunityExpectedCosmetics) { throw 'Reviewed cosmetic catalog count differs' }
     $cannaCommunityCosmeticNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $cannaCommunityPosterCount = 0
@@ -101,7 +107,7 @@ function Get-CannaCommunityFiles {
         if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Resolve-CannaCommunityFile $cannaCommunityCosmeticFile)).Hash.ToLowerInvariant() -ne $cannaCommunityCosmetic.sha256) { throw 'Cosmetic hash differs from reviewed catalog' }
         $cannaCommunityFiles += $cannaCommunityCosmeticFile
         if ($null -ne $cannaCommunityCosmetic.PSObject.Properties['poster_filename']) {
-            if ($Version -notin @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73') -or !$cannaCommunityCosmetic.animated -or $cannaCommunityCosmetic.poster_filename -notmatch '^[a-z0-9][a-z0-9-]*-poster\.png$' -or $cannaCommunityCosmetic.poster_filename -cne ($cannaCommunityCosmetic.id + '-poster.png') -or $cannaCommunityCosmetic.poster_sha256 -notmatch '^[0-9a-f]{64}$' -or $cannaCommunityCosmetic.poster_asset -cne ('/api/v1/cosmetics/assets/' + $cannaCommunityCosmetic.id + '-poster')) { throw 'Unsafe cosmetic animation poster' }
+            if ($Version -notin @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73', '0.3.74') -or !$cannaCommunityCosmetic.animated -or $cannaCommunityCosmetic.poster_filename -notmatch '^[a-z0-9][a-z0-9-]*-poster\.png$' -or $cannaCommunityCosmetic.poster_filename -cne ($cannaCommunityCosmetic.id + '-poster.png') -or $cannaCommunityCosmetic.poster_sha256 -notmatch '^[0-9a-f]{64}$' -or $cannaCommunityCosmetic.poster_asset -cne ('/api/v1/cosmetics/assets/' + $cannaCommunityCosmetic.id + '-poster')) { throw 'Unsafe cosmetic animation poster' }
             if (!$cannaCommunityCosmeticNames.Add($cannaCommunityCosmetic.poster_filename)) { throw 'Duplicate cosmetic poster filename' }
             $cannaCommunityPosterFile = 'server/web/cosmetics/' + $cannaCommunityCosmetic.poster_filename
             if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Resolve-CannaCommunityFile $cannaCommunityPosterFile)).Hash.ToLowerInvariant() -ne $cannaCommunityCosmetic.poster_sha256) { throw 'Cosmetic poster hash differs from reviewed catalog' }
@@ -109,7 +115,7 @@ function Get-CannaCommunityFiles {
             $cannaCommunityPosterCount++
         }
     }
-    if ($Version -in @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73') -and $cannaCommunityPosterCount -ne 13) { throw 'Reviewed animation poster count differs' }
+    if ($Version -in @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73', '0.3.74') -and $cannaCommunityPosterCount -ne 13) { throw 'Reviewed animation poster count differs' }
     # Shipped worker, contextual rules, configuration and public regression tools.
     $cannaCommunityDeployFiles = @('backup.sh', 'bootstrap.sh', 'Caddyfile',
         'canna-backup.service', 'canna-backup.timer', 'canna-review.service',
@@ -119,7 +125,7 @@ function Get-CannaCommunityFiles {
         'test-review-coverage.py', 'test-review-decompilation.py', 'test-review-live.py',
         'test-review-offline.py', 'test-review-packing.py', 'test-review-permissions.py',
         'test-review-rules.py')
-    if ($Version -in @('0.3.59', '0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73')) {
+    if ($Version -in @('0.3.59', '0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70', '0.3.71', '0.3.72', '0.3.73', '0.3.74')) {
         $cannaCommunityDeployFiles += @('test-review-documentation.py', 'test-review-metadata.py',
             'test-fixtures/licenses/GPL-3.0.txt', 'test-fixtures/licenses/Apache-2.0.txt',
             'test-fixtures/licenses/MIT.txt', 'test-fixtures/licenses/SOURCES.md')
@@ -156,7 +162,7 @@ function Get-CannaCommunityResumeBlobs($Previous, $Existing, [string]$Parent, [s
     foreach ($cannaCommunityResumeNumber in @($Previous.source_count, $Previous.source_bytes, $Previous.uploaded_count, $Previous.changed_count)) {
         if ($cannaCommunityResumeNumber -isnot [int] -and $cannaCommunityResumeNumber -isnot [long]) { throw 'Invalid resume publication counts' }
     }
-    if ($Previous.source_count -ne $Records.Count -or $Previous.source_bytes -lt 1 -or $Previous.source_bytes -gt 32MB) { throw 'Invalid resume source bounds' }
+    if ($Previous.source_count -ne $Records.Count -or $Previous.source_bytes -lt 1 -or $Previous.source_bytes -gt $cannaCommunityMaximumBytes) { throw 'Invalid resume source bounds' }
     if ($Previous.version -cne $Version -or $Previous.repository -cne 'fortnitegamerboy2020/canna-mod-manager' -or $Previous.parent -cne $Parent -or $Previous.branch -cne $Branch -or $Previous.ref_updated -ne $false -or $Previous.uploaded_count -le 0 -or $Previous.uploaded_count -ne $Previous.changed_count) { throw 'Resume requires the same source parent and a complete blob upload cohort' }
     if ($Previous.status -cne 'failed' -or $Previous.failure_phase -notin @('snapshot and source blob upload', 'source tree creation', 'source commit creation')) { throw 'Only an unpublished source object failure may resume' }
     if ((@($Previous.sources.path) -join "`n") -cne (@($Records.path) -join "`n")) { throw 'Resume publication inventory differs' }
@@ -167,7 +173,7 @@ function Get-CannaCommunityResumeBlobs($Previous, $Existing, [string]$Parent, [s
         $cannaCommunityResumeOld = $Previous.sources[$cannaCommunityResumeIndex]
         $cannaCommunityResumeNow = $Records[$cannaCommunityResumeIndex]
         if ($cannaCommunityResumeOld.git_blob -cnotmatch '^[0-9a-f]{40}$' -or $cannaCommunityResumeOld.sha256 -cnotmatch '^[0-9a-f]{64}$') { throw 'Invalid resume hashes' }
-        if (($cannaCommunityResumeOld.size -isnot [int] -and $cannaCommunityResumeOld.size -isnot [long]) -or $cannaCommunityResumeOld.size -lt 0 -or $cannaCommunityResumeOld.size -gt 8MB) { throw 'Invalid resume file size' }
+        if (($cannaCommunityResumeOld.size -isnot [int] -and $cannaCommunityResumeOld.size -isnot [long]) -or $cannaCommunityResumeOld.size -lt 0 -or $cannaCommunityResumeOld.size -gt (Get-CannaCommunityFileLimit $cannaCommunityResumeOld.path)) { throw 'Invalid resume file size' }
         $cannaCommunityResumeBytes += $cannaCommunityResumeOld.size
         $cannaCommunityResumeSame = $cannaCommunityResumeOld.git_blob -ceq $cannaCommunityResumeNow.git_blob -and $cannaCommunityResumeOld.sha256 -ceq $cannaCommunityResumeNow.sha256 -and $cannaCommunityResumeOld.size -eq $cannaCommunityResumeNow.size
         if (!$cannaCommunityResumeSame -and $cannaCommunityResumeNow.path -cne 'scripts/Publish-CommunityReviewUpdate.ps1') { throw 'Resume source bytes differ' }
@@ -185,7 +191,7 @@ function Get-CannaCommunityResumeBlobs($Previous, $Existing, [string]$Parent, [s
 try {
     if ((Get-Item -LiteralPath $cannaCommunityRoot -Force).Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Staged root contains a link' }
     $cannaCommunityFiles = @(Get-CannaCommunityFiles)
-    $cannaCommunityMaximumFiles = if ($Version -eq '0.3.73') { 1200 } else { 800 }
+    $cannaCommunityMaximumFiles = if ($Version -in @('0.3.73', '0.3.74')) { 1200 } else { 800 }
     if (!$cannaCommunityFiles.Count -or $cannaCommunityFiles.Count -gt $cannaCommunityMaximumFiles) { throw 'Source count exceeds bounded allowlist' }
     $cannaCommunityPackage = [IO.File]::ReadAllText((Resolve-CannaCommunityFile 'server/Cargo.toml'), $cannaCommunityUtf8)
     $cannaCommunityPackageSection = [regex]::Match($cannaCommunityPackage, '(?ms)^\[package\]\s*\r?\n(?<body>.*?)(?=^\[|\z)')
@@ -196,10 +202,10 @@ try {
     $cannaCommunityBytesTotal = 0L
     foreach ($cannaCommunityFile in $cannaCommunityFiles) {
         $cannaCommunityFilePath = Resolve-CannaCommunityFile $cannaCommunityFile
-        if ((Get-Item -LiteralPath $cannaCommunityFilePath).Length -gt 8MB) { throw 'Source file exceeds 8MiB limit' }
+        if ((Get-Item -LiteralPath $cannaCommunityFilePath).Length -gt (Get-CannaCommunityFileLimit $cannaCommunityFile)) { throw 'Source file exceeds release file limit' }
         $cannaCommunityBytes = [IO.File]::ReadAllBytes($cannaCommunityFilePath)
         $cannaCommunityBytesTotal += $cannaCommunityBytes.Length
-        if ($cannaCommunityBytesTotal -gt 32MB) { throw 'Source snapshot exceeds 32MiB limit' }
+        if ($cannaCommunityBytesTotal -gt $cannaCommunityMaximumBytes) { throw 'Source snapshot exceeds release byte limit' }
         if ([IO.Path]::GetExtension($cannaCommunityFile) -notin @('.png', '.jpg', '.webp')) {
             $cannaCommunityText = $cannaCommunityUtf8.GetString($cannaCommunityBytes)
             if ($cannaCommunityText -match '(?m)-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----|(?:github_pat_[A-Za-z0-9_]{40,}|gh[pousr]_[A-Za-z0-9]{30,})') { throw 'Credential-shaped source content refused' }

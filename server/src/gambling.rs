@@ -8,7 +8,21 @@ use serde::{Deserialize, Serialize};
 #[path = "gambling_arcade.rs"]
 mod arcade;
 pub use arcade::{admin_rules, play};
+#[path = "gambling_collection.rs"]
+mod collection;
+pub use collection::manage;
 
+const CASE_IDS: [&str; 9] = [
+    "bo2-calling-cards",
+    "mw2-calling-cards",
+    "avatar-frames",
+    "cod-emblems",
+    "username-effects",
+    "bo2-animated",
+    "mw2-canna",
+    "premium-cosmetics",
+    "rank-emblems",
+];
 const MAX_STAKE: i64 = 1_000_000;
 const MAX_MULTIPLIER: i64 = 100_000; // hundredths: 1000.00x
 const BETTING_MS: i64 = 10_000;
@@ -66,6 +80,7 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     // shared or used by gameplay transactions. Invalid metadata stays unavailable.
     let _ = cached_catalog();
     arcade::initialize(db)?;
+    collection::initialize(db)?;
     migrate_crash_ceiling(db)?;
     Ok(())
 }
@@ -259,14 +274,23 @@ fn once(
         return Ok(axum::Json(result));
     }
     let count: i64 = tx.query_row(
-        "SELECT count(*) FROM gambling_requests WHERE user_id=?1 AND created>=?2 AND kind IN ('crash_bet','blackjack_deal','cosmetic_case','roulette','dice','slots')",
+        "SELECT count(*) FROM gambling_requests WHERE user_id=?1 AND created>=?2 AND kind IN ('crash_bet','blackjack_deal','cosmetic_case','roulette','dice','slots','keno','plinko','wheel','baccarat')",
         params![actor, (now() / 86400) * 86400],
         |r| r.get(0),
     )?;
     if count >= arcade::daily_limit(&tx)?
         && matches!(
             kind,
-            "crash_bet" | "blackjack_deal" | "cosmetic_case" | "roulette" | "dice" | "slots"
+            "crash_bet"
+                | "blackjack_deal"
+                | "cosmetic_case"
+                | "roulette"
+                | "dice"
+                | "slots"
+                | "keno"
+                | "plinko"
+                | "wheel"
+                | "baccarat"
         )
     {
         return Err(ApiError(
@@ -910,7 +934,26 @@ fn build_catalog(source: &str) -> ApiResult<CosmeticCatalog> {
         if item["kind"] == "name_effect"
             && !matches!(
                 item["style"].as_str(),
-                Some("aurora" | "canna" | "sunset" | "royal" | "ice" | "rainbow")
+                Some(
+                    "aurora"
+                        | "canna"
+                        | "sunset"
+                        | "royal"
+                        | "ice"
+                        | "rainbow"
+                        | "ember"
+                        | "ocean"
+                        | "nebula"
+                        | "candy"
+                        | "forest"
+                        | "silver"
+                        | "toxic"
+                        | "rose"
+                        | "lava"
+                        | "midnight"
+                        | "prism"
+                        | "bliss"
+                )
             )
         {
             return Err(bad("Cosmetics catalog is unavailable"));
@@ -988,6 +1031,10 @@ fn case_definition(id: &str) -> ApiResult<(&'static str, Option<&'static str>, &
             Some("username-effects"),
             "name_effect",
         )),
+        "bo2-animated" => Ok(("BO2 motion crate", Some("bo2"), "banner")),
+        "mw2-canna" => Ok(("MW2 green collection", Some("mw2"), "banner")),
+        "premium-cosmetics" => Ok(("Rare & legendary vault", None, "all")),
+        "rank-emblems" => Ok(("Rank & prestige crate", Some("cod-ranks"), "emblem")),
         // Old clients can still open the original mixed case. Its inventory IDs
         // remain valid, while new clients show separate collections.
         "canna-case" => Ok(("Canna cosmetics case", None, "mixed")),
@@ -1011,7 +1058,23 @@ fn case_pool<'a>(catalog: &'a Value, id: &str) -> ApiResult<(Vec<&'a Value>, u64
         if kind == "mixed" && !matches!(item["kind"].as_str(), Some("frame" | "banner")) {
             continue;
         }
-        if (kind != "mixed" && item["kind"] != kind)
+        if (id == "bo2-animated" && item["animated"] != true)
+            || (id == "mw2-canna"
+                && !["blunt trauma", "high command", "joint ops"]
+                    .iter()
+                    .any(|n| {
+                        item["name"]
+                            .as_str()
+                            .unwrap_or("")
+                            .to_lowercase()
+                            .contains(n)
+                    }))
+            || (id == "premium-cosmetics"
+                && !matches!(item["rarity"].as_str(), Some("rare" | "epic" | "legendary")))
+        {
+            continue;
+        }
+        if (!matches!(kind, "mixed" | "all") && item["kind"] != kind)
             || collection.is_some_and(|collection| item["collection"] != collection)
         {
             continue;
@@ -1030,6 +1093,7 @@ fn case_pool<'a>(catalog: &'a Value, id: &str) -> ApiResult<(Vec<&'a Value>, u64
     Ok((pool, sum))
 }
 
+#[cfg(test)]
 fn select_case_item(catalog: &Value, id: &str, mut roll: u64) -> ApiResult<Value> {
     let (pool, sum) = case_pool(catalog, id)?;
     if sum == 0 || roll >= sum {
@@ -1046,13 +1110,12 @@ fn select_case_item(catalog: &Value, id: &str, mut roll: u64) -> ApiResult<Value
 }
 
 fn cases_view(catalog: &Value) -> ApiResult<Value> {
-    ["bo2-calling-cards", "mw2-calling-cards", "avatar-frames", "cod-emblems", "username-effects"]
-        .into_iter()
+    CASE_IDS.into_iter()
         .map(|id| {
             let (name, collection, kind) = case_definition(id)?;
             let (pool, sum) = case_pool(catalog, id)?;
             let paused = catalog["paused_collections"].as_array().is_some_and(|paused| collection.is_some_and(|collection| paused.iter().any(|value| value == collection)));
-            Ok(json!({"id":id,"name":name,"cost":catalog["case"]["price"],"collection":collection,"kind":kind,"item_count":pool.len(),"available":sum>0,"paused":paused,"pause_reason":if paused {Some("Paused due to artwork quality. Owned calling cards are saved.")} else {None},"contents":name,"items":pool.iter().map(|item|json!({"id":item["id"],"odds_percent":100.0*item["weight"].as_u64().unwrap() as f64/sum as f64})).collect::<Vec<_>>(),"duplicates":"Duplicates increase your collection count; there is no sale or trade."}))
+            Ok(json!({"id":id,"name":name,"cost":arcade::default_case_cost(id),"collection":collection,"kind":kind,"item_count":pool.len(),"available":sum>0,"paused":paused,"pause_reason":if paused {Some("Paused due to artwork quality. Owned calling cards are saved.")} else {None},"contents":name,"items":pool.iter().map(|item|json!({"id":item["id"],"odds_percent":100.0*item["weight"].as_u64().unwrap() as f64/sum as f64})).collect::<Vec<_>>(),"duplicates":"Duplicates add copies; recycle spare copies for Kash while keeping the first copy."}))
         })
         .collect::<ApiResult<Vec<_>>>()
         .map(|cases| json!(cases))
@@ -1084,6 +1147,7 @@ fn cosmetics_view(
         .optional()?
         .unwrap_or_default();
     let mut cosmetics = json!({"catalog_version":catalog.version,"owned":owned,"equipped":{"frame":frame,"banner":banner,"emblem":emblem,"name_effect":name_effect}});
+    cosmetics["collection"] = collection::view(db, actor)?;
     let cases = if include_catalog {
         cosmetics["catalog"] = catalog.value["items"].clone();
         Some(catalog.cases.clone())
@@ -1145,11 +1209,22 @@ pub async fn case_open(
         |db| {
             let cost = arcade::case_cost(db, &input.case_id)?;
             arcade::new_game(db, "cases", cost)?;
-            let (_, sum) = case_pool(catalog, &input.case_id)?;
+            let (pool, sum) = arcade::weighted_pool(db, catalog, &input.case_id)?;
             if sum == 0 {
                 return Err(bad("Cosmetic case is unavailable or paused"));
             }
-            let item = select_case_item(catalog, &input.case_id, OsRng.gen_range(0..sum))?;
+            let mut roll = OsRng.gen_range(0..sum);
+            let item = pool
+                .into_iter()
+                .find_map(|(item, weight)| {
+                    if roll < weight {
+                        Some(item.clone())
+                    } else {
+                        roll -= weight;
+                        None
+                    }
+                })
+                .ok_or_else(|| bad("Cosmetic case is unavailable"))?;
             debit(db, actor, cost)?;
             let id = item["id"].as_str().unwrap();
             db.execute("INSERT INTO gambling_cosmetics VALUES(?1,?2,1) ON CONFLICT(user_id,item_id) DO UPDATE SET count=MIN(1000000,count+1)",params![actor,id])?;
@@ -1814,8 +1889,8 @@ mod tests {
             assert_eq!(response.headers()["x-content-type-options"], "nosniff");
             let result = value(response).await;
             assert_eq!(result["version"], cached_catalog().unwrap().version);
-            assert_eq!(result["catalog"].as_array().unwrap().len(), 988);
-            assert_eq!(result["cases"].as_array().unwrap().len(), 5);
+            assert_eq!(result["catalog"].as_array().unwrap().len(), 1000);
+            assert_eq!(result["cases"].as_array().unwrap().len(), 9);
             assert!(result.get("owned").is_none());
             assert!(result.get("wallet").is_none());
             if let Some(previous) = first.as_ref() {
@@ -1868,7 +1943,7 @@ mod tests {
         assert!(full_size > 600_000);
         assert_eq!(
             legacy["cosmetics"]["catalog"].as_array().unwrap().len(),
-            988
+            1000
         );
         assert!(legacy["cases"].is_array());
         let compact_path = format!("/api/v1/gambling?catalog_version={version}");
@@ -2971,9 +3046,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mw2_pause_blocks_drops_and_new_equips_preserves_ownership_and_selection() {
+    async fn approved_mw2_artwork_restores_saved_selection_and_crate_without_changing_ids() {
         let (_dir, app) = fixture();
-        let auth = account(&app, "paused-collector", false);
+        let auth = account(&app, "artwork-collector", false);
         balance(&app, 1, 1000);
         let catalog = cached_catalog().unwrap();
         let cards: Vec<_> = catalog.value["items"]
@@ -2983,18 +3058,10 @@ mod tests {
             .filter(|item| item["collection"] == "mw2")
             .collect();
         assert_eq!(cards.len(), 398);
-        assert!(cards.iter().all(|item| item["paused"] == true));
+        assert!(cards.iter().all(|item| item["paused"] != true));
         let a = cards[0]["id"].as_str().unwrap();
         let b = cards[1]["id"].as_str().unwrap();
-        let (pool, sum) = case_pool(&catalog.value, "mw2-calling-cards").unwrap();
-        assert!(pool.is_empty());
-        assert_eq!(sum, 0);
-        let mixed = case_pool(&catalog.value, "canna-case").unwrap().0;
-        assert!(!mixed.is_empty());
-        assert!(mixed.iter().all(|item| item["collection"] != "mw2"));
-        for id in ["bo2-calling-cards", "avatar-frames"] {
-            assert!(case_pool(&catalog.value, id).unwrap().1 > 0);
-        }
+        assert!(case_pool(&catalog.value, "mw2-calling-cards").unwrap().1 > 0);
         {
             let db = app.db.lock().unwrap();
             for id in [a, b, "frame-mint-halo"] {
@@ -3006,96 +3073,79 @@ mod tests {
                 [a],
             )
             .unwrap();
-            assert!(equipped(&db, 1).unwrap()["banner"].is_null());
+            // A previously stored paused selection becomes visible with the
+            // same identity, without an ownership/equipment migration.
+            assert_eq!(equipped(&db, 1).unwrap()["banner"]["id"], a);
         }
-        let response = call(
-            app.clone(),
-            "POST",
-            "/api/v1/gambling/cases/open",
-            json!({"request_id":"paused-case","case_id":"mw2-calling-cards"}),
-            Some(&auth),
+        let input = json!({"request_id":"resumed-case","case_id":"mw2-calling-cards"});
+        let first = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/cases/open",
+                input.clone(),
+                Some(&auth),
+            )
+            .await,
         )
         .await;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        let retry = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/gambling/cases/open",
+                input,
+                Some(&auth),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(first, retry);
+        assert_eq!(first["item"]["collection"], "mw2");
         let response = call(
             app.clone(),
             "POST",
             "/api/v1/gambling/cosmetics/equip",
-            json!({"frame":null,"banner":b}),
-            Some(&auth),
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        // Changing a frame can preserve the already-selected paused banner.
-        let response = call(
-            app.clone(),
-            "POST",
-            "/api/v1/gambling/cosmetics/equip",
-            json!({"frame":"frame-mint-halo","banner":a}),
+            json!({"frame":"frame-mint-halo","banner":b}),
             Some(&auth),
         )
         .await;
         assert_eq!(response.status(), StatusCode::OK);
         {
             let db = app.db.lock().unwrap();
-            assert_eq!(wallet(&db, 1).unwrap().0, 1000);
+            assert_eq!(wallet(&db, 1).unwrap().0, 900);
             assert_eq!(
                 db.query_row(
-                    "SELECT count(*) FROM gambling_requests WHERE user_id=1",
+                    "SELECT sum(count) FROM gambling_cosmetics WHERE user_id=1",
                     [],
                     |r| r.get::<_, i64>(0)
                 )
                 .unwrap(),
-                0
-            );
-            assert_eq!(
-                db.query_row(
-                    "SELECT count FROM gambling_cosmetics WHERE user_id=1 AND item_id=?1",
-                    [a],
-                    |r| r.get::<_, i64>(0)
-                )
-                .unwrap(),
-                2
-            );
-            assert_eq!(
-                db.query_row(
-                    "SELECT banner FROM gambling_equipped WHERE user_id=1",
-                    [],
-                    |r| r.get::<_, String>(0)
-                )
-                .unwrap(),
-                a
+                7
             );
             let profile = equipped(&db, 1).unwrap();
-            assert!(profile["banner"].is_null());
+            assert_eq!(profile["banner"]["id"], b);
             assert_eq!(profile["frame"]["id"], "frame-mint-halo");
         }
-        let response = call(
-            app.clone(),
-            "POST",
-            "/api/v1/gambling/cosmetics/equip",
-            json!({"frame":"frame-mint-halo","banner":null}),
-            Some(&auth),
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::OK);
-        let response = call(
-            app.clone(),
-            "POST",
-            "/api/v1/gambling/cosmetics/equip",
-            json!({"frame":"frame-mint-halo","banner":a}),
-            Some(&auth),
-        )
-        .await;
-        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
-        // A future resume retains the same IDs, weights and source assets.
+        // Keep the collection-pause mechanism covered independently of the
+        // currently approved catalog. A pause must retain entries and weights.
         let mut source: Value =
             serde_json::from_str(include_str!("../web/cosmetics/catalog.json")).unwrap();
-        source["paused_collections"] = json!([]);
-        let resumed = build_catalog(&source.to_string()).unwrap();
-        assert!(case_pool(&resumed.value, "mw2-calling-cards").unwrap().1 > 0);
-        assert_ne!(resumed.version, catalog.version);
-        assert_eq!(resumed.value["items"], source["items"]);
+        source["paused_collections"] = json!(["mw2"]);
+        let paused = build_catalog(&source.to_string()).unwrap();
+        assert_eq!(case_pool(&paused.value, "mw2-calling-cards").unwrap().1, 0);
+        assert!(
+            case_pool(&paused.value, "canna-case")
+                .unwrap()
+                .0
+                .iter()
+                .all(|item| item["collection"] != "mw2")
+        );
+        assert_ne!(paused.version, catalog.version);
+        assert_eq!(
+            paused.value["items"].as_array().unwrap().len(),
+            source["items"].as_array().unwrap().len()
+        );
     }
 
     #[tokio::test]
@@ -3210,11 +3260,15 @@ mod tests {
             {"id":"effect-a","collection":"username-effects","kind":"name_effect","weight":1}
         ]});
         let cases = cases_view(&catalog).unwrap();
-        assert_eq!(cases.as_array().unwrap().len(), 5);
+        assert_eq!(cases.as_array().unwrap().len(), 9);
         for case in cases.as_array().unwrap() {
             let id = case["id"].as_str().unwrap();
             let (pool, sum) = case_pool(&catalog, id).unwrap();
-            assert_eq!(case["cost"], 100);
+            assert_eq!(case["cost"], arcade::default_case_cost(id));
+            if sum == 0 {
+                assert_eq!(case["available"], false);
+                continue;
+            }
             assert_eq!(case["available"], true);
             assert_eq!(case["item_count"].as_u64().unwrap() as usize, pool.len());
             let odds: f64 = case["items"]
@@ -3230,7 +3284,9 @@ mod tests {
                 if !case["collection"].is_null() {
                     assert_eq!(item["collection"], case["collection"]);
                 }
-                assert_eq!(item["kind"], case["kind"]);
+                if case["kind"] != "all" {
+                    assert_eq!(item["kind"], case["kind"]);
+                }
                 *counts
                     .entry(item["id"].as_str().unwrap().to_owned())
                     .or_default() += 1;

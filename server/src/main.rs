@@ -1262,6 +1262,7 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/gambling/blackjack/action", post(gambling::blackjack_action))
         .route("/api/v1/gambling/cases/open", post(gambling::case_open))
         .route("/api/v1/gambling/cosmetics/equip", post(gambling::equip))
+        .route("/api/v1/gambling/cosmetics/manage", post(gambling::manage))
         .route("/api/v1/admin/gambling", get(gambling::admin_state).post(gambling::admin_config))
         .route("/api/v1/admin/users/{id}/ban", post(community::ban))
         .route("/api/v1/admin/users/{id}/role", post(community::set_role))
@@ -1757,8 +1758,8 @@ mod tests {
         let catalog: Value =
             serde_json::from_str(include_str!("../web/cosmetics/catalog.json")).unwrap();
         let items = catalog["items"].as_array().unwrap();
-        assert_eq!(items.len(), 988);
-        for (collection, count) in [("mw2", 398), ("bo2", 237), ("frames", 16), ("canna", 3), ("mw2-emblems", 205), ("cod-ranks", 123), ("username-effects", 6)] {
+        assert_eq!(items.len(), 1000);
+        for (collection, count) in [("mw2", 398), ("bo2", 237), ("frames", 16), ("canna", 3), ("mw2-emblems", 205), ("cod-ranks", 123), ("username-effects", 18)] {
             assert_eq!(
                 items
                     .iter()
@@ -1779,7 +1780,7 @@ mod tests {
             assert!(item["frame_count"].as_u64().unwrap() > 1);
             assert_eq!(
                 (item["width"].as_u64(), item["height"].as_u64()),
-                (Some(256), Some(64))
+                (Some(1024), Some(256))
             );
             let poster = item["poster_asset"].as_str().unwrap();
             assert!(poster.starts_with("/api/v1/cosmetics/assets/"));
@@ -1827,7 +1828,7 @@ mod tests {
             );
             if let Some(expected_hash) = expected_hash {
                 assert_eq!(response.headers()["x-content-type-options"], "nosniff");
-                let bytes = axum::body::to_bytes(response.into_body(), 2 * 1024 * 1024)
+                let bytes = axum::body::to_bytes(response.into_body(), 16 * 1024 * 1024)
                     .await
                     .unwrap();
                 assert_eq!(hex::encode(Sha256::digest(&bytes)), expected_hash);

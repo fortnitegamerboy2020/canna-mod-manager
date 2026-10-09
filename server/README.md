@@ -1,3 +1,7 @@
+Community 0.3.74 adds Keno, Plinko, Wheel and Baccarat, nine themed cosmetic crates with individual prices/rarity factors, favorites, spare-copy recycling and five saved looks. The 635 calling cards use lossless 4× reconstructed artwork; MW2 resumes with existing inventory IDs. All writes retain account checks and transactional request replay. Desktop 0.2.48 adds local Setup health and historical-release auto-update selection. See the public Help guide for exact rules and live-test scope.
+
+The 398 MW2 and 237 BO2 calling cards use 4× general Real-ESRGAN reconstruction with separate transparency masks. All Pro and three cannabis designs have targeted surround cleanup. Thirteen animations retain their content timing; eleven unused atlas tails were trimmed and three wrap jumps receive a short blend. Existing inventory identities and weights are retained. Backups and receipts remain local under target; the repeatable scripts refuse to upscale integrated output again. Reconstructed detail is an approximation, not newly recovered original art.
+
 # Canna family server
 
 Community 0.3.73 adds a CS-style cosmetic crate reel, 328 Call of Duty cosmetic emblems and six animated username gradients. Crash cashout estimates now update live with bounded RTT correction, and confirmed bets/balances no longer wait for secondary refreshes. Server-confirmed outcomes remain authoritative. MW2 calling cards stay paused because the supplied artwork remains 188x40.
@@ -13,7 +17,7 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.73
+## Current release: Community 0.3.74
 
 MW2 banner correction cleans the baked screenshot matte in 260 tiny source images, including Stuck on You, with audited alpha masks, transparent-only crops and lossless PNG output. Retained RGB pixels, all 654 cosmetic IDs, crate odds and equipment routes remain unchanged. Fifty-two ambiguous/full-art JPEGs and 86 existing transparent MW2 PNGs are kept intact. MW2 profile and crate previews cap artwork at twice its source width and shrink on small screens. This is a source-matte and excessive-stretch correction, not an HD replacement; isolated one-pixel JPEG fringes may remain. Reloading obtains changed checksum URLs without re-equipping.
 
