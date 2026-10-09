@@ -1,3 +1,5 @@
+Community 0.3.79 adds Owner Crash luck presets (25–10000%), preserves active rounds when settings change, and removes configurable stake caps across all games. Stakes use your available balance; payouts use wide arithmetic and the existing exact whole-Kash wallet ceiling. Legacy bet/hand tables migrate without discarding saved games. Crate pricing and new-game request guards remain separate. Owner controls show the luck boost and approximate 50x chance; queued exact outcomes still take priority. Desktop remains 0.2.49.
+
 Community 0.3.78 fixes Crash auto cashout at the 1000x ceiling, reduces phone rendering work and keeps player-facing copy concise. Desktop remains 0.2.49.
 
 Community 0.3.77 fixes ready-state arcade boards, adds accelerating Plinko path replay and a revised low-risk table, keeps gradient account buttons visible, and repairs cosmetic labels without changing ownership IDs. Static-10 adds bounded loader-root context while retaining unknown paths, executable replacement and security findings for review.

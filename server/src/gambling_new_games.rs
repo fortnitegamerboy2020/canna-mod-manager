@@ -50,7 +50,7 @@ fn baccarat(rng: &mut impl Rng) -> (Vec<u8>, Vec<u8>, u8, u8) {
 }
 
 fn fractional_return(stake: i64, hundredths: i64, factor: i64) -> i64 {
-    stake * hundredths * factor / 10000
+    whole_return(stake as i128 * hundredths as i128 * factor as i128 / 10000)
 }
 pub(super) fn result(
     input: &ArcadeInput,
@@ -78,7 +78,7 @@ pub(super) fn result(
             let hits = picks.iter().filter(|n| balls.contains(n)).count();
             let multiplier = [0, 0, 1, 5, 50][hits];
             Ok((
-                input.stake * multiplier * factor / 100,
+                whole_return(input.stake as i128 * multiplier as i128 * factor as i128 / 100),
                 json!({"picks":picks,"draw":balls,"hits":hits,"base_multiplier":multiplier}),
             ))
         }
@@ -105,7 +105,7 @@ pub(super) fn result(
             }
             let slot = rng.gen_range(0..WHEEL.len());
             Ok((
-                input.stake * WHEEL[slot] * factor / 100,
+                whole_return(input.stake as i128 * WHEEL[slot] as i128 * factor as i128 / 100),
                 json!({"slot":slot,"segments":WHEEL,"base_multiplier":WHEEL[slot]}),
             ))
         }

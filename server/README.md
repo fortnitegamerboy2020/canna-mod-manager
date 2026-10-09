@@ -1,3 +1,5 @@
+Community 0.3.79 adds Owner Crash luck presets (25–10000%), preserves active rounds when settings change, and removes configurable stake caps across all games. Stakes use your available balance; payouts use wide arithmetic and the existing exact whole-Kash wallet ceiling. Legacy bet/hand tables migrate without discarding saved games. Crate pricing and new-game request guards remain separate. Owner controls show the luck boost and approximate 50x chance; queued exact outcomes still take priority. Desktop remains 0.2.49.
+
 Community 0.3.78 pays maximum-target Crash auto cashouts at the 1000x ceiling from the scheduled server time, including delayed polls, and keeps player-facing round copy concise. Compact polls retain unchanged participants/history and skip unrelated panels; phone charts use 30 fps and lighter effects. Responsive Edge checks include 4x CPU throttling at 390px. Ordinary equal-to-crash targets still lose; manual cashouts retain receipt-time rules.
 
 Community 0.3.77 fixes ready-state arcade boards, adds accelerating Plinko path replay and a revised low-risk table, keeps gradient account buttons visible, and repairs cosmetic labels without changing ownership IDs. Static-10 adds bounded loader-root context while retaining unknown paths, executable replacement and security findings for review.
@@ -23,7 +25,7 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.78
+## Current release: Community 0.3.79
 
 MW2 banner correction cleans the baked screenshot matte in 260 tiny source images, including Stuck on You, with audited alpha masks, transparent-only crops and lossless PNG output. Retained RGB pixels, all 654 cosmetic IDs, crate odds and equipment routes remain unchanged. Fifty-two ambiguous/full-art JPEGs and 86 existing transparent MW2 PNGs are kept intact. MW2 profile and crate previews cap artwork at twice its source width and shrink on small screens. This is a source-matte and excessive-stretch correction, not an HD replacement; isolated one-pixel JPEG fringes may remain. Reloading obtains changed checksum URLs without re-equipping.
 

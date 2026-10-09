@@ -50,8 +50,8 @@ fn rule(db: &Connection, game: &str) -> ApiResult<GameRule> {
             Ok(GameRule {
                 game: game.into(),
                 enabled: r.get(0)?,
-                min_stake: r.get(1)?,
-                max_stake: r.get(2)?,
+                min_stake: 1,
+                max_stake: MAX_STAKE,
                 payout_percent: r.get(3)?,
             })
         },
@@ -80,9 +80,9 @@ pub fn new_game(db: &Connection, game: &str, stake: i64) -> ApiResult<i64> {
             "New wagers for this game are paused; existing hands and cashouts can finish",
         ));
     }
-    if !(rule.min_stake..=rule.max_stake).contains(&stake) {
+    if !(1..=MAX_STAKE).contains(&stake) {
         return Err(bad(
-            "Stake is outside this game's current limits; refresh the game rules",
+            "Choose a positive whole-Kash stake within your balance",
         ));
     }
     Ok(rule.payout_percent)
@@ -186,7 +186,7 @@ pub fn recent(db: &Connection, actor: i64) -> ApiResult<Value> {
 }
 
 pub fn metrics(db: &Connection) -> ApiResult<Value> {
-    let (games,staked,paid):(i64,i64,i64) = db.query_row("SELECT count(*),COALESCE(sum(json_extract(response,'$.stake')),0),COALESCE(sum(json_extract(response,'$.payout')),0) FROM gambling_requests WHERE kind IN ('roulette','dice','slots','keno','plinko','wheel','baccarat') AND created>=?1", [now()-86400], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+    let (games,staked,paid):(i64,i64,i64) = db.query_row("SELECT count(*),CAST(MIN(9007199254740991,COALESCE(total(json_extract(response,'$.stake')),0)) AS INTEGER),CAST(MIN(9007199254740991,COALESCE(total(json_extract(response,'$.payout')),0)) AS INTEGER) FROM gambling_requests WHERE kind IN ('roulette','dice','slots','keno','plinko','wheel','baccarat') AND created>=?1", [now()-86400], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
     let hands: i64 = db.query_row(
         "SELECT count(*) FROM gambling_blackjack WHERE status='playing'",
         [],
@@ -243,7 +243,7 @@ pub async fn admin_rules(
             || (!INSTANT_GAMES.contains(&r.game.as_str()) && r.payout_percent != 100)
         {
             return Err(bad(
-                "Invalid game rules: use unique games, stakes 1–1000000 and arcade payout factors 25–150 percent",
+                "Invalid game rules: use unique games, positive whole-Kash stakes and arcade payout factors 25–150 percent",
             ));
         }
     }
@@ -275,7 +275,7 @@ pub async fn admin_rules(
                 ));
             }
         }
-        if !crates.insert(&c.case_id) || !(1..=MAX_STAKE).contains(&c.cost) {
+        if !crates.insert(&c.case_id) || !(1..=MAX_CRATE_PRICE).contains(&c.cost) {
             return Err(bad(
                 "Crate prices must be unique and from 1 to 1000000 Kash",
             ));
@@ -292,7 +292,7 @@ pub async fn admin_rules(
         params![input.paused, input.daily_limit],
     )?;
     for r in &input.games {
-        tx.execute("UPDATE gambling_game_rules SET enabled=?1,min_stake=?2,max_stake=?3,payout_percent=?4 WHERE game=?5",params![r.enabled,r.min_stake,r.max_stake,r.payout_percent,r.game])?;
+        tx.execute("UPDATE gambling_game_rules SET enabled=?1,min_stake=?2,max_stake=?3,payout_percent=?4 WHERE game=?5",params![r.enabled,1,MAX_STAKE,r.payout_percent,r.game])?;
     }
     for c in &input.crates {
         tx.execute("INSERT INTO gambling_crate_prices VALUES(?1,?2) ON CONFLICT(case_id) DO UPDATE SET cost=excluded.cost",params![c.case_id,c.cost])?;
@@ -383,7 +383,7 @@ fn result(input: &ArcadeInput, factor: i64, rng: &mut impl Rng) -> ApiResult<Val
             let win = roulette_win(n, choice, input.number);
             (
                 if win {
-                    input.stake * if choice == "number" { 36 } else { 2 }
+                    input.stake as i128 * if choice == "number" { 36 } else { 2 }
                 } else {
                     0
                 },
@@ -402,7 +402,7 @@ fn result(input: &ArcadeInput, factor: i64, rng: &mut impl Rng) -> ApiResult<Val
             let win = roll < under * 100;
             // Apply the payout factor before integer division to avoid double rounding.
             return Ok(
-                json!({"game":"dice","stake":input.stake,"payout":if win {input.stake*factor/under} else {0},"payout_percent":factor,"result":{"roll":roll as f64/100.0,"under":under,"won":win},"nominal_multiplier":factor as f64/under as f64}),
+                json!({"game":"dice","stake":input.stake,"payout":if win {whole_return(input.stake as i128*factor as i128/under as i128)} else {0},"payout_percent":factor,"result":{"roll":roll as f64/100.0,"under":under,"won":win},"nominal_multiplier":factor as f64/under as f64}),
             );
         }
         "slots" => {
@@ -416,7 +416,7 @@ fn result(input: &ArcadeInput, factor: i64, rng: &mut impl Rng) -> ApiResult<Val
             ];
             let payout = slot_factor(reels);
             (
-                input.stake * payout,
+                input.stake as i128 * payout as i128,
                 json!({"reels":reels,"base_multiplier":payout,"won":payout>0}),
             )
         }
@@ -429,7 +429,7 @@ fn result(input: &ArcadeInput, factor: i64, rng: &mut impl Rng) -> ApiResult<Val
         _ => return Err(bad("Choose a supported arcade game")),
     };
     Ok(
-        json!({"game":input.game,"stake":input.stake,"payout":base*factor/100,"payout_percent":factor,"result":payload}),
+        json!({"game":input.game,"stake":input.stake,"payout":whole_return(base*factor as i128/100),"payout_percent":factor,"result":payload}),
     )
 }
 
@@ -463,6 +463,62 @@ pub async fn play(
 mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
+
+    #[test]
+    fn large_arcade_stakes_use_single_wide_rounding_and_ignore_legacy_caps() {
+        let (_dir, app) = fixture();
+        account(&app, "large-arcade", false);
+        let db = app.db.lock().unwrap();
+        wallet(&db, 1).unwrap();
+        db.execute(
+            "UPDATE bot_wallets SET balance=?1 WHERE user_id=1",
+            [MAX_STAKE],
+        )
+        .unwrap();
+        db.execute(
+            "UPDATE gambling_game_rules SET min_stake=100,max_stake=200",
+            [],
+        )
+        .unwrap();
+        assert_eq!(new_game(&db, "slots", 3_000_000).unwrap(), 100);
+        assert_eq!(rule(&db, "slots").unwrap().max_stake, MAX_STAKE);
+        assert!(new_game(&db, "slots", 0).is_err());
+        assert!(debit(&db, 1, MAX_STAKE + 1).is_err());
+        debit(&db, 1, MAX_STAKE).unwrap();
+        assert_eq!(wallet(&db, 1).unwrap().0, 0);
+        assert!(debit(&db, 1, 1).is_err());
+        use rand::{SeedableRng, rngs::StdRng};
+        let mut rng = StdRng::seed_from_u64(123);
+        for game in INSTANT_GAMES {
+            let mut body = json!({"request_id":"wide","game":game,"stake":MAX_STAKE});
+            match game {
+                "roulette" => body["choice"] = json!("red"),
+                "dice" => body["under"] = json!(2),
+                "keno" => body["picks"] = json!([1, 2, 3, 4]),
+                "plinko" => body["choice"] = json!("high"),
+                "baccarat" => body["choice"] = json!("banker"),
+                _ => {}
+            }
+            let input: ArcadeInput = serde_json::from_value(body).unwrap();
+            for _ in 0..32 {
+                let result = result(&input, 150, &mut rng).unwrap();
+                assert!(
+                    (0..=MAX_STAKE).contains(&result["payout"].as_i64().unwrap()),
+                    "{game}"
+                );
+            }
+        }
+        assert_eq!(
+            super::whole_return(MAX_STAKE as i128 * 100000 / 100),
+            MAX_STAKE
+        );
+        assert_eq!(super::whole_return(25 * 195 * 100 / 10000), 48);
+        // Large history totals must not overflow SQLite SUM or break the admin page.
+        for i in 0..1100 {
+            db.execute("INSERT INTO gambling_requests(user_id,request_id,fingerprint,response,created,kind) VALUES(1,?1,'large',?2,?3,'slots')",params![format!("large-{i}"),json!({"stake":MAX_STAKE,"payout":MAX_STAKE}).to_string(),now()]).unwrap();
+        }
+        assert_eq!(metrics(&db).unwrap()["arcade_staked_24h"], MAX_STAKE);
+    }
 
     #[tokio::test]
     async fn new_arcade_games_replay_once_and_obey_limits_and_owner_rarity_controls() {
