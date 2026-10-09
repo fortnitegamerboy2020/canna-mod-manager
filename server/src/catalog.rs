@@ -1,4 +1,48 @@
 use super::*;
+/// Exact approved archive metadata, including historical releases hidden by listings.
+pub async fn manifest(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+    Path(id): Path<String>,
+) -> ApiResult<axum::Json<Value>> {
+    app.auth(&headers)?;
+    Uuid::parse_str(&id).map_err(|_| bad("Invalid mod ID"))?;
+    let db = app.db.lock().unwrap();
+    if !db.query_row(
+        "SELECT EXISTS(SELECT 1 FROM mods WHERE id=?1)",
+        [&id],
+        |r| r.get::<_, bool>(0),
+    )? {
+        return Err(ApiError(StatusCode::NOT_FOUND, "Mod no longer available"));
+    }
+    security::approved(&db, &id)?;
+    let (app_id, name, version, description, hash): (u32, String, String, String, String) = db
+        .query_row(
+            "SELECT app_id,name,version,description,sha256 FROM mods WHERE id=?1",
+            [&id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+        )?;
+    let details = external::details(&db, &id)?;
+    let mut dependencies = Vec::new();
+    for dependency in details["dependency_ids"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+    {
+        if external::details(&db, dependency)?["framework_root"].is_string() {
+            continue;
+        }
+        dependencies.push(db.query_row(
+            "SELECT name FROM mods WHERE id=?1",
+            [dependency],
+            |r| r.get::<_, String>(0),
+        )?);
+    }
+    Ok(axum::Json(
+        json!({"app_id":app_id,"item":{"enabled":true,"name":name,"version":version,"description":description,"file":format!("Mods/{id}.zip"),"sha256":hash,"dependencies":dependencies,"provenance":details,"content_type":details["project_type"].as_str().or(details["content_type"].as_str()).unwrap_or("mod")}}),
+    ))
+}
 #[derive(Deserialize)]
 pub struct FileQuery {
     pub path: String,
@@ -343,6 +387,61 @@ pub async fn audit(app: &App) -> anyhow::Result<()> {
 }
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn exact_manifest_requires_membership_approval_and_preserves_historical_pins() {
+        let (_dir, app) = fixture();
+        let token = account(&app, "manifest-member", false);
+        let old=external::store(&app,1,1686940,"Pinned fixture","1.0.0","","manifest:old",&json!({"provider":"thunderstore","id":"Team-Pinned","source_url":"https://thunderstore.io/c/bopl-battle/p/Team/Pinned/"}),b"PK\x03\x04fixture-old").await.unwrap();
+        let new=external::store(&app,1,1686940,"Pinned fixture","2.0.0","","manifest:new",&json!({"provider":"thunderstore","id":"Team-Pinned","source_url":"https://thunderstore.io/c/bopl-battle/p/Team/Pinned/"}),b"PK\x03\x04fixture-new").await.unwrap();
+        let path = format!("/api/v1/mods/{old}/manifest");
+        assert_eq!(
+            call(app.clone(), "GET", &path, json!({}), None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        assert!(
+            !call(app.clone(), "GET", &path, json!({}), Some(&token))
+                .await
+                .status()
+                .is_success()
+        );
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE mod_reviews SET approved=1 WHERE mod_id IN (?1,?2)",
+                params![old, new],
+            )
+            .unwrap();
+        let data = value(call(app.clone(), "GET", &path, json!({}), Some(&token)).await).await;
+        assert_eq!(data["item"]["version"], "1.0.0");
+        assert_eq!(data["item"]["file"], format!("Mods/{old}.zip"));
+        assert_eq!(data["app_id"], 1686940);
+        assert_eq!(
+            data["item"]["sha256"],
+            hex::encode(Sha256::digest(b"PK\x03\x04fixture-old"))
+        );
+        assert_eq!(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/mods/00000000-0000-4000-8000-000000000000/manifest",
+                json!({}),
+                Some(&token)
+            )
+            .await
+            .status(),
+            StatusCode::NOT_FOUND
+        );
+        app.db.lock().unwrap().execute("INSERT INTO mod_scans VALUES(?1,(SELECT sha256 FROM mods WHERE id=?1),'complete',?2,0)",params![old,json!({"findings":[{"id":"unaccepted","accepted":false}]}).to_string()]).unwrap();
+        assert!(
+            !call(app, "GET", &path, json!({}), Some(&token))
+                .await
+                .status()
+                .is_success()
+        );
+    }
     #[test]
     fn legacy_catalog_credits_original_creator_and_preserves_extension_notes() {
         let db = Connection::open_in_memory().unwrap();

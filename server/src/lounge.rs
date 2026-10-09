@@ -49,7 +49,9 @@ pub async fn messages(
     rows.reverse();
     let mut cosmetics = std::collections::HashMap::new();
     for row in &mut rows {
-        if row["bot"] == true { continue; }
+        if row["bot"] == true {
+            continue;
+        }
         let actor = row["user_id"].as_i64().unwrap();
         if let std::collections::hash_map::Entry::Vacant(entry) = cosmetics.entry(actor) {
             entry.insert(gambling::equipped(&db, actor)?);

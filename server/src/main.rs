@@ -1154,6 +1154,7 @@ fn router(app: Shared) -> Router {
         .route("/review.js", get(review_script))
         .route("/review-workspace.css", get(review_workspace_style))
         .route("/api/v1/mods/{id}/status", get(scans::status))
+        .route("/api/v1/mods/{id}/manifest", get(catalog::manifest))
         .route("/api/v1/mods/{id}/analysis", get(scans::report).post(scans::analyze))
         .route("/api/v1/mods/updates/check", post(mod_updates::request))
         .route("/api/v1/mods/updates/status", get(mod_updates::status))
@@ -1759,7 +1760,15 @@ mod tests {
             serde_json::from_str(include_str!("../web/cosmetics/catalog.json")).unwrap();
         let items = catalog["items"].as_array().unwrap();
         assert_eq!(items.len(), 1000);
-        for (collection, count) in [("mw2", 398), ("bo2", 237), ("frames", 16), ("canna", 3), ("mw2-emblems", 205), ("cod-ranks", 123), ("username-effects", 18)] {
+        for (collection, count) in [
+            ("mw2", 398),
+            ("bo2", 237),
+            ("frames", 16),
+            ("canna", 3),
+            ("mw2-emblems", 205),
+            ("cod-ranks", 123),
+            ("username-effects", 18),
+        ] {
             assert_eq!(
                 items
                     .iter()

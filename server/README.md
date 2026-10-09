@@ -1,4 +1,4 @@
-Community 0.3.76 fixes ready-state arcade boards, adds accelerating Plinko path replay and a revised low-risk table, keeps gradient account buttons visible, and repairs cosmetic labels without changing ownership IDs. Static-10 adds bounded loader-root context while retaining unknown paths, executable replacement and security findings for review.
+Community 0.3.77 fixes ready-state arcade boards, adds accelerating Plinko path replay and a revised low-risk table, keeps gradient account buttons visible, and repairs cosmetic labels without changing ownership IDs. Static-10 adds bounded loader-root context while retaining unknown paths, executable replacement and security findings for review.
 
 Community 0.3.75 polishes the expanded arcade: Plinko replays its saved path with reduced-motion support, mixed crates are labelled cosmetics, and owner crate controls use readable names. Source publishers batch large trees to avoid failed bulk updates.
 
@@ -21,7 +21,7 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.76
+## Current release: Community 0.3.77
 
 MW2 banner correction cleans the baked screenshot matte in 260 tiny source images, including Stuck on You, with audited alpha masks, transparent-only crops and lossless PNG output. Retained RGB pixels, all 654 cosmetic IDs, crate odds and equipment routes remain unchanged. Fifty-two ambiguous/full-art JPEGs and 86 existing transparent MW2 PNGs are kept intact. MW2 profile and crate previews cap artwork at twice its source width and shrink on small screens. This is a source-matte and excessive-stretch correction, not an HD replacement; isolated one-pixel JPEG fringes may remain. Reloading obtains changed checksum URLs without re-equipping.
 
@@ -516,3 +516,5 @@ Community 0.3.73 also includes a CS-style crate reel with a fixed server-selecte
 stop, Skip animation, reduced-motion reveal and cleanup on navigation/resize. Decorative
 weighted neighboring cards do not change awards. Inventory updates on confirmation,
 before the visual roll; retry retains the original request ID.
+
+Community 0.3.77 adds authenticated `GET /api/v1/mods/{id}/manifest` for exact approved historical archive metadata used by desktop profile imports. Membership and the full dependency review checks apply; unapproved/mismatched scans are refused. No files or review decisions change through this read endpoint.
