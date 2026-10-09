@@ -22,6 +22,6 @@ try {
     # The builder reads game assemblies only. It never invokes upstream projects
     # that have copy-to-game postbuild targets or starts a game process.
     & $python @buildArgs
-    if ($LASTEXITCODE -ne 0) { throw 'Canna Rebound build failed.' }
+    if ($LASTEXITCODE -ne 0) { throw 'Canna Bliss build failed.' }
     Write-Output ('Local preview support: ' + [IO.Path]::GetFullPath((Join-Path $Output 'support.zip')))
 } finally { Pop-Location }

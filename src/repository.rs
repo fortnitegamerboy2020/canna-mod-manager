@@ -55,6 +55,20 @@ pub(crate) fn fetch_optional(
     if response.status().as_u16() == 401 {
         bail!("Connect your Canna account in Settings. The server session expired or was revoked.");
     }
+    if response.status().as_u16() == 403 {
+        let mut body = String::new();
+        response.take(4096).read_to_string(&mut body)?;
+        let details: serde_json::Value = serde_json::from_str(&body).unwrap_or_default();
+        let message = details["error"].as_str().unwrap_or(
+            "The server refused this file. Its review or account access may need attention.",
+        );
+        let message: String = message
+            .chars()
+            .filter(|c| !c.is_control())
+            .take(300)
+            .collect();
+        bail!("Catalog access denied (403) for {path}: {message}");
+    }
     let response = response.error_for_status()?;
     let expected = response
         .headers()

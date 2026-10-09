@@ -50,6 +50,7 @@ static class RuntimeGuardFixtures
             var doStart = HarmonyLib.AccessTools.Method(typeof(GM_ArmsRace), "DoStartGame");
             earlyWrapper.Patch(doStart, postfix: new HarmonyLib.HarmonyMethod(typeof(RuntimeGuardFixtures), nameof(EarlyCoroutineWrapper)));
             Call(guard, "Awake"); Call(guard, "Start");
+            ReportingConsentChecks(guard);
             ConfigParityChecks(guard, plugins, patchers);
             // Same lowest priority as the guard, installed later: explicit owner ordering
             // must still place the final guard after Unbound's pass-through wrapper.
@@ -137,6 +138,21 @@ static class RuntimeGuardFixtures
             Console.WriteLine("Runtime-stub Harmony checks: " + passed + "; no game or multiplayer session was run.");
         }
         finally { Call(guard, "OnDestroy"); lateWrapper.UnpatchSelf(); earlyWrapper.UnpatchSelf(); Directory.Delete(scratch, true); }
+    }
+    static void ReportingConsentChecks(object guard)
+    {
+        Check(!ManifestJson.ReportingConsent(null) && !ManifestJson.ReportingConsent("{}"), "Anonymous reporting defaults off without desktop consent");
+        Check(ManifestJson.ReportingConsent("{\"anonymous_reports\":true,\"steam_path\":\"private\"}"), "Only an explicit desktop boolean enables reporting");
+        foreach (string text in new[] {"{\"anonymous_reports\":false}", "{\"anonymous_reports\":\"true\"}", "{\"anonymous_reports\":1}", "{\"message\":\"anonymous_reports: true\"}", "{\"anonymous_reports\":true,\"anonymous_reports\":false}", "{\"anonymous_reports\":true} {}", "{\"anonymous_reports\":true", "{\"anonymous_reports\":true,}", "{/*comment*/\"anonymous_reports\":true}", "{'anonymous_reports':true}", "{anonymous_reports:true}", new string('x',65537)})
+            Check(!ManifestJson.ReportingConsent(text), "Invalid or indirect reporting consent remains off");
+        string path = Path.Combine(BepInEx.Paths.ConfigPath, "fixture-canna-settings.json");
+        Call(guard, "RefreshReportingConsent");
+        Check(!(bool)guard.GetType().GetField("reportEnabled", BindingFlags.NonPublic|BindingFlags.Instance).GetValue(guard), "Missing preference never enables runtime reports");
+        File.WriteAllText(path, "{\"anonymous_reports\":true}"); Call(guard, "RefreshReportingConsent");
+        Check((bool)guard.GetType().GetField("reportEnabled", BindingFlags.NonPublic|BindingFlags.Instance).GetValue(guard), "Bliss reads opted-in desktop preference");
+        File.WriteAllText(path, "{\"anonymous_reports\":false}"); Call(guard, "RefreshReportingConsent");
+        Check(!(bool)guard.GetType().GetField("reportEnabled", BindingFlags.NonPublic|BindingFlags.Instance).GetValue(guard), "Turning off desktop consent disables runtime reports");
+        File.Delete(path);
     }
     static int HashPasses(object guard)
     { return (int)guard.GetType().GetField("fullHashPasses", BindingFlags.Instance | BindingFlags.NonPublic).GetValue(guard); }

@@ -180,6 +180,10 @@ fn attach(item: &Download, pack: &mut crate::modpacks::Modpack) -> Result<()> {
     m.name = item.name.clone();
     m.version = item.version.clone();
     m.description = item.description.clone();
+    if matches!(item.source.as_str(), "Community library" | "Canna server") {
+        m.provenance = serde_json::json!({"canna_download":true});
+    }
+    pack.allow_dependency(&m.name);
     pack.mods.retain(|old| old.name != m.name);
     pack.mods.push(m);
     pack.save()?;
@@ -706,7 +710,7 @@ impl Website {
                             let target = packs.iter().find(|p| p.id == chosen && p.game.app_id == item.app_id);
                             if ui.add_enabled(target.is_some() && item.path.is_file(), egui::Button::new("Add to modpack")).clicked() {
                                 let result = attach(item, &mut target.unwrap().clone());
-                                self.status = match result { Ok(()) => { reload = true; "Added to modpack. Apply the pack to install it in the game.".into() }, Err(e) => e.to_string() };
+                                self.status = match result { Ok(()) => { reload = true; "Added to modpack. Prepare downloads or Launch modded resolves approved dependencies; only launch activates game files.".into() }, Err(e) => e.to_string() };
                             }
                         });
                     } else { ui.label("Minecraft content · use the Minecraft instance folder until its content installer is available."); }

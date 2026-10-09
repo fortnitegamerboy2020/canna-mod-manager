@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the task-local Canna Rebound preview bundle; never install into ROUNDS.
+"""Build the task-local Canna Bliss preview bundle; never install into ROUNDS.
 
 Pinned public downloads are read as data, SHA checked, and compiled in target/.
 The original UnboundLib project is never built: it has a game-writing postbuild.
@@ -332,7 +332,7 @@ def main():
             entry.external_attr = 0o100644 << 16
             archive.writestr(entry, file.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
     entries = {file.relative_to(bundle).as_posix(): sha(file.read_bytes()) for file in sorted(bundle.rglob("*")) if file.is_file() and file.name != "support-manifest.json"}
-    manifest = dict(name="Canna Rebound", protocol=PROTOCOL, profile="rounds-public-1.1.2", preview=True,
+    manifest = dict(name="Canna Bliss", protocol=PROTOCOL, profile="rounds-public-1.1.2", preview=True,
                     target_game_sha256="20451cc7090908cd1d125f75f06584645d25e898ec234de0a0c2f154e2900668",
                     distribution_status=index["distribution_status"], upstream=dict(DuctTape=DUCT_COMMIT, toolkit=TOOLKIT_COMMIT), files=entries)
     (bundle / "support-manifest.json").write_text(json.dumps(manifest, sort_keys=True, indent=2) + "\n", encoding="utf-8")

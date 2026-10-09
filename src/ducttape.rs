@@ -525,20 +525,20 @@ fn run_helper(helper: &Path, request: &Path, report: &Path) -> Result<bool> {
     }
     let mut child = command
         .spawn()
-        .context("Could not start the bundled Canna Rebound preflight helper")?;
+        .context("Could not start the bundled Canna Bliss preflight helper")?;
     let started = Instant::now();
     loop {
         if let Some(status) = child.try_wait()? {
             ensure!(
                 status.success() || report.is_file(),
-                "Canna Rebound helper failed before producing a report"
+                "Canna Bliss helper failed before producing a report"
             );
             return Ok(status.success());
         }
         if started.elapsed() > Duration::from_secs(120) {
             let _ = child.kill();
             let _ = child.wait();
-            bail!("Canna Rebound preflight timed out; the game was not changed");
+            bail!("Canna Bliss preflight timed out; the game was not changed");
         }
         std::thread::sleep(Duration::from_millis(25));
     }
@@ -557,12 +557,12 @@ fn validate_report(
     );
     ensure!(
         report.ok && report.errors.is_empty(),
-        "Canna Rebound cannot install this pack: {}",
+        "Canna Bliss cannot install this pack: {}",
         report.errors.join("; ")
     );
     ensure!(
         report.exited_successfully,
-        "Canna Rebound helper exited unsuccessfully; the game was not changed"
+        "Canna Bliss helper exited unsuccessfully; the game was not changed"
     );
     ensure!(
         report.protocol == PROTOCOL && report.profile == PROFILE && report.game_sha256 == game,
@@ -730,7 +730,7 @@ fn cache_resolved(pack: &Modpack, files: &PluginEntries) -> Result<Modpack> {
     let mut resolved = pack.clone();
     resolved.mods = vec![crate::model::ModInfo {
         enabled: true,
-        name: "Canna Rebound resolved public ROUNDS pack".into(),
+        name: "Canna Bliss resolved public ROUNDS pack".into(),
         version: PROFILE.into(),
         content_type: "mod".into(),
         description: format!(
@@ -771,11 +771,11 @@ pub(crate) fn resolve(
     );
     ensure!(
         !support.is_empty(),
-        "Authorized Canna Rebound support is missing"
+        "Authorized Canna Bliss support is missing"
     );
     ensure!(
         files.patchers.is_empty(),
-        "Canna Rebound preview cannot combine preloader patchers. Disable the existing DuctTape/preloader package in this pack before retrying."
+        "Canna Bliss preview cannot combine preloader patchers. Disable the existing DuctTape/preloader package in this pack before retrying."
     );
     let enabled: Vec<_> = pack.mods.iter().filter(|m| m.enabled).collect();
     ensure!(
@@ -808,7 +808,7 @@ pub(crate) fn resolve(
             );
         }
     }
-    progress("Preparing Canna Rebound support (preview)…");
+    progress("Preparing Canna Bliss support (preview)…");
     let workspace = Workspace::new()?;
     let bundle = crate::runtime::archive_files(support)?;
     write_files(&workspace.0, &bundle)?;
@@ -900,7 +900,7 @@ pub(crate) fn resolve(
         "Compatibility report is oversized"
     );
     let mut report: Report = serde_json::from_slice(&fs::read(&report_path)?)
-        .context("Invalid Canna Rebound preflight report")?;
+        .context("Invalid Canna Bliss preflight report")?;
     report.exited_successfully = exited_successfully;
     let output = read_tree(&plugins)?
         .into_iter()
@@ -919,10 +919,10 @@ pub(crate) fn resolve(
         "ROUNDS changed during compatibility preflight; retry after Steam finishes updating"
     );
     for warning in &report.warnings {
-        progress(&format!("Canna Rebound preview: {warning}"));
+        progress(&format!("Canna Bliss preview: {warning}"));
     }
     if !report.required {
-        progress("Canna Rebound preview: selected plugins passed the public ROUNDS API preflight.");
+        progress("Canna Bliss preview: selected plugins passed the public ROUNDS API preflight.");
     }
     files.plugins = output;
     let resolved = cache_resolved(pack, &files)?;

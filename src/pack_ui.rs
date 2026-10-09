@@ -189,7 +189,10 @@ impl PackUi {
     ) -> anyhow::Result<String> {
         self.add_catalog_mod(id, game, source, item)?;
 
-        Ok("Saved to modpack. Launch modded installs its enabled mods; Prepare downloads is optional.".into())
+        Ok(format!(
+            "Saved to modpack. {}. Launch modded installs enabled selections; Prepare downloads is optional.",
+            self.status
+        ))
     }
 
     pub fn catalog_pack_matches(&self, id: &str, game: &GameInfo, source: Option<&Source>) -> bool {
@@ -408,9 +411,10 @@ impl PackUi {
         if let Some((id, game, item)) = addition {
             match self.add_catalog_mod(&id, &game, source, item) {
                 Ok(()) => {
-                    self.status =
-                        "Saved to modpack. Prepare downloads or Launch modded when you're ready."
-                            .into()
+                    self.status = format!(
+                        "Saved to modpack. {}. Prepare downloads or Launch modded when you're ready.",
+                        self.status
+                    )
                 }
 
                 Err(error) => self.status = format!("Could not add mod: {error}"),
@@ -457,8 +461,7 @@ impl PackUi {
 
         item.local_file.clear();
 
-        // Add only the selected package. Declared dependency metadata must not
-        // restore removed libraries or replace the user's alternative packages.
+        pack.allow_dependency(&item.name);
 
         if let Some(old) = pack
             .mods
@@ -472,7 +475,9 @@ impl PackUi {
             pack.mods.push(item);
         }
 
+        let resolution = crate::dependencies::complete(&mut pack, game)?;
         pack.save()?;
+        self.status = resolution.message();
 
         self.packs[index] = pack;
 
@@ -1526,7 +1531,7 @@ impl PackUi {
 
                     egui::ComboBox::from_id_salt("editor_game").height(340.0).close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside).width(480.0).selected_text(&pack.game.name).show_ui(ui, |ui| {let choices=catalog.iter().map(|game|(game.app_id,game.name.clone())).collect::<Vec<_>>();crate::ui_helpers::searchable_options(ui,&mut id,&choices);});
 
-                    if id != pack.game.app_id && let Some(game) = catalog.iter().find(|g| g.app_id == id) {pack.game = crate::modpacks::PackGame {app_id: game.app_id, name: game.name.clone(), folder: game.folder.clone(), framework: crate::model::framework(game.app_id).into()};pack.repository = source.cloned().unwrap_or_else(empty_source);pack.mods.clear();}
+                    if id != pack.game.app_id && let Some(game) = catalog.iter().find(|g| g.app_id == id) {pack.game = crate::modpacks::PackGame {app_id: game.app_id, name: game.name.clone(), folder: game.folder.clone(), framework: crate::model::framework(game.app_id).into()};pack.repository = source.cloned().unwrap_or_else(empty_source);pack.mods.clear();pack.ignored_dependencies.clear();}
 
                     ui.checkbox(&mut pack.auto_update, "Automatically use approved updates on launch").on_hover_text("Local imports and disabled mods keep their selections. Turn off to retain exact version pins.");
                     ui.horizontal(|ui| {ui.label(RichText::new("FRAMEWORK").small().color(MUTED)); ui.label(RichText::new(crate::model::framework_label(pack.game.app_id)).color(GREEN));});
@@ -1549,7 +1554,7 @@ impl PackUi {
 
                             let mut included = pack.mods.iter().any(|m| m.file == item.file);
 
-                            if ui.checkbox(&mut included, format!("{}  ·  v{}", item.name, item.version)).changed() {if included {pack.mods.push(item.clone());} else {pack.mods.retain(|m| m.file != item.file);}}
+                            if ui.checkbox(&mut included, format!("{}  ·  v{}", item.name, item.version)).changed() {if included {pack.allow_dependency(&item.name);pack.mods.push(item.clone());} else if let Err(error)=pack.remove_mod(&item.file) {self.status=error.to_string();}}
 
                             if let Some(pin) = pack.mods.iter().find(|m| m.file == item.file && m.version != item.version) {ui.label(RichText::new(format!("Keeps v{}; toggle off/on to update the pin.", pin.version)).small().color(MUTED));}
 
@@ -1559,7 +1564,7 @@ impl PackUi {
 
                     for item in pack.mods.clone().into_iter().filter(|m| game.is_none_or(|g| !g.mods.iter().any(|c| c.file == m.file))) {
 
-                        let mut keep = true; if ui.checkbox(&mut keep, format!("{}  ·  v{}  ·  saved selection", item.name, item.version)).changed() {pack.mods.retain(|m| m.file != item.file);}
+                        let mut keep = true; if ui.checkbox(&mut keep, format!("{}  ·  v{}  ·  saved selection", item.name, item.version)).changed() && let Err(error)=pack.remove_mod(&item.file) {self.status=error.to_string();}
 
                     }
 
@@ -1729,6 +1734,7 @@ impl PackUi {
                 {
                     match crate::modpacks::add_local(&path) {
                         Ok(item) => {
+                            pack.allow_dependency(&item.name);
                             pack.mods.retain(|m| m.file != item.file);
 
                             pack.mods.push(item);
@@ -1750,9 +1756,7 @@ impl PackUi {
             }
 
             Some(Action::Remove(mut pack, file)) => {
-                pack.mods.retain(|m| m.file != file);
-
-                match pack.save() {
+                match pack.remove_mod(&file).and_then(|_| pack.save()) {
                     Ok(()) => {
                         self.upsert(pack);
 
@@ -1839,7 +1843,21 @@ impl PackUi {
             }
 
             Some(Action::Save) => {
-                if let Some(pack) = &self.draft {
+                if let Some(pack) = &mut self.draft {
+                    let mut dependency_status = String::new();
+                    if let Some(game) = source.filter(|s| *s == &pack.repository).and_then(|_| {
+                        catalog
+                            .iter()
+                            .find(|g| g.app_id == pack.game.app_id && g.folder == pack.game.folder)
+                    }) {
+                        match crate::dependencies::complete(pack, game) {
+                            Ok(resolution) => dependency_status = resolution.message(),
+                            Err(error) => {
+                                self.status = error.to_string();
+                                return None;
+                            }
+                        }
+                    }
                     match pack.save() {
                         Ok(()) => {
                             let pack = pack.clone();
@@ -1849,7 +1867,7 @@ impl PackUi {
 
                             self.selected = Some(pack.id.clone());
 
-                            self.status = format!("Saved {}", pack.name);
+                            self.status = format!("Saved {}. {}", pack.name, dependency_status);
 
                             self.upsert(pack);
 
@@ -2677,7 +2695,7 @@ mod tests {
     }
 
     #[test]
-    fn catalog_addition_does_not_inject_absent_declared_dependencies() {
+    fn catalog_addition_adds_available_dependencies_without_guessing_missing_packages() {
         let root = std::env::temp_dir().join(format!(
             "canna-catalog-no-auto-dependencies-{}-{}",
             std::process::id(),
@@ -2722,7 +2740,9 @@ mod tests {
             page.packs = vec![pack.clone()];
             page.add_catalog_mod(&pack.id, &game, Some(&source), selected.clone())
                 .unwrap();
-            assert_eq!(page.packs[0].mods.len(), 1);
+            assert_eq!(page.packs[0].mods.len(), 2);
+            assert_eq!(page.packs[0].mods[1].name, "UnboundLib");
+            assert!(page.status.contains("Unavailable legacy package"));
             assert_eq!(page.packs[0].mods[0].name, selected.name);
             assert_eq!(page.packs[0].mods[0].dependencies, selected.dependencies);
             assert!(page.packs[0].mods[0].enabled);

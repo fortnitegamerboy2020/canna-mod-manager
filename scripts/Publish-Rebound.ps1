@@ -122,7 +122,7 @@ try {
     # Native integration only. Do not publish scanners, provider registries, unrelated mods or catalogs.
     $cannaFiles = @('Cargo.toml', 'Cargo.lock', 'build.rs',
         'src/main.rs', 'src/model.rs', 'src/runtime.rs', 'src/ducttape.rs', 'src/play_backup.rs', 'src/pack_ui.rs', 'src/play_lab.rs',
-        'src/account.rs', 'src/provider_browser.rs', 'src/rebound_support.rs', 'src/unity_restore.rs', 'src/modpacks.rs', 'src/pack_updates.rs', 'src/runtime_cache.rs', 'src/source_addons.rs',
+        'src/account.rs', 'src/provider_browser.rs', 'src/rebound_support.rs', 'src/unity_restore.rs', 'src/modpacks.rs', 'src/pack_updates.rs', 'src/dependencies.rs', 'src/diagnostics.rs', 'src/repository.rs', 'src/website.rs', 'src/runtime_cache.rs', 'src/source_addons.rs',
         'README.md', 'server/web/help.html',
         'scripts/Build-DuctTapePlusPlus.ps1', 'scripts/Build-DuctTapePreview.ps1', 'scripts/Build-ReboundRelease.ps1',
         'scripts/Test-DuctTapePlusPlus.ps1', 'scripts/Publish-Rebound.ps1')
@@ -228,7 +228,7 @@ try {
         $cannaEntries += @{ path = $cannaFile; mode = '100644'; type = 'blob'; sha = $cannaBlob.sha }
     }
     $cannaTree = Invoke-CannaApi 'git/trees' 'POST' @{ base_tree = $cannaCommit.tree.sha; tree = $cannaEntries }
-    if (!$CommitMessage) { $CommitMessage = "Canna ${Version}: Canna Rebound integration" }
+    if (!$CommitMessage) { $CommitMessage = "Canna ${Version}: Canna Bliss integration" }
     $cannaNewCommit = Invoke-CannaApi 'git/commits' 'POST' @{ message = $CommitMessage; tree = $cannaTree.sha; parents = @($cannaRef.object.sha) }
     Assert-CannaSnapshot
     $cannaLatest = Invoke-CannaApi "git/ref/heads/$cannaBranch"
@@ -238,7 +238,7 @@ try {
     if ($cannaVerified.object.sha -ne $cannaNewCommit.sha) { throw 'Source ref verification failed' }
     $cannaResult.source_commit = $cannaNewCommit.sha
     [IO.File]::WriteAllText($cannaResultPath, ($cannaResult | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
-    if ($SourceOnly) { "Published Rebound source commit $($cannaNewCommit.sha) ($($cannaSourceRecords.Count) bounded files)."; exit 0 }
+    if ($SourceOnly) { "Published Bliss source commit $($cannaNewCommit.sha) ($($cannaSourceRecords.Count) bounded files)."; exit 0 }
     $cannaPhase = 'draft release assets'
     # Recheck after source work, then create a lightweight tag atomically. The
     # GitHub release API ignores target_commitish when a tag already exists.
@@ -341,9 +341,9 @@ rm "$exe_input" "$manifest_input"
     Assert-CannaTagCommit $cannaNewCommit.sha
     $cannaResult.published = $true
     [IO.File]::WriteAllText($cannaResultPath, ($cannaResult | ConvertTo-Json -Depth 8), [Text.UTF8Encoding]::new($false))
-    "Published Windows release v$Version and Rebound source commit $($cannaNewCommit.sha)."
+    "Published Windows release v$Version and Bliss source commit $($cannaNewCommit.sha)."
 } catch {
-    "Rebound publication failed during $cannaPhase; any draft is retained. Credentials and response bodies are omitted."
+    "Bliss publication failed during $cannaPhase; any draft is retained. Credentials and response bodies are omitted."
     if ($_.Exception.Response) { 'HTTP status: ' + [int]$_.Exception.Response.StatusCode }
     elseif ($cannaPhase -eq 'local preflight') { 'Preflight reason: ' + $_.Exception.Message }
     exit 1

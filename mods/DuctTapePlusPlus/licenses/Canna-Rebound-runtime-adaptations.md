@@ -1,4 +1,4 @@
-# Canna Rebound runtime source adaptations
+# Canna Bliss runtime source adaptations
 
 Upstream DuctTape runtime source remains pinned to commit
 `02e1b3d561f1a3dee321a893f111934ab3a2e1df` under its MIT license.

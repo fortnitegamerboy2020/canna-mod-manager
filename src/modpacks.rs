@@ -37,6 +37,8 @@ pub struct Modpack {
     pub game: PackGame,
     pub repository: Source,
     pub mods: Vec<ModInfo>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub ignored_dependencies: Vec<String>,
     #[serde(default = "default_auto_update")]
     pub auto_update: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -123,6 +125,25 @@ pub fn add_local(path: &Path) -> Result<ModInfo> {
     })
 }
 impl Modpack {
+    pub fn remove_mod(&mut self, file: &str) -> Result<()> {
+        let item = self
+            .mods
+            .iter()
+            .find(|m| m.file == file)
+            .context("Mod no longer exists")?;
+        let mut next = self.clone();
+        if !next.ignored_dependencies.contains(&item.name) {
+            next.ignored_dependencies.push(item.name.clone());
+        }
+        next.mods.retain(|m| m.file != file);
+        next.validate()?;
+        *self = next;
+        Ok(())
+    }
+    pub fn allow_dependency(&mut self, name: &str) {
+        self.ignored_dependencies.retain(|ignored| ignored != name);
+    }
+
     pub fn set_mod_enabled(&mut self, file: &str, enabled: bool) -> Result<()> {
         let index = self
             .mods
@@ -160,6 +181,7 @@ impl Modpack {
             },
             repository,
             mods,
+            ignored_dependencies: Vec::new(),
             auto_update: true,
             shared: None,
         }
@@ -201,6 +223,14 @@ impl Modpack {
             || self.game.framework != crate::model::framework(self.game.app_id)
         {
             bail!("Invalid game or unsupported modding framework")
+        }
+        if self.ignored_dependencies.len() > 1000
+            || self
+                .ignored_dependencies
+                .iter()
+                .any(|name| name.is_empty() || name.len() > 200)
+        {
+            bail!("Invalid manually removed dependency list")
         }
         if self.mods.len() > 1000 {
             bail!("A modpack can contain at most 1000 mods")

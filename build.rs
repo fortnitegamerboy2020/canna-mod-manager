@@ -1,5 +1,5 @@
 fn main() {
-    // Ordinary debug and release builds carry no Rebound payload. The server
+    // Ordinary debug and release builds carry no Bliss payload. The server
     // verifies Beta access before the desktop downloads support. An explicitly
     // selected private fixture may be embedded in test executables only.
     println!("cargo:rustc-check-cfg=cfg(canna_ducttape_preview)");
@@ -19,7 +19,7 @@ fn main() {
         .flatten();
     if let Some(bundle) = bundle {
         println!("cargo:rerun-if-changed={}", bundle.display());
-        let bytes = std::fs::read(&bundle).expect("Canna Rebound support bundle");
+        let bytes = std::fs::read(&bundle).expect("Canna Bliss support bundle");
         assert!(
             bytes.starts_with(b"PK\x03\x04"),
             "Expected ZIP support bundle"
@@ -28,7 +28,7 @@ fn main() {
             bytes.len() <= 128 * 1024 * 1024,
             "Support bundle is oversized"
         );
-        std::fs::write(&output, bytes).expect("Embed private Rebound test fixture");
+        std::fs::write(&output, bytes).expect("Embed private Bliss test fixture");
         println!("cargo:rustc-cfg=canna_ducttape_preview");
     } else {
         std::fs::write(&output, []).expect("Empty compatibility preview bundle");

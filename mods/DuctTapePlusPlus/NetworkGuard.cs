@@ -78,7 +78,7 @@ namespace Canna.DuctTapePlusPlus
         {
             if (!IsEpoch(epoch) || !ValidReportPeer(local) || !new[] { "settings", "mods", "assets", "game", "waiting", "invalid" }.Contains(category)) return null;
             var entries = peers.Where(ValidReportPeer).Where(peer => peer.Actor != local.Actor && peer.Epoch == epoch).GroupBy(peer => peer.Actor).Select(group => group.First()).OrderBy(peer => peer.Actor).Take(16).ToArray();
-            string body = "{\"schema\":1,\"consent\":true,\"session\":\"" + epoch + "\",\"actor\":" + local.Actor + ",\"guard_version\":\"0.1.3\",\"category\":\"" + category + "\",\"local\":" + ReportPeer(local) + ",\"peers\":[" + String.Join(",", entries.Select(ReportPeer)) + "]}";
+            string body = "{\"schema\":1,\"consent\":true,\"session\":\"" + epoch + "\",\"actor\":" + local.Actor + ",\"guard_version\":\"0.1.4\",\"category\":\"" + category + "\",\"local\":" + ReportPeer(local) + ",\"peers\":[" + String.Join(",", entries.Select(ReportPeer)) + "]}";
             return Encoding.UTF8.GetByteCount(body) <= 16384 ? body : null;
         }
 
@@ -186,22 +186,22 @@ namespace Canna.DuctTapePlusPlus
         {
             if (!String.IsNullOrEmpty(localError)) return new GuardVerdict(false, localError);
             if (!String.IsNullOrEmpty(rosterError)) return new GuardVerdict(false, rosterError);
-            if (!PeerAdvertisement.IsEpoch(epoch)) return new GuardVerdict(false, "Waiting for this room's Canna Rebound compatibility session.");
+            if (!PeerAdvertisement.IsEpoch(epoch)) return new GuardVerdict(false, "Waiting for this room's Canna Bliss compatibility session.");
             foreach (int actor in actors.OrderBy(n => n))
             {
                 PeerAdvertisement peer;
                 if (!peers.TryGetValue(actor, out peer) || peer == null)
-                    return new GuardVerdict(false, "Actor " + actor + " has not advertised Canna Rebound compatibility.");
+                    return new GuardVerdict(false, "Actor " + actor + " has not advertised Canna Bliss compatibility.");
                 if (peer.Actor != actor) return new GuardVerdict(false, "Actor " + actor + " has invalid actor binding.");
                 if (peer.Epoch != epoch) return new GuardVerdict(false, "Actor " + actor + " has stale compatibility evidence.");
-                if (peer.Protocol != local.Protocol) return new GuardVerdict(false, "Actor " + actor + " has a different Canna Rebound protocol.");
+                if (peer.Protocol != local.Protocol) return new GuardVerdict(false, "Actor " + actor + " has a different Canna Bliss protocol.");
                 if (peer.Profile != local.Profile) return new GuardVerdict(false, "Actor " + actor + " has a different compatibility profile.");
                 if (!PeerAdvertisement.IsHash(peer.GameHash) || peer.GameHash != local.GameHash)
                     return new GuardVerdict(false, "Actor " + actor + " has a different or malformed game assembly hash.");
                 if (!PeerAdvertisement.IsHash(peer.ContentDigest) || peer.ContentDigest != local.ContentDigest)
                 {
                     if (PeerAdvertisement.IsHash(local.ModsDigest) && PeerAdvertisement.IsHash(peer.ModsDigest) && local.ModsDigest != peer.ModsDigest)
-                        return new GuardVerdict(false, "Actor " + actor + " has different prepared mod DLLs or a different Rebound release. Update Canna and reapply the same pack on both PCs.");
+                        return new GuardVerdict(false, "Actor " + actor + " has different prepared mod DLLs or a different Bliss release. Update Canna and reapply the same pack on both PCs.");
                     if (PeerAdvertisement.IsHash(local.AssetsDigest) && PeerAdvertisement.IsHash(peer.AssetsDigest) && local.AssetsDigest != peer.AssetsDigest)
                         return new GuardVerdict(false, "Actor " + actor + " has different mod assets or patchers. Reapply the same pack on both PCs.");
                     if (PeerAdvertisement.IsHash(local.ConfigDigest) && PeerAdvertisement.IsHash(peer.ConfigDigest) && local.ConfigDigest != peer.ConfigDigest)
@@ -209,7 +209,7 @@ namespace Canna.DuctTapePlusPlus
                     return new GuardVerdict(false, "Actor " + actor + " has different mods, assets or gameplay configuration.");
                 }
             }
-            return new GuardVerdict(true, "All current actors have matching Canna Rebound compatibility manifests.");
+            return new GuardVerdict(true, "All current actors have matching Canna Bliss compatibility manifests.");
         }
     }
 }
@@ -217,7 +217,7 @@ namespace Canna.DuctTapePlusPlus
 #if GUARD_RUNTIME
 namespace Canna.DuctTapePlusPlus
 {
-    [BepInPlugin("canna.ducttapeplusplus.networkguard", "Canna Rebound compatibility guard", "0.1.3")]
+    [BepInPlugin("canna.ducttapeplusplus.networkguard", "Canna Bliss compatibility guard", "0.1.4")]
     [BepInDependency("rounds-port.runtime")]
     [BepInDependency("com.willis.rounds.unbound", BepInDependency.DependencyFlags.SoftDependency)]
     [BepInDependency("io.olavim.rounds.rwf", BepInDependency.DependencyFlags.SoftDependency)]
@@ -235,6 +235,7 @@ namespace Canna.DuctTapePlusPlus
         HttpWebRequest reportRequest;
         volatile string reportStatus = "Off. No reports are sent.";
         float nextReportCheck;
+        float nextConsentCheck;
         readonly RoomCompatibilityPolicy policy = new RoomCompatibilityPolicy();
         readonly HashSet<MethodBase> patched = new HashSet<MethodBase>();
         readonly HashSet<MethodBase> unsupported = new HashSet<MethodBase>();
@@ -285,6 +286,8 @@ namespace Canna.DuctTapePlusPlus
 
         void Update()
         {
+            if (Time.realtimeSinceStartup >= nextConsentCheck)
+            { nextConsentCheck = Time.realtimeSinceStartup + 2f; RefreshReportingConsent(); }
             if (Time.realtimeSinceStartup >= nextModeCheck)
             { nextModeCheck = Time.realtimeSinceStartup + 1f; ScanModeGates(); }
             if (Time.realtimeSinceStartup >= nextContentCheck)
@@ -346,7 +349,7 @@ namespace Canna.DuctTapePlusPlus
                 manifestReadStatus = "stage=" + stage + "; " + (manifestReadStatus ?? "object=not-read")
                     + "; reason=" + (validationReason ?? ex.GetType().Name);
                 contentError = "Prepared compatibility manifest is missing or invalid at " + stage + " ("
-                    + (validationReason ?? ex.GetType().Name) + "). Run Canna Rebound preflight again.";
+                    + (validationReason ?? ex.GetType().Name) + "). Run Canna Bliss preflight again.";
             }
         }
 
@@ -378,7 +381,7 @@ namespace Canna.DuctTapePlusPlus
             catch (Exception ex)
             {
                 local = null;
-                contentError = "Installed mods, assets or patchers do not match the prepared profile (" + ex.GetType().Name + "). Run Canna Rebound preflight again.";
+                contentError = "Installed mods, assets or patchers do not match the prepared profile (" + ex.GetType().Name + "). Run Canna Bliss preflight again.";
                 policy.ConfigureLocal(null, contentError);
             }
             if (stamp == null) contentStamps.Invalidate();
@@ -648,12 +651,12 @@ namespace Canna.DuctTapePlusPlus
         bool Gate(MethodBase method, object target, bool coroutine)
         {
             if (PhotonNetwork.OfflineMode) return true;
-            if (!PhotonNetwork.InRoom) return Deny("Online start requires a joined room and matching Canna Rebound peers.");
+            if (!PhotonNetwork.InRoom) return Deny("Online start requires a joined room and matching Canna Bliss peers.");
             if (!joined) JoinCurrentRoom();
             // Metadata stamps are a polling optimization. Every actual start/readiness
             // gate hashes content again, even when size and timestamps were preserved.
             RefreshContent(true); RefreshRoom();
-            if (unsupported.Contains(method)) return Deny("This online game mode is outside the Canna Rebound preview's supported start gates.");
+            if (unsupported.Contains(method)) return Deny("This online game mode is outside the Canna Bliss preview's supported start gates.");
             if (target != null)
             {
                 var type = target.GetType();
@@ -673,7 +676,7 @@ namespace Canna.DuctTapePlusPlus
 
         bool Deny(string reason)
         {
-            if (lastMessage != reason) { lastMessage = reason; Logger.LogWarning("Canna Rebound blocked online start: " + reason); }
+            if (lastMessage != reason) { lastMessage = reason; Logger.LogWarning("Canna Bliss blocked online start: " + reason); }
             return false;
         }
 
@@ -758,7 +761,7 @@ namespace Canna.DuctTapePlusPlus
             if (!reportEnabled || String.IsNullOrEmpty(lastMessage) || local == null || !PeerAdvertisement.IsEpoch(epoch)) return;
             if(Time.realtimeSinceStartup<nextReportCheck) return;
             nextReportCheck=Time.realtimeSinceStartup+5f;
-            string category = lastMessage.Contains("active gameplay settings") ? "settings" : lastMessage.Contains("DLLs") || lastMessage.Contains("Rebound release") ? "mods" : lastMessage.Contains("assets or patchers") ? "assets" : lastMessage.Contains("game assembly") ? "game" : lastMessage.Contains("Waiting") || lastMessage.Contains("not advertised") ? "waiting" : "invalid";
+            string category = lastMessage.Contains("active gameplay settings") ? "settings" : lastMessage.Contains("DLLs") || lastMessage.Contains("Bliss release") ? "mods" : lastMessage.Contains("assets or patchers") ? "assets" : lastMessage.Contains("game assembly") ? "game" : lastMessage.Contains("Waiting") || lastMessage.Contains("not advertised") ? "waiting" : "invalid";
             var peers = PhotonNetwork.PlayerList.Select(player => {
                 var p=player.CustomProperties;
                 return new PeerAdvertisement(p[ProtocolKey] as string,p[ProfileKey] as string,p[GameKey] as string,p[DigestKey] as string,player.ActorNumber,p[PeerEpochKey] as string,p[ModsKey] as string,p[AssetsKey] as string,p[ConfigKey] as string,p[ConfigEvidenceKey] as string);
@@ -786,6 +789,22 @@ namespace Canna.DuctTapePlusPlus
             });
         }
 
+        void RefreshReportingConsent()
+        {
+            string path = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "CannaModManager", "settings.json");
+#if GUARD_FIXTURE
+            // Tests only read their isolated scratch file, never real user preferences.
+            path = Path.Combine(Paths.ConfigPath, "fixture-canna-settings.json");
+#endif
+            bool enabled = ManifestJson.ReadReportingConsent(path);
+            lock (reportSync) {
+                if (enabled == reportEnabled) return;
+                reportEnabled = enabled; reportPolicy.Enable(enabled); nextReportCheck = 0;
+                reportStatus = enabled ? "Waiting for valid compatibility hashes…" : "Off. No new reports are sent.";
+                if (!enabled) reportRequest?.Abort();
+            }
+        }
+
         void ClearConnection()
         {
             joined = false; epoch = null; pendingEpoch = null; failedEpoch = null; pendingStart = null; lastMessage = null;
@@ -801,10 +820,9 @@ namespace Canna.DuctTapePlusPlus
         {
             if (!PhotonNetwork.InRoom || PhotonNetwork.OfflineMode || String.IsNullOrEmpty(lastMessage)) return;
             float height = (lastMessage.Length > 200 ? 180 : 110) + 70;
-            GUI.Box(new Rect(18, 18, 520, height), "Canna Rebound multiplayer compatibility");
+            GUI.Box(new Rect(18, 18, 520, height), "Canna Bliss multiplayer compatibility");
             GUI.Label(new Rect(32, 47, 490, height - 108), lastMessage + "\nEvery participant needs the same prepared mods, assets and gameplay configuration.");
-            bool enabled=GUI.Toggle(new Rect(32,height-42,490,24),reportEnabled,"Optional: send anonymous compatibility reports");
-            if(enabled!=reportEnabled) { lock(reportSync) {reportEnabled=enabled;reportPolicy.Enable(enabled);nextReportCheck=0;reportStatus=enabled?"Waiting for valid compatibility hashes…":"Off. No new reports are sent.";if(!enabled)reportRequest?.Abort();} }
+            GUI.Label(new Rect(32,height-42,490,24),"Anonymous reports: " + (reportEnabled ? "on" : "off") + ". Change in Canna Settings.");
             GUI.Label(new Rect(32,height-16,490,36),reportStatus);
         }
 

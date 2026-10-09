@@ -287,7 +287,7 @@ impl Account {
                                 .as_array()
                                 .is_some_and(|roles| roles.iter().any(|role| role == "beta"))
                             {
-                                ui.label("Beta · Canna Rebound access");
+                                ui.label("Beta · Canna Bliss access");
                             }
                             if let Some(status) = p["status"].as_str().filter(|s| !s.is_empty()) {
                                 ui.label(status);

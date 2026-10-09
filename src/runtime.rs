@@ -32,6 +32,7 @@ pub(crate) fn settings(pack: &Modpack) -> Settings {
         steam_path: String::new(),
         low_end: false,
         rebound_enabled: false,
+        anonymous_reports: false,
     }
 }
 pub(crate) fn repo_path(pack: &Modpack, file: &str) -> String {
@@ -473,7 +474,7 @@ impl InstallOptions {
             && !translate
         {
             bail!(
-                "This setup was prepared with Canna Rebound. Enable Canna Rebound for ROUNDS (preview) in Settings and select the supported public ROUNDS version before applying or restoring it."
+                "This setup was prepared with Canna Bliss. Enable Canna Bliss for ROUNDS (preview) in Settings and select the supported public ROUNDS version before applying or restoring it."
             )
         }
         Ok(translate)
@@ -573,7 +574,7 @@ pub(crate) fn prepare_install_with_configs(
     // Preparation never restores loader/plugin files into the game. Missing
     // compatibility references are staged in the external preview workspace.
     let support = if translate {
-        progress("Verifying Canna Rebound Beta access…");
+        progress("Verifying Canna Bliss Beta access…");
         Some(crate::rebound_support::authorized_bundle(token)?)
     } else {
         None
@@ -723,22 +724,22 @@ fn bind_rebound_launch(prepared: &mut PreparedInstall) -> Result<()> {
     let support = prepared
         .rebound_support_sha256
         .as_ref()
-        .context("Missing authorized Rebound support checksum")?;
+        .context("Missing authorized Bliss support checksum")?;
     let game = prepared
         .game_sha256
         .as_ref()
-        .context("Missing Rebound game checksum")?;
+        .context("Missing Bliss game checksum")?;
     let manifests: Vec<_> = prepared
         .files
         .as_ref()
-        .context("Missing prepared Rebound files")?
+        .context("Missing prepared Bliss files")?
         .plugins
         .iter()
         .filter(|(path, _)| path == Path::new(REBOUND_MANIFEST))
         .collect();
     anyhow::ensure!(
         manifests.len() == 1,
-        "Missing or ambiguous prepared Rebound manifest"
+        "Missing or ambiguous prepared Bliss manifest"
     );
     let marked: Vec<_> = prepared
         .pack
@@ -751,7 +752,7 @@ fn bind_rebound_launch(prepared: &mut PreparedInstall) -> Result<()> {
         .collect();
     anyhow::ensure!(
         marked.len() == 1 && rebound_hash(support) && rebound_hash(game),
-        "Invalid prepared Rebound launch binding"
+        "Invalid prepared Bliss launch binding"
     );
     let item = marked.into_iter().next().unwrap();
     item.provenance["rebound_support_sha256"] = support.clone().into();
@@ -774,7 +775,7 @@ fn current_launch_rebound_expectation(
     no_links(&managed)?;
     match fs::symlink_metadata(&managed) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
-        Err(error) => return Err(error).context("Could not inspect the installed Rebound setup"),
+        Err(error) => return Err(error).context("Could not inspect the installed Bliss setup"),
         Ok(metadata) => anyhow::ensure!(
             metadata.is_dir(),
             "Invalid installed managed setup; reapply the pack"
@@ -784,11 +785,11 @@ fn current_launch_rebound_expectation(
     no_links(&active)?;
     let has_manifest_folder = match fs::symlink_metadata(&active) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
-        Err(error) => return Err(error).context("Could not inspect the installed Rebound setup"),
+        Err(error) => return Err(error).context("Could not inspect the installed Bliss setup"),
         Ok(metadata) => {
             anyhow::ensure!(
                 metadata.is_dir(),
-                "Invalid installed Rebound setup; reapply the pack"
+                "Invalid installed Bliss setup; reapply the pack"
             );
             true
         }
@@ -796,11 +797,10 @@ fn current_launch_rebound_expectation(
     let pack = match applied() {
         Ok(pack) => pack,
         // History alone must not add a launch restriction to an ordinary setup.
-        // Installed Rebound evidence still requires readable, bound metadata.
+        // Installed Bliss evidence still requires readable, bound metadata.
         Err(_) if !has_manifest_folder => return Ok(None),
         Err(error) => {
-            return Err(error)
-                .context("Installed Rebound metadata is unreadable; reapply the pack");
+            return Err(error).context("Installed Bliss metadata is unreadable; reapply the pack");
         }
     };
     let has_pack_marker = pack.as_ref().is_some_and(|pack| {
@@ -813,12 +813,12 @@ fn current_launch_rebound_expectation(
         return Ok(None);
     }
     let pack = pack.context(
-        "This installed Rebound setup needs a fresh binding; reapply the pack before launching",
+        "This installed Bliss setup needs a fresh binding; reapply the pack before launching",
     )?;
     pack.validate()?;
     anyhow::ensure!(
         pack.game.app_id == game.app_id,
-        "Rebound setup metadata belongs to another game; reapply the pack"
+        "Bliss setup metadata belongs to another game; reapply the pack"
     );
     let marked: Vec<_> = pack
         .mods
@@ -830,18 +830,18 @@ fn current_launch_rebound_expectation(
         .collect();
     anyhow::ensure!(
         marked.len() == 1,
-        "This installed Rebound setup needs a fresh binding; reapply the pack before launching"
+        "This installed Bliss setup needs a fresh binding; reapply the pack before launching"
     );
     anyhow::ensure!(
         options.translate(game, &pack)?,
-        "Enable Canna Rebound and select the supported public ROUNDS branch before launching this setup"
+        "Enable Canna Bliss and select the supported public ROUNDS branch before launching this setup"
     );
     let binding = &marked[0].provenance;
     let pinned = |key: &str| -> Result<&str> {
         binding[key]
             .as_str()
             .filter(|hash| rebound_hash(hash))
-            .context("This installed Rebound setup needs a fresh binding; reapply the pack before launching")
+            .context("This installed Bliss setup needs a fresh binding; reapply the pack before launching")
     };
     let support = pinned("rebound_support_sha256")?;
     let game_hash = pinned("rebound_game_sha256")?;
@@ -852,10 +852,10 @@ fn current_launch_rebound_expectation(
         .join(REBOUND_MANIFEST);
     no_links(&manifest_path)?;
     let metadata = fs::metadata(&manifest_path)
-        .context("Installed Rebound manifest is missing; reapply the pack")?;
+        .context("Installed Bliss manifest is missing; reapply the pack")?;
     anyhow::ensure!(
         metadata.is_file() && metadata.len() <= 4 * 1024 * 1024,
-        "Invalid installed Rebound manifest; reapply the pack"
+        "Invalid installed Bliss manifest; reapply the pack"
     );
     let mut bytes = Vec::new();
     fs::File::open(&manifest_path)?
@@ -863,19 +863,19 @@ fn current_launch_rebound_expectation(
         .read_to_end(&mut bytes)?;
     anyhow::ensure!(
         bytes.len() <= 4 * 1024 * 1024 && format!("{:x}", Sha256::digest(&bytes)) == manifest_hash,
-        "Installed Rebound manifest changed; reapply the pack before launching"
+        "Installed Bliss manifest changed; reapply the pack before launching"
     );
     let manifest: serde_json::Value = serde_json::from_slice(&bytes)
-        .context("Invalid installed Rebound manifest; reapply the pack")?;
+        .context("Invalid installed Bliss manifest; reapply the pack")?;
     anyhow::ensure!(
         manifest["profile"].as_str() == Some(REBOUND_PROFILE)
             && manifest["protocol"].as_str() == Some("canna.ducttape++/1")
             && manifest["game_sha256"].as_str() == Some(game_hash),
-        "Installed Rebound manifest does not match its launch binding; reapply the pack"
+        "Installed Bliss manifest does not match its launch binding; reapply the pack"
     );
     anyhow::ensure!(
         crate::ducttape::game_hash(game)? == game_hash,
-        "ROUNDS changed since this Rebound setup was prepared; reapply the pack before launching"
+        "ROUNDS changed since this Bliss setup was prepared; reapply the pack before launching"
     );
     Ok(Some(support.into()))
 }
@@ -892,7 +892,7 @@ fn launch_current_with<T>(
         verify(&expected)?;
         anyhow::ensure!(
             current_launch_rebound_expectation(game, modded, options, applied)? == Some(expected),
-            "Rebound setup changed while checking access; retry or reapply the pack"
+            "Bliss setup changed while checking access; retry or reapply the pack"
         );
     }
     launch()
@@ -910,7 +910,7 @@ pub fn launch_current(
         options,
         &|| crate::play_backup::last_applied(game),
         &|expected| {
-            progress("Verifying current Canna Rebound Beta access…");
+            progress("Verifying current Canna Bliss Beta access…");
             crate::rebound_support::verify_current_read_only(token, expected)
         },
         || launch(game, true),
@@ -1296,7 +1296,7 @@ mod tests {
         pack.game.name = "ROUNDS".into();
         pack.game.folder = "rounds".into();
         pack.mods = vec![serde_json::from_value(serde_json::json!({
-            "name":"Resolved Rebound fixture", "version":REBOUND_PROFILE,
+            "name":"Resolved Bliss fixture", "version":REBOUND_PROFILE,
             "file":"Mods/fixture.zip", "sha256":"a".repeat(64),
             "provenance":{"compatibility_profile":REBOUND_PROFILE,"required_game_branch":"public"}
         })).unwrap()];
@@ -1547,7 +1547,7 @@ mod tests {
                 candidate,
                 modded,
                 InstallOptions::default(),
-                &|| panic!("unrelated launch loaded Rebound metadata"),
+                &|| panic!("unrelated launch loaded Bliss metadata"),
                 &|_| panic!("unrelated launch reached server"),
                 || Ok("allowed"),
             )

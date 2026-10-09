@@ -18,6 +18,58 @@ namespace Canna.DuctTapePlusPlus
     {
         public const int MaximumTextLength = 8 * 1024 * 1024;
 
+        sealed class ConsentReader : JsonTextReader
+        {
+            internal ConsentReader(string text) : base(new StringReader(text)) {
+                MaxDepth = 8; DateParseHandling = DateParseHandling.None; SupportMultipleContent = true;
+            }
+            public override bool Read() {
+                bool result = base.Read();
+                if (!result) return false;
+                if (TokenType == JsonToken.Comment || TokenType == JsonToken.StartConstructor || TokenType == JsonToken.EndConstructor || TokenType == JsonToken.Undefined ||
+                    ((TokenType == JsonToken.String || TokenType == JsonToken.PropertyName) && QuoteChar != '"'))
+                    throw new JsonReaderException("Invalid consent JSON");
+                return true;
+            }
+        }
+
+        // Consent is read only from the desktop's settings, never from a room peer.
+        // Missing, corrupt, duplicate or non-boolean preferences always mean off.
+        public static bool ReportingConsent(string text)
+        {
+            if (System.String.IsNullOrEmpty(text) || text.Length > 65536) return false;
+            try {
+                bool quoted = false, escaped = false;
+                for (int i = 0; i < text.Length; i++) {
+                    char c = text[i];
+                    if (quoted) { if (escaped) escaped = false; else if (c == '\\') escaped = true; else if (c == '"') quoted = false; continue; }
+                    if (c == '"') quoted = true;
+                    else if (c == ',') { int next = i + 1; while (next < text.Length && Whitespace(text[next])) next++; if (next < text.Length && (text[next] == '}' || text[next] == ']')) return false; }
+                }
+                using (var reader = new ConsentReader(text)) {
+                    var root = JObject.Load(reader, new JsonLoadSettings {
+                        DuplicatePropertyNameHandling = DuplicatePropertyNameHandling.Error,
+                        CommentHandling = CommentHandling.Load,
+                        LineInfoHandling = LineInfoHandling.Ignore
+                    });
+                    if (reader.Read()) return false;
+                    var consent = root["anonymous_reports"];
+                    return consent != null && consent.Type == JTokenType.Boolean && consent.Value<bool>();
+                }
+            } catch { return false; }
+        }
+        public static bool ReadReportingConsent(string path)
+        {
+            try {
+                using (var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite))
+                using (var reader = new StreamReader(file)) {
+                    var chars = new char[65537];
+                    int count = reader.ReadBlock(chars, 0, chars.Length);
+                    return count <= 65536 && ReportingConsent(new string(chars, 0, count));
+                }
+            } catch { return false; }
+        }
+
         sealed class BoundedReader : JsonTextReader
         {
             int tokens;

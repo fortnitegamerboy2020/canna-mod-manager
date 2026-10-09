@@ -723,7 +723,7 @@ pub fn resume(game: &InstalledGame, managed: bool) -> Result<()> {
             runtime::no_links(&manifest)?;
             ensure!(
                 !manifest.exists(),
-                "Reapply the Rebound modpack to verify current Beta access before launching modded"
+                "Reapply the Bliss modpack to verify current Beta access before launching modded"
             );
             ensure!(
                 tree_hash(&parked)? == row.sha256,

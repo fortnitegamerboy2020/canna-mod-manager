@@ -31,15 +31,15 @@ impl Manifest {
     fn validate(&self) -> Result<()> {
         ensure!(
             self.authorized,
-            "Canna Rebound requires Beta access on this account"
+            "Canna Bliss requires Beta access on this account"
         );
         ensure!(
             self.profile == PROFILE && self.download_path == DOWNLOAD_PATH,
-            "Unsupported Rebound support manifest"
+            "Unsupported Bliss support manifest"
         );
         ensure!(
             self.size > 0 && self.size <= MAX_BYTES && valid_hash(&self.sha256),
-            "Invalid Rebound support checksum or size"
+            "Invalid Bliss support checksum or size"
         );
         Ok(())
     }
@@ -81,13 +81,13 @@ fn purge_at(root: &Path) -> Result<()> {
 pub fn clear_cache() -> Result<()> {
     let _guard = CACHE_LOCK
         .lock()
-        .map_err(|_| anyhow::anyhow!("Rebound cache is unavailable"))?;
+        .map_err(|_| anyhow::anyhow!("Bliss cache is unavailable"))?;
     purge_at(&cache_root())
 }
 fn manifest(client: &reqwest::blocking::Client, origin: &str, token: &str) -> Result<Manifest> {
     ensure!(
         !token.is_empty(),
-        "Sign in with a Beta account to use Canna Rebound"
+        "Sign in with a Beta account to use Canna Bliss"
     );
     let response = client
         .get(format!("{origin}{MANIFEST_PATH}"))
@@ -99,16 +99,16 @@ fn manifest(client: &reqwest::blocking::Client, origin: &str, token: &str) -> Re
         status.is_success(),
         "{}",
         match status.as_u16() {
-            401 => "Sign in again to verify Canna Rebound access",
-            403 => "Canna Rebound requires Beta access on this account",
-            _ => "Could not verify Canna Rebound access; retry when the server is available",
+            401 => "Sign in again to verify Canna Bliss access",
+            403 => "Canna Bliss requires Beta access on this account",
+            _ => "Could not verify Canna Bliss access; retry when the server is available",
         }
     );
     let mut bytes = Vec::new();
     response.take(32769).read_to_end(&mut bytes)?;
-    ensure!(bytes.len() <= 32768, "Rebound manifest is oversized");
+    ensure!(bytes.len() <= 32768, "Bliss manifest is oversized");
     let manifest: Manifest =
-        serde_json::from_slice(&bytes).context("Invalid Rebound support manifest")?;
+        serde_json::from_slice(&bytes).context("Invalid Bliss support manifest")?;
     manifest.validate()?;
     Ok(manifest)
 }
@@ -134,7 +134,7 @@ fn validate_bundle(bytes: &[u8], manifest: &Manifest) -> Result<()> {
         bytes.len() as u64 == manifest.size
             && bytes.starts_with(b"PK\x03\x04")
             && checksum(bytes) == manifest.sha256,
-        "Rebound support checksum mismatch"
+        "Bliss support checksum mismatch"
     );
     Ok(())
 }
@@ -162,7 +162,7 @@ fn bundle_with(
         .send()?;
     if !response.status().is_success() {
         purge_at(root)?;
-        anyhow::bail!("Rebound support download was denied or unavailable; recheck Beta access");
+        anyhow::bail!("Bliss support download was denied or unavailable; recheck Beta access");
     }
     let mut bytes = Vec::new();
     response.take(manifest.size + 1).read_to_end(&mut bytes)?;
@@ -171,7 +171,7 @@ fn bundle_with(
     let current = checked_manifest(client, origin, root, token)?;
     ensure!(
         current.sha256 == manifest.sha256 && current.size == manifest.size,
-        "Rebound support changed during download; retry"
+        "Bliss support changed during download; retry"
     );
     fs::create_dir_all(root)?;
     let temp = root.join(format!(
@@ -208,7 +208,7 @@ pub fn authorized_bundle(token: &str) -> Result<Vec<u8>> {
     }
     let _guard = CACHE_LOCK
         .lock()
-        .map_err(|_| anyhow::anyhow!("Rebound cache is unavailable"))?;
+        .map_err(|_| anyhow::anyhow!("Bliss cache is unavailable"))?;
     bundle_with(&client()?, ORIGIN, &cache_root(), token)
 }
 pub fn verify_current(token: &str, expected: &str) -> Result<()> {
@@ -218,11 +218,11 @@ pub fn verify_current(token: &str, expected: &str) -> Result<()> {
     }
     let _guard = CACHE_LOCK
         .lock()
-        .map_err(|_| anyhow::anyhow!("Rebound cache is unavailable"))?;
+        .map_err(|_| anyhow::anyhow!("Bliss cache is unavailable"))?;
     let manifest = checked_manifest(&client()?, ORIGIN, &cache_root(), token)?;
     ensure!(
         manifest.sha256 == expected,
-        "Rebound support changed after preflight; prepare the pack again"
+        "Bliss support changed after preflight; prepare the pack again"
     );
     Ok(())
 }
@@ -235,13 +235,13 @@ fn verify_current_read_only_with(
 ) -> Result<()> {
     ensure!(
         valid_hash(expected),
-        "Invalid installed Rebound support checksum; reapply the pack"
+        "Invalid installed Bliss support checksum; reapply the pack"
     );
     // Launch checks do not read, download, create or purge support cache files.
     let current = manifest(client, origin, token)?;
     ensure!(
         current.sha256 == expected,
-        "Canna Rebound support changed; reapply the pack before launching"
+        "Canna Bliss support changed; reapply the pack before launching"
     );
     Ok(())
 }
@@ -316,7 +316,7 @@ impl Access {
         }
         self.allowed = false;
         if self.session.is_empty() {
-            self.status = "Sign in with a Beta account to use Canna Rebound.".into();
+            self.status = "Sign in with a Beta account to use Canna Bliss.".into();
             return;
         }
         self.status = "Checking Beta access…".into();
@@ -328,7 +328,7 @@ impl Access {
             let result = (|| -> Result<()> {
                 let _guard = CACHE_LOCK
                     .lock()
-                    .map_err(|_| anyhow::anyhow!("Rebound cache is unavailable"))?;
+                    .map_err(|_| anyhow::anyhow!("Bliss cache is unavailable"))?;
                 checked_manifest(&client()?, ORIGIN, &cache_root(), &session)?;
                 Ok(())
             })()

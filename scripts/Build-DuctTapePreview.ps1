@@ -22,9 +22,9 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Native compatibility preview build failed.' }
     $previewDir = Join-Path $root 'target/ducttape-plus-plus/desktop-preview'
     [IO.Directory]::CreateDirectory($previewDir) | Out-Null
-    Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'release/canna-mod-manager.exe') -Destination (Join-Path $previewDir 'Canna Rebound Preview.exe') -Force
+    Copy-Item -LiteralPath (Join-Path $env:CARGO_TARGET_DIR 'release/canna-mod-manager.exe') -Destination (Join-Path $previewDir 'Canna Bliss Preview.exe') -Force
     Write-Output ('Built local preview: ' + $previewDir)
-    Write-Output 'The preview EXE has no embedded support. Sign in with server-verified Beta access to use Rebound.'
+    Write-Output 'The preview EXE has no embedded support. Sign in with server-verified Beta access to use Bliss.'
     if ($Support) { Write-Output 'The explicit support fixture can be read by test executables only; it cannot authorize this app.' }
     Write-Output 'This command does not install, launch, or publish the preview.'
 } finally {

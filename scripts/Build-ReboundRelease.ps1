@@ -9,7 +9,7 @@ try {
     if ($Support) { Write-Output 'The legacy -Support argument is not embedded. Deploy reviewed support through the protected Beta server endpoint separately.' }
     $env:CANNA_REBOUND_LOCAL_PREVIEW = '0'
     & (Join-Path $root 'build.ps1') -Target $Target
-    Write-Output 'Rebound requires server-verified Beta access before the desktop downloads support.'
+    Write-Output 'Bliss requires server-verified Beta access before the desktop downloads support.'
 } finally {
     $env:CANNA_REBOUND_LOCAL_PREVIEW = $previousLocalPreview
     Pop-Location

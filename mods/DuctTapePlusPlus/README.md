@@ -1,20 +1,22 @@
-# Canna Rebound preview
+# Canna Bliss preview
+
+Local rename awaiting publication: **Canna Bliss**, formerly **Canna Rebound**. Existing settings, Beta permissions and compatibility identifiers are preserved. Published builds/support keep their previous labels until release. The user reported a successful multiplayer match with their CR setup; broader mod combinations and anonymous report delivery remain unverified.
 
 This component prepares an isolated plugin tree for the reviewed Windows public
 ROUNDS build. It combines pinned MIT DuctTape/toolkit code, exact upstream curated
 ports, checked mechanical IL mappings, asset checks and a multiplayer manifest
 guard. It never patches the installed game at startup.
 
-Desktop 0.2.45 offers it as **Settings → Canna Rebound for ROUNDS (preview)**,
+Desktop 0.2.45 offers it as **Settings → Canna Bliss for ROUNDS (preview)**,
 off by default. Enable it before Setup, Apply modpack or Launch modded. Ordinary
 desktop updates remain enabled; only the separate development Preview.exe disables
-updates. With Rebound off, ordinary installs and the official DuctTape workflow
+updates. With Bliss off, ordinary installs and the official DuctTape workflow
 keep their existing behavior. With it enabled, unsupported builds or calls block
 preparation before installation. Known old dependency selections remain editable
 and their reviewed modern ports are substituted without changing saved choices.
 
 Internal paths and protocol names retain DuctTape++ for the existing preparation
-format; the user-facing feature is Canna Rebound. Upstream DuctTape/toolkit
+format; the user-facing feature is Canna Bliss. Upstream DuctTape/toolkit
 attribution remains part of the source and license notices.
 
 Desktop 0.2.42 and newer use the shipped server-verified Beta workflow, supported
@@ -27,7 +29,7 @@ authorization. Previously distributed 0.2.41 executables retain their original
 bundle. Private test fixtures are excluded from ordinary runtime authorization.
 
 Desktop 0.2.45 also verifies fresh server Beta access before Launch current
-dispatches an already-active managed Rebound setup. Applied metadata binds the
+dispatches an already-active managed Bliss setup. Applied metadata binds the
 authorized support archive, installed compatibility manifest and game assembly
 hashes. Older 0.2.44 bindings require one reapply; revoked access, changed support
 or altered inputs stop dispatch. This check reads metadata without downloading,
@@ -37,7 +39,7 @@ Desktop 0.2.44 can receive a protected support refresh without a new desktop
 executable. Preparation reads the authorized server manifest and uses a cached ZIP
 only when its size and SHA256 match that manifest. A changed support hash selects
 the new download; a change after preflight requires preparing the pack again.
-After a support release, close ROUNDS and **Apply modpack** again with Rebound
+After a support release, close ROUNDS and **Apply modpack** again with Bliss
 enabled and current Beta access. Already loaded game DLLs do not refresh in a
 running session. Setup restores the tracked runtime; Apply modpack or Launch
 modded prepares the current pack.
@@ -171,11 +173,11 @@ https://github.com/Bknibb/UnboundLib/issues/2#issuecomment-6052691146
 Credits and source notices do not assert broader permission. Test-only
 SmokeChecks sources in the Canna source archive are not active runtime payloads.
 
-Community 0.3.66 recognizes exact reviewed Rebound-supplied dependency releases
+Community 0.3.66 recognizes exact reviewed Bliss-supplied dependency releases
 when Beta members share ROUNDS packs. Shared original archives retain a preview
 requirement; recipients still need their own verified Beta access before support
 download/storage and installation. Unknown missing dependency pins remain blocked.
-Rebound peer parity uses bound active settings, retains unknown configs, and
+Bliss peer parity uses bound active settings, retains unknown configs, and
 ignores config comments/order, two known inactive plugin configs and local mouse
 lock. Gameplay values and immutable content still must match. Warnings separate
 DLL/support, asset/patcher and gameplay-setting mismatches. Both players must

@@ -80,7 +80,7 @@ static class NetworkGuardTests
         var peer=Ad(2,digest:Other);peer.ModsDigest=Hash;peer.AssetsDigest=Hash;peer.ConfigDigest=Other;p.ObservePeer(2,peer,p.Generation);
         Check(!p.Evaluate().Allowed && p.Evaluate().Reason.Contains("active gameplay settings"), "Config mismatch gives actionable denial");
         peer.ModsDigest=Other;p.ObservePeer(2,peer,p.Generation);
-        Check(!p.Evaluate().Allowed && p.Evaluate().Reason.Contains("Rebound release"), "Mod or support mismatch identifies prepared DLLs");
+        Check(!p.Evaluate().Allowed && p.Evaluate().Reason.Contains("Bliss release"), "Mod or support mismatch identifies prepared DLLs");
         peer.ModsDigest=Hash;peer.AssetsDigest=Other;p.ObservePeer(2,peer,p.Generation);
         Check(!p.Evaluate().Allowed && p.Evaluate().Reason.Contains("assets or patchers"), "Asset mismatch identifies immutable content");
         peer.AssetsDigest=Hash;peer.ConfigDigest=Hash;p.ObservePeer(2,peer,p.Generation);

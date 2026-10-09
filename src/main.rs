@@ -4,6 +4,8 @@ mod cache;
 mod chrome;
 mod console;
 mod credentials;
+mod dependencies;
+mod diagnostics;
 mod ducttape;
 mod game_compat;
 #[path = "../server/src/game_profiles.rs"]
@@ -54,7 +56,7 @@ fn rebound_settings(
     ui.strong("ROUNDS COMPATIBILITY");
     let response = ui.add_enabled(
         authorized && !busy,
-        egui::Checkbox::new(enabled, "Canna Rebound for ROUNDS (preview)"),
+        egui::Checkbox::new(enabled, "Canna Bliss for ROUNDS (preview)"),
     );
     if authorized {
         ui.label("Opt in for public ROUNDS 1.1.2. Apply, Setup and Launch modded check every enabled plugin and prepare supported dependency ports without changing saved selections. Disable the original DuctTape/preloader package first.");
@@ -64,7 +66,7 @@ fn rebound_settings(
             "https://cannamods.vip/help",
         );
     } else {
-        ui.label("Canna Rebound is a Beta feature. Sign in with a Beta account to enable it. Support is downloaded after the server verifies access.");
+        ui.label("Canna Bliss is a Beta feature. Sign in with a Beta account to enable it. Support is downloaded after the server verifies access.");
     }
     response
 }
@@ -86,6 +88,7 @@ enum Event {
     Synced(cache::Source, Result<repository::RepositoryData, String>),
 }
 struct Canna {
+    diagnostics: diagnostics::Reporter,
     account: account::Account,
     rebound_access: rebound_support::Access,
     website: website::Website,
@@ -216,6 +219,7 @@ impl Canna {
         settings.catalog_folder.clear();
         let configured = !settings.owner.is_empty();
         let mut app = Self {
+            diagnostics: diagnostics::Reporter::new(settings.anonymous_reports),
             account: Default::default(),
             rebound_access: Default::default(),
             website: website::Website::default(),
@@ -240,7 +244,7 @@ impl Canna {
             discover: Default::default(),
             provider_browser: Default::default(),
             update_status: if cfg!(canna_rebound_local_preview) {
-                "Canna Rebound local preview; automatic updates disabled".into()
+                "Canna Bliss local preview; automatic updates disabled".into()
             } else {
                 String::new()
             },
@@ -254,7 +258,7 @@ impl Canna {
             runtime_busy: false,
             runtime_enabled: start_jobs,
             runtime_status: if cfg!(canna_rebound_local_preview) {
-                "Canna Rebound local preview · enable the ROUNDS preview in Settings".into()
+                "Canna Bliss local preview · enable the ROUNDS preview in Settings".into()
             } else {
                 String::new()
             },
@@ -450,7 +454,7 @@ impl Canna {
                     if cfg!(canna_rebound_local_preview) {
                         self.pending_update = None;
                         self.update_status =
-                            "Canna Rebound local preview; automatic updates disabled".into();
+                            "Canna Bliss local preview; automatic updates disabled".into();
                         continue;
                     }
                     match result {
@@ -490,6 +494,29 @@ impl Canna {
                             && watch.game_id == id
                         {
                             let (status, done) = watch.update(&snapshot);
+                            if self.diagnostics.is_enabled() {
+                                let code = if status.contains("process status unavailable") {
+                                    Some("process_status_unavailable")
+                                } else if status.contains("process was not detected") {
+                                    Some("process_not_detected")
+                                } else if watch.modded {
+                                    diagnostics::startup_code(&snapshot, watch.requested)
+                                } else {
+                                    None
+                                };
+                                if let Some(code) = code {
+                                    let loader_present =
+                                        self.games.iter().find(|g| g.app_id == id).is_some_and(
+                                            |g| g.path.join("BepInEx/core/BepInEx.dll").is_file(),
+                                        );
+                                    self.diagnostics.submit(diagnostics::startup_report(
+                                        id,
+                                        code,
+                                        self.settings.rebound_enabled,
+                                        loader_present,
+                                    ));
+                                }
+                            }
                             if self.runtime_status != status {
                                 self.console.record(&status, &self.token);
                                 self.runtime_status = status;
@@ -631,6 +658,8 @@ impl Canna {
         egui::Window::new("Canna settings")
             .open(&mut open)
             .default_width(500.0)
+            .vscroll(true)
+            .max_height((ctx.content_rect().height() - 80.0).max(240.0))
             .show(ctx, |ui| {
                 ui.strong("CANNA SERVER");
                 if ui.checkbox(&mut self.settings.low_end,"Low-end PC mode").changed(){let _=self.settings.save();}
@@ -673,13 +702,26 @@ impl Canna {
                     self.repo_status = "Account disconnected".into();
                 }
                 ui.separator();
+                ui.strong("OPTIONAL DIAGNOSTICS");
+                if ui.checkbox(&mut self.settings.anonymous_reports, "Send anonymous launcher error reports").changed() {
+                    match self.settings.save() {
+                        Ok(()) => self.diagnostics.enable(self.settings.anonymous_reports),
+                        Err(error) => {
+                            self.settings.anonymous_reports = !self.settings.anonymous_reports;
+                            self.runtime_status = format!("Could not save reporting preference: {error}");
+                        }
+                    }
+                }
+                ui.label("Off by default. Reports contain error categories, setup stage, game ID, app version, mod count and loader/Bliss flags. The same setting enables anonymous Bliss compatibility hashes. No raw logs, personal paths, usernames, tokens or modpack names are uploaded. Reports expire after seven days.");
+                ui.label(self.diagnostics.status());
+                ui.separator();
                 if self.rebound_access.needs_check() {
                     self.rebound_access.refresh(ctx);
                 }
                 if rebound_settings(ui, &mut self.settings.rebound_enabled, self.runtime_busy, self.rebound_access.allowed).changed()
                     && let Err(error) = self.settings.save() {
                     self.settings.rebound_enabled = !self.settings.rebound_enabled;
-                    self.runtime_status = format!("Could not save Rebound preference: {error}");
+                    self.runtime_status = format!("Could not save Bliss preference: {error}");
                 }
                 if !self.rebound_access.status.is_empty() {
                     ui.label(&self.rebound_access.status);
@@ -1011,6 +1053,20 @@ impl Canna {
             self.runtime_status = "Install this game through Steam first.".into();
             return;
         };
+        let diagnostic_operation = match &request {
+            pack_ui::RuntimeAction::Install(_) | pack_ui::RuntimeAction::Setup(_) => "prepare",
+            pack_ui::RuntimeAction::Launch(_, true) => "modded_launch",
+            pack_ui::RuntimeAction::Launch(_, false) => "vanilla_launch",
+            pack_ui::RuntimeAction::LaunchCurrent(_) => "current_launch",
+            pack_ui::RuntimeAction::RestoreVanilla(_) => "restore",
+            pack_ui::RuntimeAction::Stop(_) => unreachable!(),
+        };
+        let diagnostic_mod_count = match &request {
+            pack_ui::RuntimeAction::Install(p)
+            | pack_ui::RuntimeAction::Setup(p)
+            | pack_ui::RuntimeAction::Launch(p, _) => p.mods.iter().filter(|m| m.enabled).count(),
+            _ => 0,
+        };
         self.runtime_busy = true;
         self.runtime_status = if matches!(request, pack_ui::RuntimeAction::RestoreVanilla(_)) {
             "Restoring vanilla files…"
@@ -1025,8 +1081,17 @@ impl Canna {
         let options = runtime::InstallOptions {
             rebound_enabled: self.settings.rebound_enabled,
         };
+        let diagnostic_reporter = self.diagnostics.clone();
         std::thread::spawn(move || {
+            let diagnostic_stage = std::sync::Mutex::new(if diagnostic_operation == "restore" {
+                "restore"
+            } else {
+                "prepare"
+            });
             let progress = |message: &str| {
+                if let Ok(mut stage) = diagnostic_stage.lock() {
+                    *stage = diagnostics::phase(message);
+                }
                 let _ = tx.send(Event::RuntimeProgress(message.into()));
                 ctx.request_repaint();
             };
@@ -1064,6 +1129,7 @@ impl Canna {
                             play_backup::remember_applied(&game, &applied)?;
                         }
                         let requested = std::time::SystemTime::now();
+                        progress("Launching through Steam…");
                         let owned = runtime::launch(&game, modded).inspect_err(|_| {
                             if modded && runtime::ensure_closed(&game).is_ok() {
                                 let _ = runtime::restore_vanilla(&game);
@@ -1100,6 +1166,7 @@ impl Canna {
                             play_backup::remember_applied(&game, &applied)?;
                         }
                         let requested = std::time::SystemTime::now();
+                        progress("Launching current setup through Steam…");
                         let owned = runtime::launch_current(&game, &token, options, &progress)
                             .inspect_err(|_| {
                                 if runtime::ensure_closed(&game).is_ok() {
@@ -1112,6 +1179,18 @@ impl Canna {
                 }
             })()
             .map_err(|e| format!("{e:#}"));
+            if let Err(error) = &result {
+                let stage = diagnostic_stage.lock().map(|v| *v).unwrap_or("prepare");
+                diagnostic_reporter.submit(diagnostics::report(
+                    id,
+                    diagnostic_operation,
+                    stage,
+                    error,
+                    diagnostic_mod_count,
+                    options.rebound_enabled,
+                    game.path.join("BepInEx/core/BepInEx.dll").is_file(),
+                ));
+            }
             let _ = tx.send(Event::Runtime(result));
             ctx.request_repaint();
         });
@@ -2079,7 +2158,7 @@ fn main() -> eframe::Result {
     };
     eframe::run_native(
         if cfg!(canna_rebound_local_preview) {
-            "Canna Mod Manager · Canna Rebound local preview"
+            "Canna Mod Manager · Canna Bliss local preview"
         } else {
             "Canna Mod Manager"
         },
@@ -2220,7 +2299,7 @@ mod ui_tests {
             assert!(app.pending_update.is_none());
             assert_eq!(
                 app.update_status,
-                "Canna Rebound local preview; automatic updates disabled"
+                "Canna Bliss local preview; automatic updates disabled"
             );
             app.tx
                 .send(Event::Update(Err("late failed stable update".into())))
@@ -2228,11 +2307,36 @@ mod ui_tests {
             app.events(&ctx);
             assert_eq!(
                 app.update_status,
-                "Canna Rebound local preview; automatic updates disabled"
+                "Canna Bliss local preview; automatic updates disabled"
             );
         } else {
             assert_eq!(app.pending_update.as_ref().unwrap().version, "99.0.0");
             assert!(app.update_status.contains("99.0.0 downloaded"));
+        }
+    }
+    #[test]
+    fn anonymous_reporting_is_visible_in_settings_without_login_or_beta() {
+        for size in [egui::vec2(1280.0, 900.0), egui::vec2(840.0, 650.0)] {
+            let ctx = egui::Context::default();
+            let mut app = Canna::new_with_context(&ctx, false);
+            app.token.clear();
+            app.settings_open = true;
+            app.settings.anonymous_reports = false;
+            app.diagnostics.enable(false);
+            let mut found = false;
+            for _ in 0..3 {
+                let output = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, size)),
+                        ..Default::default()
+                    },
+                    |ctx| app.settings_ui(ctx),
+                );
+                found=output.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Text(t) if t.galley.text()=="Send anonymous launcher error reports" && t.pos.y>=s.clip_rect.min.y && t.pos.y+18.0<=s.clip_rect.max.y));
+            }
+            assert!(found, "Reporting preference must be visible at {size:?}");
+            assert!(!app.diagnostics.is_enabled());
+            assert!(!app.rebound_access.allowed);
         }
     }
     #[cfg(canna_rebound_local_preview)]
@@ -2242,7 +2346,7 @@ mod ui_tests {
         let mut app = Canna::new_with_context(&ctx, false);
         assert_eq!(
             app.update_status,
-            "Canna Rebound local preview; automatic updates disabled"
+            "Canna Bliss local preview; automatic updates disabled"
         );
         app.pending_update = Some(unavailable_update_fixture());
         for size in [egui::vec2(1240.0, 820.0), egui::vec2(840.0, 650.0)] {
@@ -2259,7 +2363,7 @@ mod ui_tests {
             );
             assert_eq!(
                 app.update_status,
-                "Canna Rebound local preview; automatic updates disabled"
+                "Canna Bliss local preview; automatic updates disabled"
             );
             assert!(result.viewport_output.values().all(|viewport| {
                 !viewport

@@ -1,4 +1,4 @@
-// Test-only plugin. Never include in a published Canna Rebound package.
+// Test-only plugin. Never include in a published Canna Bliss package.
 using System;
 using System.Collections;
 using System.Collections.Generic;
@@ -11,7 +11,7 @@ using Photon.Pun;
 using UnityEngine;
 using UnityEngine.SceneManagement;
 
-[BepInPlugin("canna.ducttapeplusplus.smokechecks", "Canna Rebound controlled smoke checks", "0.0.1")]
+[BepInPlugin("canna.ducttapeplusplus.smokechecks", "Canna Bliss controlled smoke checks", "0.0.1")]
 [BepInDependency("canna.ducttapeplusplus.networkguard")]
 [BepInDependency("com.willis.rounds.unbound")]
 public sealed class DuctTapePlusPlusSmokeChecks : BaseUnityPlugin
@@ -163,7 +163,7 @@ public sealed class DuctTapePlusPlusSmokeChecks : BaseUnityPlugin
             Require(empty != null && !empty.MoveNext(), "No-room native DoStartGame returns an empty coroutine");
             var ready = AccessTools.Method(typeof(CharacterSelectionInstance), "ReadyUp", Type.EmptyTypes);
             Require(HasGate(ready), "Native readiness method has an installed guard prefix");
-            selection = new GameObject("Canna Rebound disposable readiness fixture");
+            selection = new GameObject("Canna Bliss disposable readiness fixture");
             selection.SetActive(false);
             var target = selection.AddComponent<CharacterSelectionInstance>();
             var readyFlag = AccessTools.Field(typeof(CharacterSelectionInstance), "isReady");
@@ -651,7 +651,7 @@ public sealed class DuctTapePlusPlusSmokeChecks : BaseUnityPlugin
                     string label = (method.DeclaringType == null ? "unknown" : method.DeclaringType.FullName) + "." + method.Name;
                     report.Add("DIAG Failure method: " + new string(label.Take(160).Select(c => c >= ' ' && c <= '~' ? c : '?').ToArray()));
                 }
-            Logger.LogError("Canna Rebound smoke failed: " + name + " (" + cause.GetType().Name + ")");
+            Logger.LogError("Canna Bliss smoke failed: " + name + " (" + cause.GetType().Name + ")");
             return false;
         }
     }
@@ -666,7 +666,7 @@ public sealed class DuctTapePlusPlusSmokeChecks : BaseUnityPlugin
         CleanupTemporaryCard();
         Directory.CreateDirectory(output);
         File.WriteAllLines(Path.Combine(output, "report.txt"), report);
-        Logger.LogInfo("Canna Rebound smoke complete: " + report.Count(r => r.StartsWith("PASS ")) + " assertions; " + report.Count(r => r.StartsWith("FAIL ")) + " failures.");
+        Logger.LogInfo("Canna Bliss smoke complete: " + report.Count(r => r.StartsWith("PASS ")) + " assertions; " + report.Count(r => r.StartsWith("FAIL ")) + " failures.");
         Application.Quit();
     }
 }

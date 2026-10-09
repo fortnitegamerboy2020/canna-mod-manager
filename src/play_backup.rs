@@ -886,7 +886,7 @@ mod tests {
             let error = restore(&policy, &game, &snapshot, "", Default::default(), &|_| {})
                 .err()
                 .unwrap();
-            assert!(error.to_string().contains("Enable Canna Rebound"));
+            assert!(error.to_string().contains("Enable Canna Bliss"));
             assert_eq!(fs::read(&config).unwrap(), b"current config remains");
             assert_eq!(fs::read(&active).unwrap(), b"current plugin remains");
             assert!(!game.path.join(".canna-config-recovery-stage").exists());

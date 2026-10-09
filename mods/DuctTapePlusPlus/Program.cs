@@ -148,7 +148,7 @@ static class Program
                 throw new InvalidDataException("Configuration and patchers must be temporary preparation directories");
         }
         if (ManifestContract.ReadFiles(request.patchers).Count > 0)
-            throw new InvalidDataException("Uncovered preloaders/patchers are unsupported in the Canna Rebound preview");
+            throw new InvalidDataException("Uncovered preloaders/patchers are unsupported in the Canna Bliss preview");
         if (request.declared_dependencies == null || request.declared_dependencies.Length > 4096)
             throw new InvalidDataException("Invalid dependency list");
     }
@@ -390,7 +390,7 @@ static class Program
         var game = gameResolver.Game;
         foreach (var name in needed) game.Resolver.Set(Path.Combine(output, "DuctTapePlusPlus", "Libraries", name + ".dll"));
         var scanner = new Scanner(game);
-        var curated = new Curated(Path.Combine(working, "curated"), new ManualLogSource("Canna Rebound offline"));
+        var curated = new Curated(Path.Combine(working, "curated"), new ManualLogSource("Canna Bliss offline"));
         foreach (var original in inputs)
         {
             var relative = ManifestContract.Relative(output, original);

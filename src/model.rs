@@ -13,6 +13,8 @@ pub struct Settings {
     pub low_end: bool,
     #[serde(default)]
     pub rebound_enabled: bool,
+    #[serde(default)]
+    pub anonymous_reports: bool,
 }
 impl Settings {
     pub fn path() -> PathBuf {
@@ -74,15 +76,24 @@ mod tests {
         )
         .unwrap();
         assert!(!old.rebound_enabled);
+        assert!(!old.anonymous_reports);
+        assert!(!super::Settings::default().anonymous_reports);
         assert!(!super::Settings::default().rebound_enabled);
         let mut enabled = old;
         enabled.rebound_enabled = true;
+        enabled.anonymous_reports = true;
         let saved = serde_json::to_vec(&enabled).unwrap();
         assert!(
             serde_json::from_slice::<super::Settings>(&saved)
                 .unwrap()
                 .rebound_enabled
         );
+        assert!(
+            serde_json::from_slice::<super::Settings>(&saved)
+                .unwrap()
+                .anonymous_reports
+        );
+        assert!(serde_json::from_str::<super::Settings>(r#"{"owner":"canna","repository":"server","branch":"main","steam_path":"","anonymous_reports":"true"}"#).is_err());
     }
     #[test]
     fn registry_separates_source_from_unity() {
