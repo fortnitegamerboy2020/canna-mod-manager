@@ -10,6 +10,7 @@ async function refreshLiveViews() {
     if(!currentUser) currentUser=await (await api('me')).json();
     await loadNotifications();if(!$('submissionsview').hidden)await loadSubmissions();
     if(kinds.has('refresh') || kinds.has('chat'))await loadChat();
+    if(kinds.has('refresh')||kinds.has('chat')||kinds.has('wallets')){if(typeof refreshAdminWallets==='function')await refreshAdminWallets();if(kinds.has('wallets')&&!$('gamblingview')?.hidden&&typeof loadGambling==='function')await loadGambling();}
     if(kinds.has('refresh') || kinds.has('announcement'))await loadAnnouncement();
     if(kinds.has('refresh') || kinds.has('members')) {
       if(kinds.has('members'))$('livenotice').textContent='The member directory was updated.';

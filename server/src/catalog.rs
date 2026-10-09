@@ -158,6 +158,36 @@ pub fn project_key(d: &Value) -> Option<String> {
     let (loader, version) = external::update_profile(d);
     Some(format!("{}|{}|{}", url, loader, version))
 }
+fn framework_game(path: &str) -> Option<u32> {
+    match path {
+        "bopl-battle/Framework/BepInEx.zip" => Some(1686940),
+        "rounds/Framework/BepInEx.zip" => Some(1557740),
+        _ => game_profiles::games()
+            .iter()
+            .find(|g| path == format!("{}/Framework/BepInEx.zip", g.folder))
+            .map(|g| g.app_id),
+    }
+}
+fn reviewed_framework(db: &Connection, app_id: u32) -> ApiResult<Option<(String, i64, String)>> {
+    let mut stmt = db.prepare("SELECT m.id,m.size,m.sha256 FROM mods m JOIN mod_details d ON d.mod_id=m.id WHERE (m.app_id=?1 OR EXISTS(SELECT 1 FROM mods parent JOIN mod_details pd ON pd.mod_id=parent.id JOIN json_each(pd.data,'$.dependency_ids') dep WHERE parent.app_id=?1 AND dep.value=m.id)) AND json_type(d.data,'$.framework_root')='text' ORDER BY m.rowid DESC LIMIT 128")?;
+    let rows = stmt
+        .query_map([app_id], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, _>>()?;
+    for row in rows {
+        match security::approved(db, &row.0) {
+            Ok(()) => return Ok(Some(row)),
+            Err(error) if error.0.is_server_error() => return Err(error),
+            Err(_) => continue,
+        }
+    }
+    Ok(None)
+}
 pub async fn file(
     State(app): State<Shared>,
     headers: HeaderMap,
@@ -174,6 +204,12 @@ pub async fn file(
     }
     let (id, size, hash, artwork) = {
         let db = app.db.lock().unwrap();
+        // Legacy imported asset aliases are not reviewed mod records. Prefer
+        // an actual approved loader, including its complete dependency graph.
+        let reviewed_loader = framework_game(&q.path)
+            .map(|app_id| reviewed_framework(&db, app_id))
+            .transpose()?
+            .flatten();
         let asset: Option<(String, i64, String, String)> = db
             .query_row(
                 "SELECT id,size,sha256,kind FROM game_assets WHERE alias=?1",
@@ -181,7 +217,9 @@ pub async fn file(
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional()?;
-        if let Some((id, size, hash, kind)) = asset {
+        if let Some((id, size, hash)) = reviewed_loader {
+            (id, size, hash, false)
+        } else if let Some((id, size, hash, kind)) = asset {
             (id, size, hash, kind == "icon")
         } else {
             let filename = q
@@ -194,11 +232,9 @@ pub async fn file(
             if let Some(row) = ordinary {
                 (row.0, row.1, row.2, false)
             } else {
-                let profile = game_profiles::games()
-                    .iter()
-                    .find(|g| q.path == format!("{}/Framework/BepInEx.zip", g.folder))
+                let app_id = framework_game(&q.path)
                     .ok_or(ApiError(StatusCode::NOT_FOUND, "Catalog file unavailable"))?;
-                let row: (String, i64, String) = db.query_row("SELECT m.id,m.size,m.sha256 FROM mods m JOIN mod_details d ON d.mod_id=m.id JOIN mod_reviews r ON r.mod_id=m.id WHERE (m.app_id=?1 OR EXISTS(SELECT 1 FROM mods parent JOIN mod_details pd ON pd.mod_id=parent.id JOIN json_each(pd.data,'$.dependency_ids') dep WHERE parent.app_id=?1 AND dep.value=m.id)) AND r.approved=1 AND json_type(d.data,'$.framework_root')='text' ORDER BY m.rowid DESC LIMIT 1",[profile.app_id],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?))).optional()?.ok_or(ApiError(StatusCode::NOT_FOUND,"Import a mod with its official loader dependencies, then review the loader before installing"))?;
+                let row = reviewed_framework(&db, app_id)?.ok_or(ApiError(StatusCode::NOT_FOUND,"Import a mod with its official loader dependencies, then complete its review before installing"))?;
                 (row.0, row.1, row.2, false)
             }
         }
@@ -326,6 +362,119 @@ mod tests {
     }
     use super::*;
     use crate::tests::{account, call, fixture, value};
+    #[tokio::test]
+    async fn reviewed_loader_wins_over_legacy_asset_and_newer_unreviewed_release() {
+        let (_dir, app) = fixture();
+        let token = account(&app, "loader-alias-owner", true);
+        let bytes = b"PK\x03\x04approved loader";
+        let loader = external::store(
+            &app,
+            1,
+            1686940,
+            "BepInExPack",
+            "1",
+            "",
+            "loader-alias:1",
+            &json!({"framework_root":"BepInExPack","provider":"thunderstore"}),
+            bytes,
+        )
+        .await
+        .unwrap();
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE mod_reviews SET approved=1 WHERE mod_id=?1",
+                [&loader],
+            )
+            .unwrap();
+        let newer = external::store(
+            &app,
+            1,
+            1686940,
+            "BepInExPack",
+            "2",
+            "",
+            "loader-alias:2",
+            &json!({"framework_root":"BepInExPack","provider":"thunderstore"}),
+            b"PK\x03\x04unreviewed",
+        )
+        .await
+        .unwrap();
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE mod_reviews SET approved=0 WHERE mod_id=?1",
+                [&newer],
+            )
+            .unwrap();
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "INSERT INTO game_assets VALUES(?1,?2,?3,?4,?5,?6)",
+                params![
+                    "legacy-loader-asset",
+                    "bopl-battle/Framework/BepInEx.zip",
+                    "b".repeat(64),
+                    12,
+                    1686940,
+                    "framework"
+                ],
+            )
+            .unwrap();
+        let path = "/api/v1/catalog/file?path=bopl-battle%2FFramework%2FBepInEx.zip";
+        assert_eq!(
+            call(app.clone(), "GET", path, Value::Null, None)
+                .await
+                .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let response = call(app.clone(), "GET", path, Value::Null, Some(&token)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["x-canna-sha256"],
+            hex::encode(Sha256::digest(bytes))
+        );
+        assert_eq!(
+            axum::body::to_bytes(response.into_body(), 1024)
+                .await
+                .unwrap()
+                .as_ref(),
+            bytes
+        );
+        {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "UPDATE mod_reviews SET approved=1 WHERE mod_id=?1",
+                [&newer],
+            )
+            .unwrap();
+            db.execute("UPDATE mod_details SET data=json_set(data,'$.dependency_ids',json('[\"missing-required-library\"]')) WHERE mod_id=?1", [&newer]).unwrap();
+        }
+        // A checked approval flag alone cannot bypass a blocked dependency.
+        let response = call(app.clone(), "GET", path, Value::Null, Some(&token)).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response.headers()["x-canna-sha256"],
+            hex::encode(Sha256::digest(bytes))
+        );
+        app.db
+            .lock()
+            .unwrap()
+            .execute(
+                "UPDATE mod_reviews SET approved=0 WHERE mod_id=?1",
+                [&loader],
+            )
+            .unwrap();
+        assert_eq!(
+            call(app.clone(), "GET", path, Value::Null, Some(&token))
+                .await
+                .status(),
+            StatusCode::FORBIDDEN
+        );
+    }
     #[tokio::test]
     async fn shared_reviewed_loader_resolves_through_game_dependencies() {
         let (_dir, app) = fixture();

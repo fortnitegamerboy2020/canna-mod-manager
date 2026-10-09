@@ -39,6 +39,7 @@ mod gambling;
 mod game_profiles;
 mod handoff;
 mod invitations;
+mod launcher_diagnostics;
 mod lists;
 mod live;
 mod lounge;
@@ -183,6 +184,7 @@ impl App {
         support::initialize(&db)?;
         play::initialize(&db)?;
         rebound_diagnostics::initialize(&db)?;
+        launcher_diagnostics::initialize(&db)?;
         catalog::initialize(&db)?;
         mod_updates::initialize(&db)?;
         subscriptions::initialize(&db)?;
@@ -1247,8 +1249,13 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/rebound/support", get(admin_settings::rebound_support))
         .route("/api/v1/rebound/diagnostics", post(rebound_diagnostics::submit).layer(DefaultBodyLimit::max(16*1024)))
         .route("/api/v1/admin/rebound-diagnostics", get(rebound_diagnostics::list))
+        .route("/api/v1/launcher/diagnostics", post(launcher_diagnostics::submit).layer(DefaultBodyLimit::max(4096)))
+        .route("/api/v1/admin/launcher-diagnostics", get(launcher_diagnostics::list))
         .route("/api/v1/gambling", get(gambling::overview))
         .route("/api/v1/gambling/daily", post(gambling::daily))
+        .route("/api/v1/chat/tip-recipients", get(lounge::tip_recipients))
+        .route("/api/v1/gambling/arcade/play", post(gambling::play))
+        .route("/api/v1/admin/gambling/rules", post(gambling::admin_rules))
         .route("/api/v1/gambling/crash/bet", post(gambling::crash_bet))
         .route("/api/v1/gambling/crash/cashout", post(gambling::crash_cashout))
         .route("/api/v1/gambling/blackjack/deal", post(gambling::blackjack_deal))
@@ -1454,6 +1461,7 @@ async fn main() -> anyhow::Result<()> {
     lounge::start_cleanup(app.clone());
     play::start_cleanup(app.clone());
     rebound_diagnostics::start_cleanup(app.clone());
+    launcher_diagnostics::start_cleanup(app.clone());
     scans::start(app.clone());
     notifications::start(app.clone());
     mod_updates::start(app.clone());

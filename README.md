@@ -1,10 +1,16 @@
 # Canna Mod Manager
 
-Current desktop 0.2.46 prepares and activates managed Steam modpacks on Launch modded. Automatic approved project updates are on by default; disable them in Edit modpack for exact pins. Saving a pack and optional Prepare downloads keep plugins outside the game folder. Confirmed exit cleanup uses an external runtime cache while Canna remains open; use Restore vanilla files with the game closed if cleanup was interrupted. Local imports, disabled choices and manual game files are preserved. Community 0.3.69 adds Beta friend links, private Beta-member link delivery and previewed random/newest/oldest/most-posts access waves for existing accounts. Beta remains additive and Rebound downloads require current server authorization. MW2 calling cards remain paused. See public /help for current steps and verification limits.
+Community 0.3.70 additions: Roulette, Dice and Slots; owner controls for game pauses, stake limits, arcade payout factors, crate prices and daily new-game limits; 1,000× Crash; `/tip @username amount` with member autocomplete and retry protection; and live admin wallet values that preserve adjustment drafts. Protected membership checks and atomic wallet accounting remain in place. Released with Desktop 0.2.47 / Community 0.3.70.
+
+Desktop 0.2.47: **Canna Bliss**, formerly **Canna Rebound**. Existing settings, Beta permissions and compatibility identifiers are preserved. The user reported a successful multiplayer match with their CR setup; broader mod combinations and anonymous report delivery remain unverified.
+
+Desktop 0.2.47: **Settings → Send anonymous launcher error reports** is off by default and saves your preference. When enabled, Canna submits fixed diagnostic codes for preparation, dependencies, loader downloads, launch failures and fresh loader-related startup errors. It sends the game ID, desktop version/platform, operation/stage, HTTP status if known, selected mod count when available, and loader/Bliss flags. No account identifiers, usernames, personal paths, raw logs, tokens, modpack names or setting values are included. Generic gameplay exceptions and stale logs are ignored. A random token changes on each app run; submissions are deduplicated and limited to one per minute and twenty per run. This setting also controls Bliss's existing anonymous compatibility hashes, checked every two seconds while the game runs. Turning it off stops new submissions; an already received report cannot be withdrawn. Staff can inspect reports under **Admin → Diagnostics**. Records expire after seven days, with at most 5,000 records per report type. Network infrastructure sees connection IP addresses; these are not stored in diagnostic records. Diagnostics are untrusted clues and never modify approvals or gameplay. Local fixtures cover consent, redaction, permissions, rate limits and retention; Real desktop/game-to-server delivery remains unverified pending an opted-in test.
+
+Current desktop 0.2.47 prepares and activates managed Steam modpacks on Launch modded. Automatic approved project updates are on by default; disable them in Edit modpack for exact pins. Saving a pack and optional Prepare downloads keep plugins outside the game folder. Confirmed exit cleanup uses an external runtime cache while Canna remains open; use Restore vanilla files with the game closed if cleanup was interrupted. Local imports, disabled choices and manual game files are preserved. Community 0.3.69 adds Beta friend links, private Beta-member link delivery and previewed random/newest/oldest/most-posts access waves for existing accounts. Beta remains additive and Bliss downloads require current server authorization. MW2 calling cards remain paused. See public /help for current steps and verification limits.
 
 A native Rust desktop mod library for you and your family. Dark forest colors, Steam library discovery, Bopl Battle as the first supported game, and the private Canna server as the mod catalog. Uploads and external imports are managed on the website.
 
-Canna 0.2.46 uses a compact icon sidebar and a borderless window. The yellow
+Canna 0.2.47 uses a compact icon sidebar and a borderless window. The yellow
 button in the top right minimizes; green maximizes/restores; red closes Canna. Drag
 the header to move the window, or double-click it to maximize/restore. Hover
 sidebar icons for their names. Drag any window edge or corner to resize.
@@ -15,8 +21,8 @@ uses its game cover. Website Play Lab uses numbered expandable cards. Mod review
 show scan progress, dependency blockers, retries and queue totals; shared libraries
 scan first. Public Help / FAQ describes the current workflow and verification limits.
 
-Desktop 0.2.46 and Community 0.3.69 offer server-verified Beta access for the
-Rebound runtime preview, searchable official Minecraft version choices and result
+Desktop 0.2.47 and Community 0.3.70 offer server-verified Beta access for the
+Bliss runtime preview, searchable official Minecraft version choices and result
 counts. The website adds an Admin overview, invitation and registration pause
 controls, signup invitation links alongside manual codes, Crash, Blackjack and separate BO2/MW2/avatar-frame crates, plus email-only Forgot password
 and Forgot username forms. Staff review now has an advisory overview, a full
@@ -42,7 +48,7 @@ adopting another account, and prefetched reads remain bound to their member.
 Animated profile artwork has a persistent browser
 pause control and reacts immediately to system reduced-motion changes.
 Earlier desktop 0.2.45 rechecked current server Beta authorization before launching an
-already-active managed Rebound setup. The applied pack binds the authorized
+already-active managed Bliss setup. The applied pack binds the authorized
 support archive, installed compatibility manifest and game assembly hashes;
 older or changed setups ask you to reapply the pack. This prelaunch check reads
 metadata and does not install or remove files. Other games and vanilla launches
@@ -56,7 +62,7 @@ payload-name hints help trace components without clearing findings. These tools
 do not establish mod safety or full game/multiplayer
 compatibility; Minecraft account/launch API approval remains pending.
 
-The gated Rebound support refresh corrects the reviewed local picker/player-ID
+The gated Bliss support refresh corrects the reviewed local picker/player-ID
 and rebuilt card-bar contracts. An isolated game copy passed 204 assertions
 over six native turns using IDs 0/1, 0/2 and 1/2, retaining actual-ID CardData
 and checking intended bars and completed handoffs. Temporary prefab effect/audio
@@ -71,7 +77,7 @@ method checks. Controlled isolated native firing and explicit-impact probes
 retain ammunition, damage attribution and real projectile movement/sync. These
 checks do not certify natural collisions, physical input, full matches or
 two-client multiplayer. Earlier card-picker-only errors remain documented;
-Rebound continues to be a Beta preview.
+Bliss continues to be a Beta preview.
 
 ## Run
 
@@ -94,7 +100,7 @@ Build a portable executable with `./build.ps1`. Rust and Windows C++ build tools
 - Counts local plugin DLLs, opens the game folder, and launches installed games through Steam.
 - Reads game metadata, icons, framework packages and mod listings from the authenticated Canna server on a background thread. Reports expired sessions, malformed metadata and network errors.
 
-Creating a modpack automatically sets up BepInEx. Fresh setup creates Canna Doorstop configuration disabled and preserves existing manual configuration. Modded launch enables the loader. **Add Mods** opens **Discover**, where you can search the family catalog, choose a compatible modpack, and add or update only the selected pinned package without adding or re-enabling its libraries; **Import local mod** adds a DLL or plugin ZIP. **Launch modded** installs the enabled selections in `BepInEx/plugins/Canna` with the game closed. It intentionally leaves that prepared setup until restoration; saving selection changes does not install files. **Launch modded** installs the selected pack and launches through Steam. **Launch vanilla** restores Canna-managed Unity files and disables Doorstop before launching. **Stop instance** terminates the game process Canna launched, using a retained Windows handle. It appears in the pack, its right-click menu, game details, and navigation while that process runs. Independently launched games are never adopted. Existing plugins outside Canna are preserved and also load in modded mode.
+Creating a modpack automatically sets up BepInEx. Fresh setup creates Canna Doorstop configuration disabled and preserves existing manual configuration. Modded launch enables the loader. **Add Mods** opens **Discover**, where you can search the family catalog, choose a compatible modpack, and add or update the pinned package with its available approved dependencies while preserving disabled libraries, local replacements and explicit removals; **Import local mod** adds a DLL or plugin ZIP. **Launch modded** installs the enabled selections in `BepInEx/plugins/Canna` with the game closed. It intentionally leaves that prepared setup until restoration; saving selection changes does not install files. **Launch modded** installs the selected pack and launches through Steam. **Launch vanilla** restores Canna-managed Unity files and disables Doorstop before launching. **Stop instance** terminates the game process Canna launched, using a retained Windows handle. It appears in the pack, its right-click menu, game details, and navigation while that process runs. Independently launched games are never adopted. Existing plugins outside Canna are preserved and also load in modded mode.
 
 Desktop 0.2.43 introduced **Restore vanilla files**, without launching the game, in
 Unity game details, the Library right-click menu and modpack actions. Close the
@@ -110,7 +116,7 @@ Keep Canna open until a game it launched exits, or use **Stop instance**, for
 automatic cleanup after confirmed exit. Games launched independently through
 Steam are not adopted or automatically cleaned. Setup restores the tracked
 runtime; Launch modded or Launch modded prepares the current pack. Launching a parked
-Rebound pack rechecks current server-verified Beta access before reapplying it.
+Bliss pack rechecks current server-verified Beta access before reapplying it.
 The same account-free restore action is available from source with
 `cargo run --release -- --restore-vanilla 1557740` for ROUNDS; it does not launch
 the game. Cleanup validation uses isolated temporary game folders; new live
@@ -174,7 +180,7 @@ Open **Modpacks** in the sidebar, then **Create modpack**. Name the pack, select
 
 The modpack library uses game-art cover cards, sorting and game filters. **New modpack** opens a choice between a custom setup and importing a family pack. Creation and editing use a centered dialog with game, cover color, group, description and mod choices. **New group** creates a named collection and can assign existing packs. Groups and cover colors are preserved during export/import. Opening a card shows its **Content** table and **Pack details**. In the game library, **Create modpack** starts a setup with that game selected.
 
-Saved packs can be edited, duplicated and searched. **Remove**, **Disable** and **Save** accept your selection even if another mod declares that package as a dependency. Dependency metadata stays available for information and diagnostics. **Add Mod** changes only the selected package, preserving removed libraries and disabled selections. Use **Launch modded** or **Launch modded** with the game closed to install the enabled selections. **Export** writes a `.canna.zip` bundle containing the manifest and any imported local mod files. Repository mods remain version/checksum-pinned references. **Import** supports both `.canna.zip` and older `.canna.json` manifests, validates paths and checksums, and assigns a fresh local pack ID. Exports contain no tokens or local game paths. After importing, use **Launch modded** or **Launch modded**.
+Saved packs can be edited, duplicated and searched. **Remove**, **Disable** and **Save** accept your selection even if another mod declares that package as a dependency. Dependency metadata stays available for information and diagnostics. **Add Mod** resolves available approved dependencies recursively while preserving explicit removals, local replacements and disabled selections. Prepare downloads and Launch modded also repair missing dependencies in existing packs. Use **Launch modded** or **Launch modded** with the game closed to install the enabled selections. **Export** writes a `.canna.zip` bundle containing the manifest and any imported local mod files. Repository mods remain version/checksum-pinned references. **Import** supports both `.canna.zip` and older `.canna.json` manifests, validates paths and checksums, and assigns a fresh local pack ID. Exports contain no tokens or local game paths. After importing, use **Launch modded** or **Launch modded**.
 
 The family catalog now includes **Drill Through Ball 1.0.4**, a BepInEx plugin built from `mods/DrillThroughBall/`. Its gameplay and multiplayer behavior need playtesting; all participants should use the same version and setting.
 
@@ -219,25 +225,25 @@ Each modpack's Content table has an **Enabled** checkbox; right-click a mod for 
 The enabled official [DuctTape package by kieron_exe](https://thunderstore.io/c/rounds/p/kieron_exe/DuctTape/) requires the public ROUNDS branch (Steam → Properties → Betas → None). Canna recognizes its Thunderstore project identity `kieron_exe-DuctTape` and suppresses only the inferred old-branch requirement from UnboundLib 3.2.14 / MMHook 1.0.0. Explicit legacy branch requirements, the original HollowPurple requirement and the guard against enabling original HollowPurple together with HollowPurple Fixed remain. The author's guide says to retain UnboundLib, MMHook and RoundsWithFriends as installed packages; DuctTape substitutes their assemblies during launch. This branch-check change has fixture coverage; live DuctTape gameplay and multiplayer integration have not been verified by these checks.
 
 **Desktop 0.2.42 with Community 0.3.58 or newer** requires server-verified Beta access and
-downloads protected Rebound support separately. Previously distributed desktop
+downloads protected Bliss support separately. Previously distributed desktop
 0.2.41 still contains its original opt-in support bundle; updating replaces that
 distribution model but cannot remove already distributed files retroactively.
 
-Desktop 0.2.44 fixes an unchanged-config Rebound preparation refusal: the
+Desktop 0.2.44 fixes an unchanged-config Bliss preparation refusal: the
 preflight snapshot and final verification now use the same gameplay-config
 scope. BepInEx's own `BepInEx/config/BepInEx.cfg` is consistently excluded from
 that gameplay fingerprint. Changes to included mod configurations or game files
 still stop preparation; close ROUNDS and prepare again after resolving them.
 This fix does not establish CR gameplay, full matches or multiplayer compatibility.
 
-**Canna Rebound Beta workflow:** Beta is an additional
+**Canna Bliss Beta workflow:** Beta is an additional
 account role alongside Member, VIP, Admin or Owner. Sign in with an account that
-has Beta access, then enable **Settings → Canna Rebound for ROUNDS (preview)**
+has Beta access, then enable **Settings → Canna Bliss for ROUNDS (preview)**
 before applying or launching a public ROUNDS pack. It is off by default. The
 desktop checks the protected server manifest before downloading or reading cached
 support and rechecks authorization before installation. Logout or a denied access
 check clears the managed support cache. Cached files do not grant offline access.
-Rebound prepares translations on temporary copies and scans compiled game
+Bliss prepares translations on temporary copies and scans compiled game
 calls even when a mod declares no dependencies, supplies supported modern library
 ports, and refuses unresolved dependencies or translations that still require a
 manual port. Saved pack selections remain editable. Steam build IDs are not game
@@ -250,13 +256,13 @@ installation and the official DuctTape workflow. Build instructions and limits a
 while ROUNDS is running.
 
 Normal `cargo run`, `cargo run --release`, `build.ps1` and
-`scripts/Build-ReboundRelease.ps1` produce a desktop with no embedded Rebound
+`scripts/Build-ReboundRelease.ps1` produce a desktop with no embedded Bliss
 DLLs. They authenticate Beta access and download the protected support when a
 ROUNDS pack is prepared. A local support ZIP or the `CANNA_DUCTTAPE_SUPPORT`
-environment variable alone cannot enable Rebound. Automatic bundling is removed.
+environment variable alone cannot enable Bliss. Automatic bundling is removed.
 The regular desktop keeps automatic updates enabled.
 
-The separate development **Canna Rebound Preview.exe** disables automatic desktop
+The separate development **Canna Bliss Preview.exe** disables automatic desktop
 updates. Build it with `scripts/Build-DuctTapePreview.ps1`; this executable also
 requires server-verified Beta access and carries no embedded support. Use the
 public ROUNDS branch and disable the original DuctTape/preloader package in the
@@ -286,7 +292,7 @@ limitations; successful preparation does not verify every gameplay path.
 Normal ROUNDS/Bopl **Add Mods** saves only the selected package, and **Apply**
 installs enabled saved entries. Provider imports fetch and review dependency
 archives in the server library but do not add them to your pack. Removed or
-disabled dependencies stay removed or disabled. Enabled Rebound supplies its
+disabled dependencies stay removed or disabled. Enabled Bliss supplies its
 supported pinned dependencies in the prepared installation; Minecraft content
 installation separately resolves compatible catalog dependencies. There is no
 universal automatic dependency addition for ordinary packs.
@@ -438,11 +444,11 @@ The MW2 crate and new equips are disabled; mixed cases exclude MW2 drops.
 Paused artwork is hidden in collections/profiles. Ownership and existing stored
 selections are retained; BO2 and avatar-frame cosmetics remain active.
 
-Community 0.3.68 recognizes exact reviewed Rebound-supplied dependency releases
+Community 0.3.68 recognizes exact reviewed Bliss-supplied dependency releases
 when Beta members share ROUNDS packs. Shared original archives retain a preview
 requirement; recipients still need their own verified Beta access before support
 download/storage and installation. Unknown missing dependency pins remain blocked.
-Rebound peer parity uses bound active settings, retains unknown configs, and
+Bliss peer parity uses bound active settings, retains unknown configs, and
 ignores config comments/order, two known inactive plugin configs and local mouse
 lock. Gameplay values and immutable content still must match. Warnings separate
 DLL/support, asset/patcher and gameplay-setting mismatches. Both players must
@@ -455,3 +461,9 @@ archive pin can omit CardThemeLib 1.1.7, GravityPatch 0.0.0, ZeroGBulletPatch
 1.1.0 and StopShootingYoureDead 0.0.0. Unknown CR archives remain blocked.
 
 Beta invitations (Community 0.3.69): owner and Beta member friend links can grant additive Beta at signup. Owners can privately distribute these links to current Beta members or preview random/newest/oldest/most-posts existing-account access waves before granting. See public /help for expiry, eligibility and limits.
+
+Community 0.3.70 analysis update: game filters and readable labels, bounded C# caller/destination traces, grouped evidence, more retained source previews, and failed-rescan evidence retention. Static tracing does not establish safety. Findings remain subject to staff review.
+
+Local dependency-installation fix (unpublished): approved required catalog packages are selected recursively when adding/saving mods and preparing existing packs, including pinned-version packs. Manual disable/local choices stay intact; new removals persist as exclusions until explicitly selected again. Website-ticket bytes recover metadata only from an exact approved name/version/game/hash match. Dependencies remain externally cached until Launch modded. Missing or ambiguous packages are reported, not guessed. Older saved packs have no historical removal exclusions.
+
+Local loader-alias fix (unpublished): framework aliases select fully approved loader records before legacy asset aliases, skip newer unreviewed releases and retain full dependency/scan checks. This fixes fresh-install Bopl loader 403 failures without changing approval records. Desktop errors now include bounded server denial explanations.

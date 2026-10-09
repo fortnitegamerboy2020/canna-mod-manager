@@ -88,7 +88,7 @@ fn validate(report: &Report) -> ApiResult<()> {
             .iter()
             .any(|peer| !valid_peer(peer) || !actors.insert(peer.actor))
     {
-        return Err(bad("Invalid anonymous Rebound diagnostic"));
+        return Err(bad("Invalid anonymous Bliss diagnostic"));
     }
     Ok(())
 }
@@ -108,7 +108,7 @@ pub fn start_cleanup(app: Shared) {
             if let Ok(db) = app.db.lock()
                 && cleanup(&db).is_err()
             {
-                eprintln!("Rebound diagnostic retention cleanup failed");
+                eprintln!("Bliss diagnostic retention cleanup failed");
             }
         }
     });

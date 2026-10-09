@@ -112,6 +112,11 @@ pub async fn publish(State(app): State<Shared>, request: Request, next: Next) ->
         ))
     } else if path.starts_with("/api/v1/chat") || path == "/api/v1/admin/chat/clear" {
         Some(("chat", "updated"))
+    } else if path.starts_with("/api/v1/gambling/")
+        || path.starts_with("/api/v1/admin/wallets/")
+        || path.starts_with("/api/v1/admin/gambling")
+    {
+        Some(("wallets", "updated"))
     } else if path == "/api/v1/admin/announcement" {
         Some(("announcement", "updated"))
     } else if path == "/api/v1/admin/sections/apply" {

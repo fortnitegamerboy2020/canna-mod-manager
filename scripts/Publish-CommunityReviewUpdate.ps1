@@ -1,6 +1,6 @@
 param(
     [string]$SourceRoot = (Split-Path $PSScriptRoot -Parent),
-    [ValidateSet('0.3.58', '0.3.59', '0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69')][string]$Version = '0.3.69',
+    [ValidateSet('0.3.58', '0.3.59', '0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70')][string]$Version = '0.3.70',
     [switch]$CheckOnly,
     [string]$ReceiptFile = '',
     [string]$ResumeReceipt = '',
@@ -54,7 +54,7 @@ function Get-CannaCommunityFiles {
     # credentials, target outputs and arbitrary deployment files are never globbed.
     $cannaCommunityFiles = @('server/Cargo.toml', 'server/Cargo.lock', 'server/README.md',
         'server/src/fixtures/rounds-dependencies.json', 'server/src/fixtures/rebound-dependencies.json', 'scripts/Publish-CommunityReviewUpdate.ps1')
-    if ($Version -in @('0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69')) { $cannaCommunityFiles += 'README.md' }
+    if ($Version -in @('0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70')) { $cannaCommunityFiles += 'README.md' }
     $cannaCommunitySourceDirectory = Join-Path $cannaCommunityRoot 'server/src'
     $cannaCommunityPending = [Collections.Generic.Stack[string]]::new()
     $cannaCommunityPending.Push($cannaCommunitySourceDirectory)
@@ -89,7 +89,7 @@ function Get-CannaCommunityFiles {
     foreach ($cannaCommunityWebFile in $cannaCommunityWebFiles) { $cannaCommunityFiles += 'server/web/' + $cannaCommunityWebFile }
     # Only the exact reviewed catalog grants permission to include cosmetic bytes.
     $cannaCommunityCatalog = [IO.File]::ReadAllText((Resolve-CannaCommunityFile 'server/web/cosmetics/catalog.json'), $cannaCommunityUtf8) | ConvertFrom-Json
-    $cannaCommunityExpectedCosmetics = if ($Version -in @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69')) { 654 } else { 315 }
+    $cannaCommunityExpectedCosmetics = if ($Version -in @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70')) { 654 } else { 315 }
     if (@($cannaCommunityCatalog.items).Count -ne $cannaCommunityExpectedCosmetics) { throw 'Reviewed cosmetic catalog count differs' }
     $cannaCommunityCosmeticNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     $cannaCommunityPosterCount = 0
@@ -100,7 +100,7 @@ function Get-CannaCommunityFiles {
         if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Resolve-CannaCommunityFile $cannaCommunityCosmeticFile)).Hash.ToLowerInvariant() -ne $cannaCommunityCosmetic.sha256) { throw 'Cosmetic hash differs from reviewed catalog' }
         $cannaCommunityFiles += $cannaCommunityCosmeticFile
         if ($null -ne $cannaCommunityCosmetic.PSObject.Properties['poster_filename']) {
-            if ($Version -notin @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69') -or !$cannaCommunityCosmetic.animated -or $cannaCommunityCosmetic.poster_filename -notmatch '^[a-z0-9][a-z0-9-]*-poster\.png$' -or $cannaCommunityCosmetic.poster_filename -cne ($cannaCommunityCosmetic.id + '-poster.png') -or $cannaCommunityCosmetic.poster_sha256 -notmatch '^[0-9a-f]{64}$' -or $cannaCommunityCosmetic.poster_asset -cne ('/api/v1/cosmetics/assets/' + $cannaCommunityCosmetic.id + '-poster')) { throw 'Unsafe cosmetic animation poster' }
+            if ($Version -notin @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70') -or !$cannaCommunityCosmetic.animated -or $cannaCommunityCosmetic.poster_filename -notmatch '^[a-z0-9][a-z0-9-]*-poster\.png$' -or $cannaCommunityCosmetic.poster_filename -cne ($cannaCommunityCosmetic.id + '-poster.png') -or $cannaCommunityCosmetic.poster_sha256 -notmatch '^[0-9a-f]{64}$' -or $cannaCommunityCosmetic.poster_asset -cne ('/api/v1/cosmetics/assets/' + $cannaCommunityCosmetic.id + '-poster')) { throw 'Unsafe cosmetic animation poster' }
             if (!$cannaCommunityCosmeticNames.Add($cannaCommunityCosmetic.poster_filename)) { throw 'Duplicate cosmetic poster filename' }
             $cannaCommunityPosterFile = 'server/web/cosmetics/' + $cannaCommunityCosmetic.poster_filename
             if ((Get-FileHash -Algorithm SHA256 -LiteralPath (Resolve-CannaCommunityFile $cannaCommunityPosterFile)).Hash.ToLowerInvariant() -ne $cannaCommunityCosmetic.poster_sha256) { throw 'Cosmetic poster hash differs from reviewed catalog' }
@@ -108,17 +108,17 @@ function Get-CannaCommunityFiles {
             $cannaCommunityPosterCount++
         }
     }
-    if ($Version -in @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69') -and $cannaCommunityPosterCount -ne 13) { throw 'Reviewed animation poster count differs' }
+    if ($Version -in @('0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70') -and $cannaCommunityPosterCount -ne 13) { throw 'Reviewed animation poster count differs' }
     # Shipped worker, contextual rules, configuration and public regression tools.
     $cannaCommunityDeployFiles = @('backup.sh', 'bootstrap.sh', 'Caddyfile',
         'canna-backup.service', 'canna-backup.timer', 'canna-review.service',
         'canna.service', 'encrypted-upgrade.sh', 'harden-ssh.sh',
-        'Open-Canna-AdminInvite.ps1', 'review_context.py', 'review-worker.py',
+        'Open-Canna-AdminInvite.ps1', 'review_context.py', 'review_trace.py', 'test-review-trace.py', 'review-worker.py',
         'security-prepare.sh', 'test-review-adversarial.py', 'test-review-context.py',
         'test-review-coverage.py', 'test-review-decompilation.py', 'test-review-live.py',
         'test-review-offline.py', 'test-review-packing.py', 'test-review-permissions.py',
         'test-review-rules.py')
-    if ($Version -in @('0.3.59', '0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69')) {
+    if ($Version -in @('0.3.59', '0.3.60', '0.3.61', '0.3.62', '0.3.63', '0.3.64', '0.3.65', '0.3.66', '0.3.67', '0.3.68', '0.3.69', '0.3.70')) {
         $cannaCommunityDeployFiles += @('test-review-documentation.py', 'test-review-metadata.py',
             'test-fixtures/licenses/GPL-3.0.txt', 'test-fixtures/licenses/Apache-2.0.txt',
             'test-fixtures/licenses/MIT.txt', 'test-fixtures/licenses/SOURCES.md')
@@ -267,7 +267,7 @@ try {
     $cannaCommunityPhase = 'source tree creation'
     $cannaCommunityTree = Invoke-CannaCommunityApi 'git/trees' 'POST' @{base_tree = $cannaCommunityParent.tree.sha; tree = $cannaCommunityEntries}
     $cannaCommunityPhase = 'source commit creation'
-    $cannaCommunityCommitMessage = if ($Version -eq '0.3.69') { 'Community 0.3.69: Beta invitation links and reviewed access waves' } elseif ($Version -eq '0.3.68') { 'Community 0.3.68: opt-in anonymous Rebound reports and staff diagnostics' } elseif ($Version -eq '0.3.67') { 'Community 0.3.67: compare synchronized Rebound pools and exclude local preferences' } elseif ($Version -eq '0.3.66') { 'Community 0.3.66: share Rebound dependency packs and improve multiplayer configuration parity' } elseif ($Version -eq '0.3.65') { 'Community 0.3.65: pause low-quality MW2 calling cards and preserve ownership' } elseif ($Version -eq '0.3.64') { 'Community 0.3.64: remove MW2 banner gray mattes and limit artwork enlargement' } else { "Community $Version`: admin, Kash games, Beta access, review workspace and account recovery" }
+    $cannaCommunityCommitMessage = if ($Version -eq '0.3.69') { 'Community 0.3.69: Beta invitation links and reviewed access waves' } elseif ($Version -eq '0.3.68') { 'Community 0.3.68: opt-in anonymous Bliss reports and staff diagnostics' } elseif ($Version -eq '0.3.67') { 'Community 0.3.67: compare synchronized Bliss pools and exclude local preferences' } elseif ($Version -eq '0.3.66') { 'Community 0.3.66: share Bliss dependency packs and improve multiplayer configuration parity' } elseif ($Version -eq '0.3.65') { 'Community 0.3.65: pause low-quality MW2 calling cards and preserve ownership' } elseif ($Version -eq '0.3.64') { 'Community 0.3.64: remove MW2 banner gray mattes and limit artwork enlargement' } else { "Community $Version`: admin, Kash games, Beta access, review workspace and account recovery" }
     $cannaCommunityCommit = Invoke-CannaCommunityApi 'git/commits' 'POST' @{message = $cannaCommunityCommitMessage; tree = $cannaCommunityTree.sha; parents = @($cannaCommunityRef.object.sha)}
     $cannaCommunityReceipt.commit = $cannaCommunityCommit.sha
     Save-CannaCommunityReceipt

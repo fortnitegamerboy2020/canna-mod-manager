@@ -4,6 +4,67 @@ mod wallet_tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
     #[tokio::test]
+    async fn review_game_filters_apply_before_pagination_and_labels_are_readable() {
+        let (_dir, app) = fixture();
+        let owner = account(&app, "sort-owner", true);
+        for (id, name, game) in [
+            ("rounds-first", "Zulu", 1557740),
+            ("bopl-first", "Alpha", 1686940),
+            ("rounds-second", "Beta", 1557740),
+        ] {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "INSERT INTO mods VALUES(?1,1,?2,?3,'1','description','hash',1)",
+                params![id, game, name],
+            )
+            .unwrap();
+            db.execute("INSERT INTO mod_reviews VALUES(?1,0)", [id])
+                .unwrap();
+        }
+        let result = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/admin/mod-reviews?page=1&app_id=1557740&sort=name",
+                Value::Null,
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(result["total"], 2);
+        assert_eq!(result["items"][0]["name"], "Beta");
+        assert_eq!(result["items"][0]["game_name"], "ROUNDS");
+        assert_eq!(result["games"].as_array().unwrap().len(), 2);
+        let oldest = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/admin/mod-reviews?page=1&sort=oldest",
+                Value::Null,
+                Some(&owner),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(oldest["items"][0]["id"], "rounds-first");
+        assert_eq!(
+            call(
+                app,
+                "GET",
+                "/api/v1/admin/mod-reviews?sort=garbage",
+                Value::Null,
+                Some(&owner)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(review_game_name(0), "Minecraft");
+        assert_eq!(review_game_name(550), "Left 4 Dead 2");
+        assert_eq!(review_game_name(9_999_999), "Unknown game (9999999)");
+    }
+    #[tokio::test]
     async fn review_cards_include_analysis_progress_and_unresolved_counts() {
         let (_dir, app) = fixture();
         let owner = account(&app, "review-owner", true);
@@ -266,16 +327,55 @@ pub async fn overview(
         json!({"members":count("SELECT COUNT(*) FROM users")?,"banned":count("SELECT COUNT(*) FROM users WHERE banned=1")?,"unverified":count("SELECT COUNT(*) FROM users WHERE verified=0")?,"mods":count("SELECT COUNT(*) FROM mods")?,"pending":count("SELECT COUNT(*) FROM mod_reviews r WHERE approved=0 AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=r.mod_id AND s.status='rejected')")?,"topics":count("SELECT COUNT(*) FROM topics")?,"posts":count("SELECT COUNT(*) FROM posts")?,"sessions":count("SELECT COUNT(*) FROM sessions WHERE expires=-1 OR expires>strftime('%s','now')")?,"storage_bytes":count("SELECT COALESCE(SUM(size),0) FROM mods")?,"version":env!("CARGO_PKG_VERSION")}),
     ))
 }
+pub(crate) fn review_game_name(app_id: i64) -> String {
+    match app_id {
+        0 | 4_294_967_295 => "Minecraft".into(),
+        1686940 => "Bopl Battle".into(),
+        1557740 => "ROUNDS".into(),
+        550 => "Left 4 Dead 2".into(),
+        500 => "Left 4 Dead".into(),
+        _ => u32::try_from(app_id)
+            .ok()
+            .and_then(game_profiles::by_id)
+            .map(|game| game.name.clone())
+            .unwrap_or_else(|| format!("Unknown game ({app_id})")),
+    }
+}
+#[derive(Default, Deserialize)]
+pub struct ReviewPage {
+    page: Option<u32>,
+    #[serde(default)]
+    search: String,
+    app_id: Option<i64>,
+    #[serde(default)]
+    sort: String,
+}
 pub async fn reviews(
     State(app): State<Shared>,
     headers: HeaderMap,
-    Query(page): Query<lists::Page>,
+    Query(query): Query<ReviewPage>,
 ) -> ApiResult<axum::Json<Value>> {
     allowed(&app, &headers)?;
+    let page = lists::Page {
+        page: query.page,
+        search: query.search,
+    };
+    let order = match query.sort.as_str() {
+        "" | "newest" => "m.rowid DESC",
+        "oldest" => "m.rowid ASC",
+        "name" => "m.name COLLATE NOCASE,m.rowid DESC",
+        "game" => "m.app_id,m.name COLLATE NOCASE,m.rowid DESC",
+        _ => return Err(bad("Unknown review sort order")),
+    };
     let db = app.db.lock().unwrap();
-    let total:i64=db.query_row("SELECT COUNT(*) FROM mods m JOIN mod_reviews r ON r.mod_id=m.id JOIN users u ON u.id=m.user_id WHERE r.approved=0 AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') AND instr(lower(m.name || u.username),lower(?1))>0",[page.term()],|r|r.get(0))?;
-    let mut statement=db.prepare("SELECT m.id,m.name,m.version,m.app_id,m.size,u.username FROM mods m JOIN mod_reviews r ON r.mod_id=m.id JOIN users u ON u.id=m.user_id WHERE r.approved=0 AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') AND instr(lower(m.name || u.username),lower(?1))>0 ORDER BY m.rowid DESC LIMIT ?2 OFFSET ?3")?;
-    let mut values=statement.query_map(params![page.term(),page.limit(200),page.offset()],|r|Ok(json!({"id":r.get::<_,String>(0)?,"name":r.get::<_,String>(1)?,"version":r.get::<_,String>(2)?,"app_id":r.get::<_,i64>(3)?,"size":r.get::<_,i64>(4)?,"author":r.get::<_,String>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
+    let filter = "FROM mods m JOIN mod_reviews r ON r.mod_id=m.id JOIN users u ON u.id=m.user_id WHERE r.approved=0 AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') AND instr(lower(m.name || u.username),lower(?1))>0 AND (?2 IS NULL OR m.app_id=?2)";
+    let total: i64 = db.query_row(
+        &format!("SELECT COUNT(*) {filter}"),
+        params![page.term(), query.app_id],
+        |r| r.get(0),
+    )?;
+    let mut statement=db.prepare(&format!("SELECT m.id,m.name,m.version,m.app_id,m.size,u.username {filter} ORDER BY {order} LIMIT ?3 OFFSET ?4"))?;
+    let mut values=statement.query_map(params![page.term(),query.app_id,page.limit(200),page.offset()],|r|Ok(json!({"id":r.get::<_,String>(0)?,"name":r.get::<_,String>(1)?,"version":r.get::<_,String>(2)?,"app_id":r.get::<_,i64>(3)?,"game_name":review_game_name(r.get(3)?),"size":r.get::<_,i64>(4)?,"author":r.get::<_,String>(5)?})))?.collect::<Result<Vec<_>,_>>()?;
     for item in &mut values {
         let id = item["id"].as_str().unwrap();
         let scan: Option<(String, String, i64)> = db
@@ -340,6 +440,13 @@ pub async fn reviews(
     }
     let mut response = page.response(values, total);
     if response.is_object() {
+        let ids = db.prepare("SELECT DISTINCT m.app_id FROM mods m JOIN mod_reviews r ON r.mod_id=m.id WHERE r.approved=0 AND NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id AND s.status='rejected') ORDER BY m.app_id LIMIT 200")?.query_map([],|r|r.get::<_,i64>(0))?.collect::<Result<Vec<_>,_>>()?;
+        let mut games: Vec<_> = ids
+            .into_iter()
+            .map(|id| json!({"app_id":id,"name":review_game_name(id)}))
+            .collect();
+        games.sort_by_key(|game| game["name"].as_str().unwrap_or_default().to_lowercase());
+        response["games"] = json!(games);
         let waiting:i64=db.query_row("SELECT COUNT(*) FROM mods m WHERE NOT EXISTS(SELECT 1 FROM mod_scans s WHERE s.mod_id=m.id)",[],|r|r.get(0))?;
         let scheduled: i64 = db.query_row(
             "SELECT COUNT(*) FROM mod_scans WHERE status='queued'",

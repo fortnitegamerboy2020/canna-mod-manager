@@ -151,7 +151,7 @@ fn rebound_account(app: &App, headers: &HeaderMap) -> ApiResult<i64> {
     if !has_rebound(&app.db.lock().unwrap(), id)? {
         return Err(ApiError(
             StatusCode::FORBIDDEN,
-            "Canna Rebound requires the additional Beta role",
+            "Canna Bliss requires the additional Beta role",
         ));
     }
     Ok(id)
@@ -170,15 +170,15 @@ pub async fn rebound_manifest(
     let metadata = tokio::fs::metadata(&path).await.map_err(|_| {
         ApiError(
             StatusCode::SERVICE_UNAVAILABLE,
-            "Rebound support is not available yet",
+            "Bliss support is not available yet",
         )
     })?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > REBOUND_LIMIT {
-        return Err(bad("Invalid Rebound support artifact"));
+        return Err(bad("Invalid Bliss support artifact"));
     }
     let bytes = tokio::fs::read(path).await?;
     if !bytes.starts_with(b"PK\x03\x04") || bytes.len() as u64 > REBOUND_LIMIT {
-        return Err(bad("Invalid Rebound support artifact"));
+        return Err(bad("Invalid Bliss support artifact"));
     }
     let sha256 = format!("{:x}", Sha256::digest(&bytes));
     // Recheck after disk I/O so a revoked role cannot receive a manifest.
@@ -193,12 +193,12 @@ pub async fn rebound_support(State(app): State<Shared>, headers: HeaderMap) -> A
         .map_err(|_| {
             ApiError(
                 StatusCode::SERVICE_UNAVAILABLE,
-                "Rebound support is not available yet",
+                "Bliss support is not available yet",
             )
         })?;
     let metadata = file.metadata().await?;
     if !metadata.is_file() || metadata.len() == 0 || metadata.len() > REBOUND_LIMIT {
-        return Err(bad("Invalid Rebound support artifact"));
+        return Err(bad("Invalid Bliss support artifact"));
     }
     rebound_account(&app, &headers)?;
     Ok((

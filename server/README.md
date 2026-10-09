@@ -1,10 +1,14 @@
 # Canna family server
 
+Community 0.3.70 additions: Roulette, Dice and Slots; owner controls for game pauses, stake limits, arcade payout factors, crate prices and daily new-game limits; 1,000× Crash; `/tip @username amount` with member autocomplete and retry protection; and live admin wallet values that preserve adjustment drafts. Protected membership checks and atomic wallet accounting remain in place. Released with Desktop 0.2.47 / Community 0.3.70.
+
+Community 0.3.70 diagnostics: desktop Settings has an off-by-default anonymous error-report preference that also controls Bliss compatibility reporting. `POST /api/v1/launcher/diagnostics` accepts a bounded, allowlisted schema with explicit consent and no free-text logs, account identifiers or paths. It does not require an account cookie or token. Only staff can read `GET /api/v1/admin/launcher-diagnostics`; Admin → Diagnostics shows launcher codes alongside Bliss hashes. Reports are deduplicated, rate limited, retained for seven days and capped at 5,000 rows per type. They are untrusted evidence and never change review decisions or gameplay settings. Local fixtures and browser checks do not establish production delivery.
+
 Rust/Axum service for invitation-only accounts, reviewed uploads, provider browsing,
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.69
+## Current release: Community 0.3.70
 
 MW2 banner correction cleans the baked screenshot matte in 260 tiny source images, including Stuck on You, with audited alpha masks, transparent-only crops and lossless PNG output. Retained RGB pixels, all 654 cosmetic IDs, crate odds and equipment routes remain unchanged. Fifty-two ambiguous/full-art JPEGs and 86 existing transparent MW2 PNGs are kept intact. MW2 profile and crate previews cap artwork at twice its source width and shrink on small screens. This is a source-matte and excessive-stretch correction, not an HD replacement; isolated one-pixel JPEG fringes may remain. Reloading obtains changed checksum URLs without re-equipping.
 
@@ -12,18 +16,19 @@ Invite generation now produces signup links and manual codes for the same single
 
 The Admin panel adds a searchable overview, separate Owner invitation-generation
 and registration pause controls, and the additive Beta role. Member, VIP, Admin
-and Owner remain primary permission roles; Beta grants protected Rebound support
-without staff privileges. Desktop 0.2.45 contains no embedded Rebound DLLs and
+and Owner remain primary permission roles; Beta grants protected Bliss support
+without staff privileges. Desktop 0.2.45 contains no embedded Bliss DLLs and
 checks current server authorization before support storage, preparation and
-installation. The Rebound runtime remains a preview with full human-match and
-two-client multiplayer checks outstanding; previously distributed 0.2.41 bundles
+installation. The Bliss runtime remains a preview. A user reported a successful
+multiplayer match with their CR setup; broader mod combinations and anonymous
+report delivery remain unverified; previously distributed 0.2.41 bundles
 cannot be removed retroactively.
 
 Desktop 0.2.46 prepares managed Steam packs at Launch modded, refreshes exact approved project identities when automatic updates are enabled, and rechecks current Beta support authorization. Local imports and disabled entries retain their selections. Optional Prepare downloads and snapshot recovery cache archives without activating plugins. Confirmed owned-game exits park unchanged managed Unity runtime and Source addons outside game folders while Canna remains open. Closed-game Restore vanilla files also migrates old parked recovery files. Manual plugins and changed loader files are preserved. Disposable filesystem tests and release checks do not verify full game sessions or multiplayer.
 
 Beta invitation links add Beta alongside Member at signup. Owners can privately deliver shareable Beta friend links to current Beta members or preview existing-account access waves using random, newest, oldest or most-posts patterns. Eligibility, pause behavior and limits are documented in public /help. MW2 calling cards remain paused.
 
-Desktop 0.2.44 compares the same gameplay-config scope at Rebound preflight and
+Desktop 0.2.44 compares the same gameplay-config scope at Bliss preflight and
 final verification, fixing an unchanged-folder mismatch involving BepInEx's own
 loader configuration. `BepInEx/config/BepInEx.cfg` is consistently excluded from
 that fingerprint; included mod configuration and game-file changes still block
@@ -37,14 +42,14 @@ Fresh Canna Doorstop configuration starts disabled, and modded launch enables it
 Automatic cleanup requires Canna to remain open and observe its own game's
 confirmed exit or Stop. Direct Steam sessions are not adopted and block
 restoration while running. Saving a pack keeps selections only; Prepare downloads caches archives and
-Launch modded prepares and activates the current pack. Parked Rebound launches recheck current
+Launch modded prepares and activates the current pack. Parked Bliss launches recheck current
 Beta authorization. Game assemblies are preserved: arbitrary third-party
 patcher changes need their own restoration. Validation uses temporary fixture
 folders; no new live ROUNDS restoration, launch or multiplayer result is claimed.
 
 The Gambling page uses free fictional Kash for shared Crash rounds, Blackjack
 and three 100-Kash crates for BO2 calling cards, MW2 calling cards and avatar
-frames. Kash cannot be bought, cashed out or transferred.
+frames. Kash cannot be bought or redeemed for money. The website supports audited member tips that transfer existing balances without increasing badge earnings.
 Owner-only outcome inspection and future-round controls are disclosed; paid
 games can still settle when new bets are paused. Crash shows a smooth rising
 curve and progress bar, pauses its estimate after two seconds without a fresh
@@ -459,11 +464,11 @@ The MW2 crate and new equips are disabled; mixed cases exclude MW2 drops.
 Paused artwork is hidden in collections/profiles. Ownership and existing stored
 selections are retained; BO2 and avatar-frame cosmetics remain active.
 
-Community 0.3.68 recognizes exact reviewed Rebound-supplied dependency releases
+Community 0.3.68 recognizes exact reviewed Bliss-supplied dependency releases
 when Beta members share ROUNDS packs. Shared original archives retain a preview
 requirement; recipients still need their own verified Beta access before support
 download/storage and installation. Unknown missing dependency pins remain blocked.
-Rebound peer parity uses bound active settings, retains unknown configs, and
+Bliss peer parity uses bound active settings, retains unknown configs, and
 ignores config comments/order, two known inactive plugin configs and local mouse
 lock. Gameplay values and immutable content still must match. Warnings separate
 DLL/support, asset/patcher and gameplay-setting mismatches. Both players must
@@ -476,3 +481,5 @@ archive pin can omit CardThemeLib 1.1.7, GravityPatch 0.0.0, ZeroGBulletPatch
 1.1.0 and StopShootingYoureDead 0.0.0. Unknown CR archives remain blocked.
 
 Beta invitations (Community 0.3.69): owner and Beta member friend links can grant additive Beta at signup. Owners can privately distribute these links to current Beta members or preview random/newest/oldest/most-posts existing-account access waves before granting. See public /help for expiry, eligibility and limits.
+
+Community 0.3.70 analysis update: game filters and readable labels, bounded C# caller/destination traces, grouped evidence, more retained source previews, and failed-rescan evidence retention. Static tracing does not establish safety. Findings remain subject to staff review.

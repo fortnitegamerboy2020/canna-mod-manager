@@ -87,7 +87,7 @@ pub async fn wave(
             &tx,
             id,
             "beta-access",
-            "You received Beta access. Enable Canna Rebound in desktop Settings to try the preview.",
+            "You received Beta access. Enable Canna Bliss in desktop Settings to try the preview.",
             "#profile",
             &format!("beta-access:{}", digest(&input.review)),
         )?;

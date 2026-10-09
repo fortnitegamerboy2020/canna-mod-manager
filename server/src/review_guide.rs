@@ -5,7 +5,7 @@
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
-const MAX_FILES: usize = 800;
+const MAX_FILES: usize = 1_500;
 const MAX_FINDINGS: usize = 2_001;
 const MAX_OBSERVATIONS: usize = 2_000;
 const MAX_SYMBOLS: usize = 64;

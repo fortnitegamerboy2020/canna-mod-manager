@@ -198,11 +198,13 @@ fn worker_file(path: &std::path::Path, job: &std::path::Path) -> std::io::Result
     mode(path, 0o660)
 }
 async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<()> {
-    tokio::fs::create_dir(&job).await?;
+    tokio::fs::create_dir(&job).await.map_err(|_| bad("Could not create the isolated analysis job; staff should check worker spool permissions"))?;
     // The spool supplies the job's worker group. Explicit file group assignment
     // avoids setgid chmod, which systemd RestrictSUIDSGID deliberately rejects.
-    mode(&job, 0o770)?;
-    let file = tokio::fs::File::open(app.files.join(format!("{id}.zip"))).await?;
+    mode(&job, 0o770).map_err(|_| bad("Could not set isolated analysis job permissions"))?;
+    let file = tokio::fs::File::open(app.files.join(format!("{id}.zip")))
+        .await
+        .map_err(|_| bad("The stored archive is unavailable for analysis"))?;
     let mut output = tokio::fs::File::create(job.join("input.zip")).await?;
     worker_file(&job.join("input.zip"), &job)?;
     let stream = crypto::read(file, Zeroizing::new(*app.upload_key), id.clone());
@@ -231,7 +233,9 @@ async fn run(app: Shared, id: String, hash: String, job: PathBuf) -> ApiResult<(
             let mut report: Value =
                 serde_json::from_str(&text).map_err(|_| bad("Invalid worker report"))?;
             if report["status"] != "complete" {
-                return Err(bad("Source analysis failed; run again"));
+                return Err(bad(
+                    "The analysis worker failed; staff should inspect its logs before retrying",
+                ));
             }
             let mut db = app.db.lock().unwrap();
             let tx = db.transaction()?;
@@ -355,6 +359,7 @@ fn preserve_decisions(report: &mut Value, previous: &Value, same_hash: bool) {
                         "title",
                         "context",
                         "locations",
+                        "trace",
                     ]
                     .into_iter()
                     .all(|field| old[field] == finding[field])
@@ -506,17 +511,40 @@ async fn queue(app: Shared, id: String, force: bool) -> ApiResult<()> {
     app.live.hint("library");
     let job = PathBuf::from(root).join(Uuid::new_v4().to_string());
     tokio::spawn(async move {
-        if run(app.clone(), id.clone(), hash, job.clone())
-            .await
-            .is_err()
-        {
-            let _=app.db.lock().unwrap().execute("UPDATE mod_scans SET status='failed',report=?1 WHERE mod_id=?2",params![json!({"status":"failed","error":"Analysis unavailable, interrupted or over limits. Run again; it has not passed inspection.","files":[],"findings":[]}).to_string(),id]);
+        if let Err(error) = run(app.clone(), id.clone(), hash.clone(), job.clone()).await {
+            // Static API messages only; never return submitted worker text or paths.
+            eprintln!("Analysis job {job:?} failed for mod {id}: {}", error.1);
+            let _ = record_failure(&app.db.lock().unwrap(), &id, &hash, error.1);
             let _=app.db.lock().unwrap().execute("INSERT INTO audit(actor,action,target,created) SELECT user_id,'scan-failed',?1,?2 FROM mods WHERE id=?3",params![json!({"mod":id,"reason":"Analysis unavailable, interrupted or over limits","automatic":true}).to_string(),now(),id]);
         }
         app.live.hint("library");
         let _ = tokio::fs::remove_dir_all(job).await;
         app.review_wake.notify_one();
     });
+    Ok(())
+}
+fn record_failure(db: &Connection, id: &str, hash: &str, error: &str) -> rusqlite::Result<()> {
+    let previous: Option<String> = db
+        .query_row(
+            "SELECT report FROM mod_scans WHERE mod_id=?1 AND hash=?2 AND status='queued'",
+            params![id, hash],
+            |r| r.get(0),
+        )
+        .optional()?;
+    if let Some(previous) = previous {
+        let mut report: Value = serde_json::from_str(&previous)
+            .ok()
+            .filter(Value::is_object)
+            .unwrap_or_else(|| json!({"files":[],"findings":[]}));
+        report["status"] = json!("failed");
+        report["error"] = json!(error);
+        report["retained_previous_report"] = json!(
+            report["files"]
+                .as_array()
+                .is_some_and(|files| !files.is_empty())
+        );
+        db.execute("UPDATE mod_scans SET status='failed',report=?1 WHERE mod_id=?2 AND hash=?3 AND status='queued'",params![report.to_string(),id,hash])?;
+    }
     Ok(())
 }
 fn next_waiting_scan(db: &Connection) -> rusqlite::Result<Option<String>> {
@@ -573,8 +601,10 @@ pub async fn report(
     staff(&app, &headers)?;
     Uuid::parse_str(&id).map_err(|_| bad("Invalid mod ID"))?;
     let db = app.db.lock().unwrap();
-    let name: String = db
-        .query_row("SELECT name FROM mods WHERE id=?1", [&id], |r| r.get(0))
+    let (name, app_id): (String, i64) = db
+        .query_row("SELECT name,app_id FROM mods WHERE id=?1", [&id], |r| {
+            Ok((r.get(0)?, r.get(1)?))
+        })
         .optional()?
         .ok_or(ApiError(StatusCode::NOT_FOUND, "Mod not found"))?;
     let row: Option<(String, String, String)> = db
@@ -600,6 +630,8 @@ pub async fn report(
         json!({"status":"pending","files":[],"findings":[]})
     };
     result["mod_name"] = json!(name);
+    result["app_id"] = json!(app_id);
+    result["game_name"] = json!(crate::admin_tools::review_game_name(app_id));
     // Derived for legacy reports too. This value is never persisted or used by
     // the approval policy, and no supplied worker overview is trusted.
     result["review_overview"] = crate::review_guide::overview(&result);
@@ -758,6 +790,41 @@ pub async fn decisions(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn failed_rescan_retains_evidence_and_does_not_overwrite_new_hash() {
+        let db = Connection::open_in_memory().unwrap();
+        db.execute_batch(
+            "CREATE TABLE mods(id TEXT PRIMARY KEY); INSERT INTO mods VALUES('fixture');",
+        )
+        .unwrap();
+        initialize(&db).unwrap();
+        let previous = json!({"files":[{"name":"source.cs","text":"File.WriteAllBytes(path,bytes);"}],"findings":[{"id":"old","accepted":false}],"status":"complete"});
+        db.execute(
+            "INSERT INTO mod_scans VALUES('fixture','hash','queued',?1,0)",
+            [previous.to_string()],
+        )
+        .unwrap();
+        record_failure(&db, "fixture", "hash", "Worker failed").unwrap();
+        let (status, raw): (String, String) = db
+            .query_row("SELECT status,report FROM mod_scans", [], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .unwrap();
+        let report: Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(status, "failed");
+        assert_eq!(report["findings"], previous["findings"]);
+        assert_eq!(report["files"], previous["files"]);
+        assert_eq!(report["retained_previous_report"], true);
+        db.execute("UPDATE mod_scans SET hash='new-hash',status='queued'", [])
+            .unwrap();
+        record_failure(&db, "fixture", "hash", "Late failure").unwrap();
+        assert_eq!(
+            db.query_row("SELECT status FROM mod_scans", [], |r| r
+                .get::<_, String>(0))
+                .unwrap(),
+            "queued"
+        );
+    }
     use crate::tests::{account, call, fixture, value};
     #[tokio::test]
     async fn report_overview_is_staff_only_derived_and_does_not_persist_or_approve() {

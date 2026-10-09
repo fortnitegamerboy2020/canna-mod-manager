@@ -196,18 +196,27 @@ function codeFile(name, line, focus = false, preserve = false) {
  renderOutline(file); renderFileEvidence(file); renderFiles(); if ($('findingfilefilter').value === 'selected') renderFindings();
  if (focus) $('code').focus({preventScroll: true});
 }
+function appendTrace(card, trace) {
+ if(!isRecord(trace))return;
+ const detail=node('details');detail.append(node('summary','Function & destination trace · '+text(trace.method)),node('p',text(trace.limits)));
+ for(const path of records(trace.paths).slice(0,8)){detail.append(node('pre','Destination: '+text(path.expression)),node('p','Path remains unresolved; these are candidate assignments.'));for(const assignment of records(path.assignments).slice(0,10)){const row=node('div');row.append(sourceLink(assignment),node('pre',text(assignment.name)+' = '+text(assignment.expression)));detail.append(row);}}
+ for(const caller of records(trace.callers).slice(0,12)){const row=node('div');row.append(sourceLink(caller),node('p',`Candidate caller: ${text(caller.method)} · depth ${Number(caller.depth)||1}${caller.ambiguous?' · ambiguous symbol':''}`),node('pre',list(caller.arguments).map(text).join(', ')));detail.append(row);}
+ if(!list(trace.callers).length)detail.append(node('p','No caller identified in this source file. It may be invoked externally or through a callback.'));
+ card.append(detail);
+}
 function appendEvidence(card, item) {
  const links = node('div', undefined, 'evidencelinks'); links.append(sourceLink(item)); card.append(links, node('pre', text(item.evidence) || 'Review the analysis coverage and archive.'));
  if (item.context) card.append(node('p', 'Context: ' + contextText(item.context)));
+ appendTrace(card,item.trace);
  const locations = records(item.locations).filter(location => location.file !== item.file || location.line !== item.line || location.evidence !== item.evidence);
- if (locations.length) { const detail = node('details'); detail.append(node('summary', `${locations.length} related evidence location${locations.length === 1 ? '' : 's'}`)); for (const location of locations) { const row = node('div'); row.append(sourceLink(location)); if (location.evidence) row.append(node('pre', text(location.evidence))); detail.append(row); } card.append(detail); }
+ if (locations.length) { const detail = node('details'); detail.append(node('summary', `${locations.length} related evidence location${locations.length === 1 ? '' : 's'}`)); for (const location of locations) { const row = node('div'); row.append(sourceLink(location)); if (location.evidence) row.append(node('pre', text(location.evidence))); appendTrace(row,location.trace); detail.append(row); } card.append(detail); }
 }
 function findingCard(item, observation = false) {
  const card = node('article', undefined, 'finding'), headline = node('div', undefined, 'findingheadline');
  headline.append(node('strong', text(item.title) || 'Review evidence'), badge(observation ? 'Informational' : item.accepted ? 'Accepted' : 'Review required', observation || item.accepted ? 'muted' : 'warning')); card.append(headline);
  if (!observation) card.append(node('p', [text(item.severity), text(item.rule)].filter(Boolean).join(' · ')));
  appendEvidence(card, item); if (item.reason) card.append(node('p', 'Review reason: ' + text(item.reason)));
- if (!observation && report.status !== 'rejected') { const button = node('button', item.accepted ? 'Reopen finding' : 'Accept finding with reason', 'decisionbutton'); button.type = 'button'; button.disabled = !!invalidReportNotice || typeof item.id !== 'string' || !item.id || !/^[a-f0-9]{64}$/i.test(text(report.sha256)); button.addEventListener('click', () => { if (invalidReportNotice) return; decisionTarget = {id: item.id, accepted: !!item.accepted, sha256: report.sha256}; $('decisiontitle').textContent = item.accepted ? 'Reopen finding' : 'Accept finding'; $('decisionevidence').textContent = text(item.title) + ' · ' + text(item.file || 'archive'); $('decisionreason').value = ''; $('decisionrecord').disabled = false; $('findingdecision').showModal(); $('decisionreason').focus(); }); card.append(button); }
+ if (!observation && report.status !== 'rejected') { const button = node('button', item.accepted ? 'Reopen finding' : 'Accept finding with reason', 'decisionbutton'); button.type = 'button'; button.disabled = report.status !== 'complete' || !!invalidReportNotice || typeof item.id !== 'string' || !item.id || !/^[a-f0-9]{64}$/i.test(text(report.sha256)); button.addEventListener('click', () => { if (invalidReportNotice) return; decisionTarget = {id: item.id, accepted: !!item.accepted, sha256: report.sha256}; $('decisiontitle').textContent = item.accepted ? 'Reopen finding' : 'Accept finding'; $('decisionevidence').textContent = text(item.title) + ' · ' + text(item.file || 'archive'); $('decisionreason').value = ''; $('decisionrecord').disabled = false; $('findingdecision').showModal(); $('decisionreason').focus(); }); card.append(button); }
  return card;
 }
 function renderFindings() {
@@ -290,15 +299,15 @@ async function load() {
   if (records(next.findings).some(item => typeof item.id !== 'string' || !item.id || item.accepted !== undefined && typeof item.accepted !== 'boolean')) invalid.push('finding decisions');
   invalidReportNotice = invalid.length ? 'Malformed report data (' + invalid.join(', ') + '); review decisions and approval are blocked. Run analysis again to replace this report.' : '';
   report = {...next, files: records(next.files), findings: records(next.findings).map(item => ({...item, accepted: item.accepted === true})), observations: records(next.observations), inventory: records(next.inventory)}; prepareEntries();
-  $('modname').textContent = text(report.mod_name) || 'Mod review';
+  $('modname').textContent = (text(report.mod_name) || 'Mod review') + (report.game_name ? ' · ' + text(report.game_name) : '');
   const error = report.status === 'rejected' ? 'Denied by policy: packing, obfuscation or malware signature detected. See findings and Admin Logs.' : text(report.error);
   $('reviewstatus').textContent = `Analysis: ${text(report.status) || 'unknown'}${error ? ' · ' + error : ''} · ${report.findings.length} findings · ${report.observations.length} informational observations${invalidReportNotice ? ' · ' + invalidReportNotice : ''}`;
-  renderOverview(); renderFindings(); renderFiles();
+  $('rescan').disabled=report.status==='queued';renderOverview(); renderFindings(); renderFiles();
   if (selectedFile && entryMap.has(selectedFile)) codeFile(selectedFile, selectedLine, false, true);
   else if (entries.length) codeFile(entries.find(entry => entry.available)?.name || entries[0].name, undefined, false, true);
   else { selectedFile = ''; sourceSignature = ''; sourceLines = []; sourceText = ''; matches = []; matchIndex = -1; renderMatchCount(); for (const id of ['infilesearch', 'gotoline', 'previouswindow', 'nextwindow', 'filefindingsbutton']) $(id).disabled = true; $('lineform').querySelector('button').disabled = true; $('filename').textContent = 'No files available yet'; $('filekind').textContent = report.status === 'pending' || report.status === 'queued' ? 'Source previews appear as analysis completes.' : 'This report retained no archive or source entries.'; $('filemeta').replaceChildren(); $('code').replaceChildren(empty('No retained source in this report. Inspect analysis status and coverage.')); $('codewindow').textContent = ''; $('outlinehint').textContent = ''; $('symboloutline').replaceChildren(); $('fileevidence').replaceChildren(); }
   if (decisionTarget && (decisionTarget.sha256 !== report.sha256 || invalidReportNotice)) { $('decisionevidence').textContent = invalidReportNotice || 'The archive hash changed. Close this dialog and review the new report before recording a decision.'; $('decisionrecord').disabled = true; }
-  if (report.status === 'pending') { try { await api(`mods/${modId}/analysis`, {}); } catch (requestError) { if (generation === loadGeneration) $('reviewstatus').textContent = requestError.message; } if (generation === loadGeneration) poll = setTimeout(load, 4000); }
+  if (report.status === 'pending' && generation === loadGeneration) poll = setTimeout(load, 4000); // The server schedules pending scans; polling must not consume retry limits.
   else if (report.status === 'queued') poll = setTimeout(load, 2500);
  } catch (error) { if (generation === loadGeneration) { $('reviewstatus').textContent = error.message; $('approve').disabled = true; } }
 }
@@ -307,7 +316,7 @@ for (const tab of ['overview', 'code', 'findings']) {
  $('tab-' + tab).addEventListener('keydown', event => { const tabs = ['overview', 'code', 'findings']; if (['ArrowRight', 'ArrowLeft', 'Home', 'End'].includes(event.key)) { event.preventDefault(); const index = tabs.indexOf(activeTab); switchTab(event.key === 'Home' ? tabs[0] : event.key === 'End' ? tabs[2] : tabs[(index + (event.key === 'ArrowRight' ? 1 : 2)) % 3], true); } });
 }
 $('refreshreport').addEventListener('click', load);
-$('rescan').addEventListener('click', async () => { if (!await cannaConfirm('Run analysis again? Previous finding decisions will be replaced, and downloads stay blocked until the new report is reviewed.')) return; try { await api(`mods/${modId}/analysis`, {force: true}); await load(); } catch (error) { $('reviewstatus').textContent = error.message; } });
+$('rescan').addEventListener('click', async () => { const button=$('rescan');if(button.disabled)return;if (!await cannaConfirm('Run analysis again? Downloads remain blocked while it runs. Previous decisions carry forward only if the archive and all finding evidence match.')) return;button.disabled=true;try { await api(`mods/${modId}/analysis`, {force: true}); await load(); } catch (error) { $('reviewstatus').textContent = 'Could not start re-analysis: '+error.message; }finally{button.disabled=report.status==='queued';} });
 $('approve').addEventListener('click', async () => { if (!await cannaConfirm('Publish this mod and its dependencies? Each dependency must have completed analysis and resolved findings. Approval is your review decision, not a safety guarantee.')) return; try { await api(`mods/${modId}/approve`, {}); $('reviewstatus').textContent = 'Mod and dependencies approved.'; } catch (error) { $('reviewstatus').textContent = error.message; } });
 $('decisioncancel').addEventListener('click', () => { decisionTarget = undefined; $('findingdecision').close(); });
 $('decisionform').addEventListener('submit', async event => { event.preventDefault(); if (!decisionTarget || decisionTarget.sha256 !== report.sha256 || invalidReportNotice) { $('decisionevidence').textContent = invalidReportNotice || 'Archive changed; review the new report before deciding.'; return; } const decision = {...decisionTarget}, button = $('decisionrecord'); button.disabled = true; try { await api(`mods/${modId}/analysis/${decision.id}`, {accepted: !decision.accepted, reason: $('decisionreason').value, sha256: decision.sha256}); $('findingdecision').close(); decisionTarget = undefined; await load(); } catch (error) { $('decisionevidence').textContent = error.message; button.disabled = false; } });

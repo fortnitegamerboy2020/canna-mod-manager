@@ -16,7 +16,7 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
         tx.execute_batch("INSERT INTO bot_wallets SELECT * FROM bot_wallets_legacy; DROP TABLE bot_wallets_legacy;")?;
         tx.commit()?;
     }
-    db.execute_batch("CREATE TABLE IF NOT EXISTS bot_catches(user_id INTEGER NOT NULL REFERENCES users(id),species TEXT NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(user_id,species));")
+    db.execute_batch("CREATE TABLE IF NOT EXISTS bot_catches(user_id INTEGER NOT NULL REFERENCES users(id),species TEXT NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(user_id,species)); CREATE TABLE IF NOT EXISTS bot_tip_requests(user_id INTEGER NOT NULL REFERENCES users(id),request_id TEXT NOT NULL,body TEXT NOT NULL,message_id INTEGER NOT NULL,created INTEGER NOT NULL,PRIMARY KEY(user_id,request_id));")
 }
 // Each flip draws independently from the OS CSPRNG; no history, account or stake weighting.
 fn coin_side() -> &'static str {
@@ -37,7 +37,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
         return Err(bad("CannaBot commands must be under 100 bytes"));
     }
     if command == "/help" {
-        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free Kash each UTC day; /balance; /collection; /coinflip heads|tails amount — wager Kash up to your balance (also /flip); /badges; /equip none|angler|emerald|legend. Kash cannot be bought, redeemed or transferred. It unlocks chat badges and cosmetic frames/banners; the Gambling tab has Crash, blackjack and cosmetic cases. The owner can see Crash outcomes, and controlled rounds are marked. Each coin flip is independently random with 50/50 odds, paying 2× your stake when you win, up to 20 flips/day.".into()));
+        return Ok(Some("CannaBot · /fish — fish once per minute (50 catches/day); /daily — 100 free Kash each UTC day; /balance; /collection; /coinflip heads|tails amount — wager Kash up to your balance (also /flip); /tip @username amount — transfer 1–1000000 Kash to an active member (20 tips/day); /badges; /equip none|angler|emerald|legend. Kash cannot be bought or redeemed for money. Tips transfer existing Kash without increasing earned badge progress. It unlocks chat badges and cosmetic frames/banners; the Gambling tab has Crash, Blackjack, Roulette, Dice, Slots and cosmetic crates. The owner can see Crash outcomes, and controlled rounds are marked. Each coin flip is independently random with 50/50 odds, paying 2× your stake when you win, up to 20 flips/day.".into()));
     }
     db.execute(
         "INSERT OR IGNORE INTO bot_wallets(user_id) VALUES(?1)",
@@ -46,6 +46,7 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
     let (balance,earned,daily,last_fish,last_flip,fish_day,fish_count):(i64,i64,i64,i64,i64,i64,i64)=db.query_row("SELECT balance,earned,daily,last_fish,last_flip,fish_day,fish_count FROM bot_wallets WHERE user_id=?1",[actor],|r|Ok((r.get(0)?,r.get(1)?,r.get(2)?,r.get(3)?,r.get(4)?,r.get(5)?,r.get(6)?)))?;
     let day = now() / 86400;
     let answer = match command {
+        "/tip" => tip(db, actor, &args)?,
         "/balance" if args.len() == 1 => format!(
             "You have {balance} Kash · {earned} total earned. /daily and /fish earn Kash; /badges shows cosmetic unlocks."
         ),
@@ -143,6 +144,9 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
                 .into()
         }
         "/flip" | "/coinflip" if args.len() == 3 => {
+            if gambling::wagering_paused(db)? {
+                return Err(bad("New wagering is paused"));
+            }
             if !matches!(args[1], "heads" | "tails") {
                 return Err(bad("Use /coinflip heads 10 or /coinflip tails 10"));
             }
@@ -199,6 +203,67 @@ pub fn run(db: &Connection, actor: i64, body: &str) -> ApiResult<Option<String>>
         _ => "Unknown command or extra arguments. Type /help for CannaBot commands.".into(),
     };
     Ok(Some(answer))
+}
+
+fn tip(db: &Connection, actor: i64, args: &[&str]) -> ApiResult<String> {
+    if args.len() != 3 {
+        return Err(bad("Use /tip @username amount (1–1000000 whole Kash)"));
+    }
+    let username = args[1].strip_prefix('@').unwrap_or(args[1]);
+    let amount = args[2]
+        .parse::<i64>()
+        .ok()
+        .filter(|n| (1..=1_000_000).contains(n))
+        .ok_or_else(|| bad("Tip 1–1000000 whole Kash"))?;
+    let (recipient,name):(i64,String)=db.query_row("SELECT id,username FROM users WHERE username=?1 COLLATE NOCASE AND verified=1 AND banned=0",[username],|r|Ok((r.get(0)?,r.get(1)?))).optional()?.ok_or_else(||bad("Choose an active verified member's exact username"))?;
+    if recipient == actor {
+        return Err(bad("Choose another member to tip"));
+    }
+    let count: i64 = db.query_row(
+        "SELECT count(*) FROM bot_tip_requests WHERE user_id=?1 AND created>=?2",
+        params![actor, now() / 86400 * 86400],
+        |r| r.get(0),
+    )?;
+    if count >= 20 {
+        return Err(ApiError(
+            StatusCode::TOO_MANY_REQUESTS,
+            "Today's limit is 20 tips",
+        ));
+    }
+    db.execute(
+        "INSERT OR IGNORE INTO bot_wallets(user_id) VALUES(?1)",
+        [recipient],
+    )?;
+    let target: i64 = db.query_row(
+        "SELECT balance FROM bot_wallets WHERE user_id=?1",
+        [recipient],
+        |r| r.get(0),
+    )?;
+    if target > MAX_KASH - amount {
+        return Err(bad("That tip would exceed the recipient's balance limit"));
+    }
+    if db.execute(
+        "UPDATE bot_wallets SET balance=balance-?1 WHERE user_id=?2 AND balance>=?1",
+        params![amount, actor],
+    )? != 1
+    {
+        return Err(bad("Your Kash balance is too low for that tip"));
+    }
+    db.execute(
+        "UPDATE bot_wallets SET balance=balance+?1 WHERE user_id=?2",
+        params![amount, recipient],
+    )?;
+    db.execute(
+        "INSERT INTO audit(actor,action,target,created) VALUES(?1,'kash_tip',?2,?3)",
+        params![
+            actor,
+            json!({"recipient":recipient,"amount":amount}).to_string(),
+            now()
+        ],
+    )?;
+    Ok(format!(
+        "Sent {amount} Kash to @{name}. Tips transfer existing Kash and do not increase badge earnings."
+    ))
 }
 #[cfg(test)]
 mod tests {

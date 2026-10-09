@@ -21,7 +21,7 @@ with tempfile.TemporaryDirectory() as tmp:
  with zipfile.ZipFile(job/'input.zip','w') as archive:
   archive.writestr('manifest.json',json.dumps({'website_url':'https://example.org'}))
   archive.writestr('README.md','https://example.org; Process.Start is documentation')
-  archive.writestr('Plugin.cs','[BepInPlugin("com.YourUsername.Test", "Test", "1")]\nProcess.Start("cmd.exe");\nHttpClient client;\nEnvironment.UserName;')
+  archive.writestr('Plugin.cs','[BepInPlugin("com.YourUsername.Test", "Test", "1")]\nProcess.Start("cmd.exe");\nHttpClient client; client.GetAsync(url);\nEnvironment.UserName;')
  report=worker.analyze(job)
  assert len(report['files'])==3
  assert all(f['file']=='archive/Plugin.cs' for f in report['findings'])

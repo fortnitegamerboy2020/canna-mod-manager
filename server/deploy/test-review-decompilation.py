@@ -64,7 +64,7 @@ class DecompilationTests(unittest.TestCase):
         report = fixtures.analyze_fixture([('plugins/A.dll', fixtures.inert_pe())], tools)
         record = report['decompilations'][0]
         source = report['files'][0]
-        self.assertEqual(report['version'], 'canna-static-8')
+        self.assertEqual(report['version'], 'canna-static-9')
         self.assertEqual(record['input'], 'archive/plugins/A.dll')
         self.assertEqual(record['scope'], 'binary')
         self.assertEqual(record['tool'], 'ilspycmd')
@@ -164,13 +164,13 @@ class DecompilationTests(unittest.TestCase):
         self.assertEqual(report['files'], [])
 
     def test_preview_limit_does_not_claim_unscanned_source(self):
-        sources = {f'{i:03d}.cs': 'public class Fixture {}' for i in range(502)}
+        sources = {f'{i:04d}.cs': 'public class Fixture {}' for i in range(1502)}
         report = fixtures.analyze_fixture([('A.dll', fixtures.inert_pe())], SourceTools(sources=sources))
         record = report['decompilations'][0]
-        self.assertEqual(record['generated_count'], 502)
-        self.assertEqual(record['preview_count'], 500)
+        self.assertEqual(record['generated_count'], 1502)
+        self.assertEqual(record['preview_count'], 1500)
         self.assertEqual(record['preview_omitted_count'], 2)
-        self.assertEqual(record['scanned_count'], 502)
+        self.assertEqual(record['scanned_count'], 1502)
         self.assertEqual(record['scan_omitted_count'], 0)
         self.assertEqual(record['status'], 'incomplete')
 

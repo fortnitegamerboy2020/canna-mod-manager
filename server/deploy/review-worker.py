@@ -5,7 +5,7 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
-VERSION='canna-static-8'
+VERSION='canna-static-9'
 # Fixed sibling module; no dependency or submitted plugin code is imported.
 _context_spec=importlib.util.spec_from_file_location('canna_review_context',Path(__file__).with_name('review_context.py'))
 context=importlib.util.module_from_spec(_context_spec);_context_spec.loader.exec_module(context)
@@ -281,10 +281,18 @@ def group_coverage_findings(findings):
 
 def analyze(job):
  report={'version':VERSION,'files':[],'inventory':[],'findings':[],'observations':[],'engines':{},'decompilations':[],'binary_metadata':[],
-   'limits':{'analysis_seconds':240,'archive_entries':2000,'expanded_bytes':256*1024*1024,'entry_bytes':32*1024*1024,'decompiler_binaries':16,'java_projects':1,'tool_output_bytes':256*1024,'source_file_bytes':1024*1024,'scanned_text_bytes':16*1024*1024,'preview_files':500,'preview_text_bytes':8*1024*1024},
+   'limits':{'analysis_seconds':240,'archive_entries':2000,'expanded_bytes':256*1024*1024,'entry_bytes':32*1024*1024,'decompiler_binaries':16,'java_projects':1,'tool_output_bytes':256*1024,'source_file_bytes':1024*1024,'scanned_text_bytes':16*1024*1024,'preview_files':1500,'preview_text_bytes':8*1024*1024},
   'note':'Static analysis cannot prove a mod safe. Decompiled code is reconstructed, not the original project. Mods are never launched.'}
- total_text=0;scanned_text=0;finding_ids=set();observation_ids=set();start=time.monotonic();archive=job/'input.zip';work=job/'work';shutil.rmtree(work,ignore_errors=True);work.mkdir()
+ total_text=0;scanned_text=0;trace_bytes=0;finding_ids=set();observation_ids=set();start=time.monotonic();archive=job/'input.zip';work=job/'work';shutil.rmtree(work,ignore_errors=True);work.mkdir()
  def finding(rule,title,file=None,line=None,evidence='',severity='review',**details):
+  nonlocal trace_bytes
+  # Advisory traces share one report-wide byte budget. Core evidence is never
+  # dropped to make room for navigation hints.
+  for holder in [details]+details.get('locations',[]):
+   if not isinstance(holder,dict) or not isinstance(holder.get('trace'),dict):continue
+   size=len(json.dumps(holder['trace']).encode())
+   if trace_bytes+size>1024*1024:holder['trace']={'method':holder['trace'].get('method','unresolved'),'limits':'Report trace detail budget reached; inspect original evidence and source manually.'}
+   else:trace_bytes+=size
   evidence=evidence[:350];key='\0'.join(map(str,[rule,file,line,evidence]));fid=hashlib.sha256(key.encode()).hexdigest()
   item={'id':details.pop('id',fid),'rule':rule,'title':title,'file':file,'line':line,'evidence':evidence,'severity':severity,**details}
   if item['id'] in finding_ids:return
@@ -339,7 +347,7 @@ def analyze(job):
   if scanned_text+encoded_size>16*1024*1024:
    finding('coverage','Source analysis text limit reached',name,severity='high');result['status']='source-text-limit';return result
   scanned_text+=encoded_size;result['scanned']=True;result['status']='scanned'
-  if len(report['files'])<500 and total_text+encoded_size<=8*1024*1024:
+  if len(report['files'])<1500 and total_text+encoded_size<=8*1024*1024:
    total_text+=encoded_size
    item={'name':name,'text':text,'kind':kind,'language':source_language(path),'byte_size':encoded_size,'line_count':len(text.splitlines()),'sha256':hashlib.sha256(encoded).hexdigest(),'origin':origin or name}
    if decompiler:item['decompiler']=decompiler
@@ -350,7 +358,9 @@ def analyze(job):
   # Markdown prose stays a preview; code/API-looking text is inspected normally.
   if path.suffix.lower()=='.md' and not context.markdown_has_code(text):return result
   source_findings,observations=context.scan_source(text,name,path.suffix.lower())
-  if path.suffix.lower()=='.cs':source_findings=context.contextualize_file_operations(text,source_findings)
+  if path.suffix.lower()=='.cs':
+   source_findings=context.contextualize_file_operations(text,source_findings)
+   source_findings=context.trace_operations(text,source_findings)
   for f in source_findings:
    details={k:v for k,v in f.items() if k not in ('rule','title','file','line','evidence','severity')}
    finding(f['rule'],f['title'],f['file'],f['line'],f['evidence'],f['severity'],**details)

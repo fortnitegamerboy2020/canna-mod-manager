@@ -62,16 +62,30 @@ pub async fn history(
     rows.reverse();
     Ok(axum::Json(json!(rows)))
 }
+pub async fn tip_recipients(
+    State(app): State<Shared>,
+    headers: HeaderMap,
+    Query(page): Query<lists::Page>,
+) -> ApiResult<axum::Json<Value>> {
+    let actor = app.auth(&headers)?.0;
+    let term = page.term();
+    let term = term.trim().strip_prefix('@').unwrap_or(term.trim());
+    let db = app.db.lock().unwrap();
+    let rows=db.prepare("SELECT id,username FROM users WHERE verified=1 AND banned=0 AND id<>?1 AND substr(lower(username),1,length(?2))=lower(?2) ORDER BY username COLLATE NOCASE,id LIMIT 8")?.query_map(params![actor,term],|r|Ok(json!({"id":r.get::<_,i64>(0)?,"username":r.get::<_,String>(1)?})))?.collect::<Result<Vec<_>,_>>()?;
+    Ok(axum::Json(json!(rows)))
+}
 #[derive(Deserialize)]
 pub struct Message {
     body: String,
+    #[serde(default)]
+    request_id: Option<String>,
 }
 pub async fn send(
     State(app): State<Shared>,
     headers: HeaderMap,
     axum::Json(input): axum::Json<Message>,
 ) -> ApiResult<axum::Json<Value>> {
-    let (actor, _) = app.auth(&headers)?;
+    let actor = gambling::mutation_actor(&app, &headers)?;
     app.limits.check(format!("chat:{actor}"), 10)?;
     let body = input.body.trim();
     if body.is_empty()
@@ -84,6 +98,38 @@ pub async fn send(
     }
     let mut db = app.db.lock().unwrap();
     let tx = db.transaction()?;
+    let tip = body.split_whitespace().next() == Some("/tip");
+    let request = if tip {
+        let request = input
+            .request_id
+            .as_deref()
+            .filter(|s| {
+                !s.is_empty()
+                    && s.len() <= 80
+                    && s.bytes()
+                        .all(|c| c.is_ascii_alphanumeric() || matches!(c, b'-' | b'_'))
+            })
+            .ok_or_else(|| bad("Tips require a request_id; refresh Canna before tipping"))?;
+        let cached: Option<(String, i64)> = tx
+            .query_row(
+                "SELECT body,message_id FROM bot_tip_requests WHERE user_id=?1 AND request_id=?2",
+                params![actor, request],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if let Some((previous, id)) = cached {
+            if previous != body {
+                return Err(ApiError(
+                    StatusCode::CONFLICT,
+                    "This tip request was already used for another message",
+                ));
+            }
+            return Ok(axum::Json(json!({"id":id,"replayed":true})));
+        }
+        Some(request)
+    } else {
+        None
+    };
     purge(&tx)?;
     let day = now() / 86400;
     tx.execute("INSERT INTO chat_quotas VALUES(?1,?2,0) ON CONFLICT(user_id) DO UPDATE SET day=excluded.day,count=CASE WHEN day=excluded.day THEN count ELSE 0 END",params![actor,day])?;
@@ -119,6 +165,12 @@ pub async fn send(
         tx.execute(
             "INSERT INTO chat_messages(user_id,body,created,bot) VALUES(?1,?2,?3,1)",
             params![actor, reply, now()],
+        )?;
+    }
+    if let Some(request) = request {
+        tx.execute(
+            "INSERT INTO bot_tip_requests VALUES(?1,?2,?3,?4,?5)",
+            params![actor, request, body, id, now()],
         )?;
     }
     tx.commit()?;
@@ -219,6 +271,213 @@ pub async fn announce(
 }
 #[cfg(test)]
 mod tests {
+    #[tokio::test]
+    async fn tip_autocomplete_is_private_prefix_only_bounded_and_excludes_inactive_members() {
+        let (_dir, app) = fixture();
+        let member = account(&app, "autocomplete-owner", false);
+        {
+            let db = app.db.lock().unwrap();
+            db.execute_batch("WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<20) INSERT INTO users(username,password,verified,role) SELECT printf('Alpha%02d',x),'fixture',1,'member' FROM n; INSERT INTO users(username,password,verified,role,banned) VALUES('AlphaBanned','fixture',1,'member',1),('AlphaUnverified','fixture',0,'member',0),('XAlpha','fixture',1,'member',0);").unwrap();
+        }
+        assert_eq!(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/chat/tip-recipients?search=Al",
+                Value::Null,
+                None
+            )
+            .await
+            .status(),
+            StatusCode::UNAUTHORIZED
+        );
+        let rows = value(
+            call(
+                app.clone(),
+                "GET",
+                "/api/v1/chat/tip-recipients?search=%40al",
+                Value::Null,
+                Some(&member),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(rows.as_array().unwrap().len(), 8);
+        assert!(
+            rows.as_array().unwrap().iter().all(|r| r["username"]
+                .as_str()
+                .unwrap()
+                .starts_with("Alpha")
+                && r.as_object().unwrap().len() == 2)
+        );
+        let rows = value(
+            call(
+                app,
+                "GET",
+                "/api/v1/chat/tip-recipients?search=autocomplete",
+                Value::Null,
+                Some(&member),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(rows, json!([]));
+    }
+    #[tokio::test]
+    async fn tips_are_conserved_atomic_audited_and_retried_without_chat_duplicates() {
+        let (_dir, app) = fixture();
+        let sender = account(&app, "tip-sender", false);
+        account(&app, "tip-target", false);
+        {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "INSERT INTO bot_wallets(user_id,balance) VALUES(1,100),(2,10)",
+                [],
+            )
+            .unwrap();
+        }
+        let input = json!({"body":"/tip @TIP-target 25","request_id":"safe-tip"});
+        let first = value(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                input.clone(),
+                Some(&sender),
+            )
+            .await,
+        )
+        .await;
+        let replay =
+            value(call(app.clone(), "POST", "/api/v1/chat", input, Some(&sender)).await).await;
+        assert_eq!(first["id"], replay["id"]);
+        assert_eq!(replay["replayed"], true);
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                json!({"body":"/tip @tip-target 26","request_id":"safe-tip"}),
+                Some(&sender)
+            )
+            .await
+            .status(),
+            StatusCode::CONFLICT
+        );
+        for (i, body) in [
+            "/tip @tip-sender 1",
+            "/tip @missing 1",
+            "/tip @tip-target 1000",
+            "/tip @tip-target -1",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            assert_eq!(
+                call(
+                    app.clone(),
+                    "POST",
+                    "/api/v1/chat",
+                    json!({"body":body,"request_id":format!("bad-tip-{i}")}),
+                    Some(&sender)
+                )
+                .await
+                .status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+        let db = app.db.lock().unwrap();
+        assert_eq!(
+            db.query_row("SELECT sum(balance) FROM bot_wallets", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            110
+        );
+        assert_eq!(
+            db.query_row("SELECT balance FROM bot_wallets WHERE user_id=1", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            75
+        );
+        assert_eq!(
+            db.query_row("SELECT sum(earned) FROM bot_wallets", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM chat_messages", [], |r| r
+                .get::<_, i64>(0))
+                .unwrap(),
+            2
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT count(*) FROM audit WHERE action='kash_tip'",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            1
+        );
+    }
+    #[tokio::test]
+    async fn tips_reject_unverified_banned_and_overflow_without_changing_sender() {
+        let (_dir, app) = fixture();
+        let sender = account(&app, "tip-limits", false);
+        account(&app, "tip-blocked", false);
+        {
+            let db = app.db.lock().unwrap();
+            db.execute(
+                "INSERT INTO bot_wallets(user_id,balance) VALUES(1,100),(2,?1)",
+                [cannabot::MAX_KASH],
+            )
+            .unwrap();
+        }
+        for (i, update) in [
+            "UPDATE users SET verified=1,banned=0 WHERE id=2",
+            "UPDATE users SET banned=1 WHERE id=2",
+            "UPDATE users SET banned=0,verified=0 WHERE id=2",
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            app.db.lock().unwrap().execute(update, []).unwrap();
+            assert_eq!(
+                call(
+                    app.clone(),
+                    "POST",
+                    "/api/v1/chat",
+                    json!({"body":"/tip @tip-blocked 1","request_id":format!("limits-{i}")}),
+                    Some(&sender)
+                )
+                .await
+                .status(),
+                StatusCode::BAD_REQUEST
+            );
+        }
+        assert_eq!(
+            call(
+                app.clone(),
+                "POST",
+                "/api/v1/chat",
+                json!({"body":"/tip @tip-blocked 1"}),
+                Some(&sender)
+            )
+            .await
+            .status(),
+            StatusCode::BAD_REQUEST
+        );
+        assert_eq!(
+            app.db
+                .lock()
+                .unwrap()
+                .query_row("SELECT balance FROM bot_wallets WHERE user_id=1", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            100
+        );
+    }
     #[tokio::test]
     async fn history_returns_only_own_unexpired_sent_messages() {
         let (_dir, app) = fixture();

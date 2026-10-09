@@ -5,19 +5,23 @@ use rand::{Rng, seq::SliceRandom};
 use rusqlite::TransactionBehavior;
 use serde::{Deserialize, Serialize};
 
+#[path = "gambling_arcade.rs"]
+mod arcade;
+pub use arcade::{admin_rules, play};
+
 const MAX_STAKE: i64 = 1_000_000;
-const MAX_MULTIPLIER: i64 = 10_000; // hundredths: 100.00x
+const MAX_MULTIPLIER: i64 = 100_000; // hundredths: 1000.00x
 const BETTING_MS: i64 = 10_000;
 const INTERMISSION_MS: i64 = 4_000;
 const PARTICIPANT_PAGE_SIZE: i64 = 200;
-const NOTICE: &str = "Kash is free fictional currency: no purchase, cash-out or transfer. The owner can see Crash outcomes before each round, including random rounds. Controlled rounds are openly marked; this is not a provably-fair game. Blackjack uses a shuffled 52-card shoe, dealer stands on soft 17, no splits or insurance; natural blackjack pays 3:2, rounded down to whole Kash. Balances are capped at 9007199254740991 Kash.";
+const NOTICE: &str = "Kash is free fictional currency: no purchase or real-money cash-out; member tips transfer existing Kash. The owner can see Crash outcomes before each round, including random rounds. Controlled rounds are openly marked; this is not a provably-fair game. Blackjack uses a shuffled 52-card shoe, dealer stands on soft 17, no splits or insurance; natural blackjack pays 3:2, rounded down to whole Kash. Balances are capped at 9007199254740991 Kash.";
 
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     db.execute_batch(
         "CREATE TABLE IF NOT EXISTS gambling_config(id INTEGER PRIMARY KEY CHECK(id=1),mode TEXT NOT NULL DEFAULT 'random' CHECK(mode IN ('random','controlled')),paused INTEGER NOT NULL DEFAULT 0);
          INSERT OR IGNORE INTO gambling_config(id) VALUES(1);
-         CREATE TABLE IF NOT EXISTS gambling_crash_queue(id INTEGER PRIMARY KEY AUTOINCREMENT,multiplier INTEGER NOT NULL CHECK(multiplier BETWEEN 100 AND 10000));
-         CREATE TABLE IF NOT EXISTS gambling_crash_rounds(id INTEGER PRIMARY KEY AUTOINCREMENT,created_ms INTEGER NOT NULL,start_ms INTEGER NOT NULL,crash_ms INTEGER NOT NULL,multiplier INTEGER NOT NULL CHECK(multiplier BETWEEN 100 AND 10000),mode TEXT NOT NULL CHECK(mode IN ('random','controlled')),settled INTEGER NOT NULL DEFAULT 0);
+         CREATE TABLE IF NOT EXISTS gambling_crash_queue(id INTEGER PRIMARY KEY AUTOINCREMENT,multiplier INTEGER NOT NULL CHECK(multiplier BETWEEN 100 AND 100000));
+         CREATE TABLE IF NOT EXISTS gambling_crash_rounds(id INTEGER PRIMARY KEY AUTOINCREMENT,created_ms INTEGER NOT NULL,start_ms INTEGER NOT NULL,crash_ms INTEGER NOT NULL,multiplier INTEGER NOT NULL CHECK(multiplier BETWEEN 100 AND 100000),mode TEXT NOT NULL CHECK(mode IN ('random','controlled')),settled INTEGER NOT NULL DEFAULT 0);
          CREATE TABLE IF NOT EXISTS gambling_crash_bets(round_id INTEGER NOT NULL REFERENCES gambling_crash_rounds(id),user_id INTEGER NOT NULL REFERENCES users(id),stake INTEGER NOT NULL CHECK(stake BETWEEN 1 AND 1000000),auto_multiplier INTEGER,status TEXT NOT NULL DEFAULT 'pending' CHECK(status IN ('pending','won','lost')),payout INTEGER NOT NULL DEFAULT 0,cashout_multiplier INTEGER,cashout_at_ms INTEGER,PRIMARY KEY(round_id,user_id));
          CREATE TABLE IF NOT EXISTS gambling_blackjack(id TEXT PRIMARY KEY,user_id INTEGER NOT NULL REFERENCES users(id),stake INTEGER NOT NULL CHECK(stake BETWEEN 1 AND 2000000),deck TEXT NOT NULL,cursor INTEGER NOT NULL,player TEXT NOT NULL,dealer TEXT NOT NULL,status TEXT NOT NULL DEFAULT 'playing',payout INTEGER NOT NULL DEFAULT 0,created INTEGER NOT NULL);
          CREATE UNIQUE INDEX IF NOT EXISTS gambling_one_active_hand ON gambling_blackjack(user_id) WHERE status='playing';
@@ -46,6 +50,8 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     // Warm immutable metadata during initialization, before this connection is
     // shared or used by gameplay transactions. Invalid metadata stays unavailable.
     let _ = cached_catalog();
+    arcade::initialize(db)?;
+    migrate_crash_ceiling(db)?;
     Ok(())
 }
 
@@ -56,6 +62,65 @@ fn milliseconds() -> i64 {
         .as_millis()
         .try_into()
         .unwrap_or(i64::MAX)
+}
+
+// Startup-only migration. Dropping the original parent without renaming it
+// keeps existing bet foreign keys pointing to the restored original name.
+fn migrate_crash_ceiling(db: &Connection) -> rusqlite::Result<()> {
+    let mut tables = Vec::new();
+    for name in ["gambling_crash_queue", "gambling_crash_rounds"] {
+        let sql: String =
+            db.query_row("SELECT sql FROM sqlite_master WHERE name=?1", [name], |r| {
+                r.get(0)
+            })?;
+        if sql.contains("BETWEEN 100 AND 10000)") {
+            tables.push((name, sql));
+        }
+    }
+    if tables.is_empty() {
+        return Ok(());
+    }
+    let foreign_keys: bool = db.pragma_query_value(None, "foreign_keys", |r| r.get(0))?;
+    db.pragma_update(None, "foreign_keys", false)?;
+    let migrated = (|| {
+        let tx = db.unchecked_transaction()?;
+        for (name, sql) in tables {
+            let sequence: Option<i64> = tx
+                .query_row(
+                    "SELECT seq FROM sqlite_sequence WHERE name=?1",
+                    [name],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            let temporary = format!("{name}_ceiling_migration");
+            let sql = sql
+                .replacen(name, &temporary, 1)
+                .replace("BETWEEN 100 AND 10000)", "BETWEEN 100 AND 100000)");
+            tx.execute_batch(&sql)?;
+            tx.execute_batch(&format!("INSERT INTO {temporary} SELECT * FROM {name}; DROP TABLE {name}; ALTER TABLE {temporary} RENAME TO {name};"))?;
+            if let Some(sequence) = sequence
+                && tx.execute(
+                    "UPDATE sqlite_sequence SET seq=MAX(seq,?1) WHERE name=?2",
+                    params![sequence, name],
+                )? == 0
+            {
+                tx.execute(
+                    "INSERT INTO sqlite_sequence(name,seq) VALUES(?1,?2)",
+                    params![name, sequence],
+                )?;
+            }
+        }
+        let invalid: i64 =
+            tx.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| {
+                r.get(0)
+            })?;
+        if invalid != 0 {
+            return Err(rusqlite::Error::InvalidQuery);
+        }
+        tx.commit()
+    })();
+    db.pragma_update(None, "foreign_keys", foreign_keys)?;
+    migrated
 }
 
 fn identifier(value: &str) -> bool {
@@ -107,7 +172,7 @@ fn credit(db: &Connection, actor: i64, payout: i64, stake: i64) -> ApiResult<i64
 // The optional identity header binds a pending browser action to its original
 // member even if another tab replaces the shared session cookie. Old clients
 // remain compatible; authentication always runs before this additional guard.
-fn mutation_actor(app: &App, headers: &HeaderMap) -> ApiResult<i64> {
+pub(super) fn mutation_actor(app: &App, headers: &HeaderMap) -> ApiResult<i64> {
     let actor = app.auth(headers)?.0;
     let mut values = headers.get_all("x-canna-member").iter();
     if let Some(value) = values.next() {
@@ -126,6 +191,14 @@ fn mutation_actor(app: &App, headers: &HeaderMap) -> ApiResult<i64> {
         }
     }
     Ok(actor)
+}
+
+pub(super) fn wagering_paused(db: &Connection) -> ApiResult<bool> {
+    Ok(
+        db.query_row("SELECT paused FROM gambling_house WHERE id=1", [], |r| {
+            r.get(0)
+        })?,
+    )
 }
 
 fn record(db: &Connection, actor: i64, kind: &str, target: &Value) -> ApiResult<()> {
@@ -171,14 +244,19 @@ fn once(
         return Ok(axum::Json(result));
     }
     let count: i64 = tx.query_row(
-        "SELECT count(*) FROM gambling_requests WHERE user_id=?1 AND created>=?2 AND kind IN ('crash_bet','blackjack_deal','cosmetic_case')",
+        "SELECT count(*) FROM gambling_requests WHERE user_id=?1 AND created>=?2 AND kind IN ('crash_bet','blackjack_deal','cosmetic_case','roulette','dice','slots')",
         params![actor, (now() / 86400) * 86400],
         |r| r.get(0),
     )?;
-    if count >= 200 && matches!(kind, "crash_bet" | "blackjack_deal" | "cosmetic_case") {
+    if count >= arcade::daily_limit(&tx)?
+        && matches!(
+            kind,
+            "crash_bet" | "blackjack_deal" | "cosmetic_case" | "roulette" | "dice" | "slots"
+        )
+    {
         return Err(ApiError(
             StatusCode::TOO_MANY_REQUESTS,
-            "Today's limit is 200 new games or cases; existing games remain playable",
+            "Today's new-game limit was reached; existing games remain playable",
         ));
     }
     let mut result = action(&tx)?;
@@ -297,7 +375,7 @@ fn advance(db: &Connection, time: i64) -> ApiResult<Option<Round>> {
         [],
         |r| Ok((r.get(0)?, r.get(1)?)),
     )?;
-    if paused {
+    if paused || arcade::paused(db, "crash")? {
         return Ok(None);
     }
     let queued: Option<(i64, i64)> = if mode == "controlled" {
@@ -377,6 +455,7 @@ fn crash_view(
     let history = db.prepare("SELECT id,multiplier,mode FROM gambling_crash_rounds WHERE crash_ms<=?1 ORDER BY id DESC LIMIT 20")?
         .query_map([time], |r| Ok(json!({"id":r.get::<_,i64>(0)?,"crash_multiplier":r.get::<_,i64>(1)? as f64/100.0,"mode":r.get::<_,String>(2)?})))?
         .collect::<Result<Vec<_>,_>>()?;
+    let paused = paused || arcade::paused(db, "crash")?;
     let mut view = json!({"id":null,"phase":"paused","multiplier":1.0,"mode":mode,"paused":paused,"owner_visible":true,"bet":null,"history":history,"participants":[],"participant_count":0,"participant_has_more":false,"participant_next_after_user_id":null,"participant_page_size":PARTICIPANT_PAGE_SIZE});
     // Pausing stops new rounds, not the display of the most recent round's bets.
     let previous = if round.is_none() {
@@ -414,8 +493,8 @@ fn crash_view(
 }
 
 fn centi(multiplier: f64) -> ApiResult<i64> {
-    if !multiplier.is_finite() || !(1.0..=100.0).contains(&multiplier) {
-        return Err(bad("Crash multipliers must be from 1.00 to 100.00"));
+    if !multiplier.is_finite() || !(1.0..=1000.0).contains(&multiplier) {
+        return Err(bad("Crash multipliers must be from 1.00 to 1000.00"));
     }
     Ok((multiplier * 100.0).round() as i64)
 }
@@ -440,6 +519,7 @@ pub async fn crash_bet(
         "crash_bet",
         &json!({"round_id":input.round_id,"stake":input.stake,"auto_cashout":input.auto_cashout}),
         |db| {
+            arcade::new_game(db, "crash", input.stake)?;
             let time = milliseconds();
             let round = advance(db, time)?.ok_or_else(|| bad("New Crash rounds are paused"))?;
             let paused: bool =
@@ -652,6 +732,7 @@ pub async fn blackjack_deal(
         "blackjack_deal",
         &json!({"stake":input.stake}),
         |db| {
+            arcade::new_game(db, "blackjack", input.stake)?;
             let active:bool=db.query_row("SELECT EXISTS(SELECT 1 FROM gambling_blackjack WHERE user_id=?1 AND status='playing')",[actor],|r|r.get(0))?;
             if active {
                 return Err(ApiError(
@@ -1010,12 +1091,14 @@ pub async fn case_open(
         "cosmetic_case",
         &json!({"case_id":input.case_id}),
         |db| {
+            let cost = arcade::case_cost(db, &input.case_id)?;
+            arcade::new_game(db, "cases", cost)?;
             let (_, sum) = case_pool(catalog, &input.case_id)?;
             if sum == 0 {
                 return Err(bad("Cosmetic case is unavailable or paused"));
             }
             let item = select_case_item(catalog, &input.case_id, OsRng.gen_range(0..sum))?;
-            debit(db, actor, catalog["case"]["price"].as_i64().unwrap())?;
+            debit(db, actor, cost)?;
             let id = item["id"].as_str().unwrap();
             db.execute("INSERT INTO gambling_cosmetics VALUES(?1,?2,1) ON CONFLICT(user_id,item_id) DO UPDATE SET count=MIN(1000000,count+1)",params![actor,id])?;
             let count: i64 = db.query_row(
@@ -1023,7 +1106,7 @@ pub async fn case_open(
                 params![actor, id],
                 |r| r.get(0),
             )?;
-            Ok(json!({"case_id":input.case_id,"item":item,"count":count}))
+            Ok(json!({"case_id":input.case_id,"item":item,"count":count,"cost":cost}))
         },
     )
 }
@@ -1194,7 +1277,7 @@ pub async fn overview(
     let catalog = catalog.unwrap();
     let include_catalog = query.catalog_version.as_deref() != Some(catalog.version.as_str());
     let (cosmetics, cases) = cosmetics_view(&tx, actor, catalog, include_catalog)?;
-    let result = json!({"member_id":actor,"wallet":{"balance":balance,"earned":earned,"daily_available":daily!=now()/86400},"server_time_ms":time,"notice":NOTICE,"crash":crash,"blackjack":hand,"cosmetics":cosmetics,"cases":cases,"limits":{"max_stake":MAX_STAKE,"max_new_games_per_utc_day":200}});
+    let result = json!({"member_id":actor,"wallet":{"balance":balance,"earned":earned,"daily_available":daily!=now()/86400},"server_time_ms":time,"notice":NOTICE,"crash":crash,"blackjack":hand,"cosmetics":cosmetics,"cases":cases,"rules":arcade::rules_view(&tx)?,"recent_games":arcade::recent(&tx,actor)?,"limits":{"max_stake":MAX_STAKE,"max_new_games_per_utc_day":arcade::daily_limit(&tx)?}});
     tx.commit()?;
     Ok(axum::Json(result))
 }
@@ -1214,7 +1297,7 @@ fn admin_view(db: &Connection, actor: i64, time: i64) -> ApiResult<Value> {
         .collect::<Result<Vec<_>, _>>()?;
     let crash = crash_view(db, round.as_ref(), actor, time, true, 0)?;
     Ok(
-        json!({"mode":mode,"paused":paused,"queue":queue,"crash":crash,"planned_crash_multiplier":crash["planned_crash_multiplier"],"planned_crash_at_ms":crash["planned_crash_at_ms"],"server_time_ms":time,"notice":NOTICE,"limits":{"queued_rounds":20,"min_multiplier":1.0,"max_multiplier":100.0},"queue_empty_behavior":"Controlled mode remains visibly controlled and draws random rounds when its queue is empty."}),
+        json!({"mode":mode,"paused":paused,"queue":queue,"crash":crash,"planned_crash_multiplier":crash["planned_crash_multiplier"],"planned_crash_at_ms":crash["planned_crash_at_ms"],"server_time_ms":time,"notice":NOTICE,"rules":arcade::rules_view(db)?,"metrics":arcade::metrics(db)?,"limits":{"queued_rounds":20,"min_multiplier":1.0,"max_multiplier":1000.0},"queue_empty_behavior":"Controlled mode remains visibly controlled and draws random rounds when its queue is empty."}),
     )
 }
 
@@ -1310,6 +1393,65 @@ mod tests {
     use super::*;
     use crate::tests::{account, call, fixture, value};
 
+    #[test]
+    fn crash_ceiling_migration_preserves_bets_queue_and_sequence() {
+        let (_dir, app) = fixture();
+        account(&app, "migration-player", false);
+        let db = app.db.lock().unwrap();
+        db.execute_batch("DROP TABLE gambling_crash_queue; DROP TABLE gambling_crash_rounds;
+          CREATE TABLE gambling_crash_queue(id INTEGER PRIMARY KEY AUTOINCREMENT,multiplier INTEGER NOT NULL CHECK(multiplier BETWEEN 100 AND 10000));
+          CREATE TABLE gambling_crash_rounds(id INTEGER PRIMARY KEY AUTOINCREMENT,created_ms INTEGER NOT NULL,start_ms INTEGER NOT NULL,crash_ms INTEGER NOT NULL,multiplier INTEGER NOT NULL CHECK(multiplier BETWEEN 100 AND 10000),mode TEXT NOT NULL CHECK(mode IN ('random','controlled')),settled INTEGER NOT NULL DEFAULT 0);
+          INSERT INTO gambling_crash_queue VALUES(1,5000);
+          INSERT INTO gambling_crash_rounds VALUES(42,0,1000,5000,5000,'controlled',0);
+          INSERT INTO gambling_crash_rounds VALUES(1000,0,1000,5000,5000,'controlled',1);
+          DELETE FROM gambling_crash_rounds WHERE id=1000;
+          INSERT INTO gambling_crash_bets(round_id,user_id,stake,auto_multiplier) VALUES(42,1,25,200);") .unwrap();
+        let foreign_keys: bool = db
+            .pragma_query_value(None, "foreign_keys", |r| r.get(0))
+            .unwrap();
+        migrate_crash_ceiling(&db).unwrap();
+        migrate_crash_ceiling(&db).unwrap();
+        assert_eq!(
+            db.pragma_query_value(None, "foreign_keys", |r| r.get::<_, bool>(0))
+                .unwrap(),
+            foreign_keys
+        );
+        assert_eq!(bet_view(&db, 42, 1).unwrap()["stake"], 25);
+        assert_eq!(
+            db.query_row(
+                "SELECT multiplier FROM gambling_crash_queue WHERE id=1",
+                [],
+                |r| r.get::<_, i64>(0)
+            )
+            .unwrap(),
+            5000
+        );
+        db.execute("INSERT INTO gambling_crash_rounds(created_ms,start_ms,crash_ms,multiplier,mode) VALUES(0,1000,70000,100000,'controlled')",[]).unwrap();
+        assert!(db.last_insert_rowid() > 1000);
+        db.execute(
+            "INSERT INTO gambling_crash_queue(multiplier) VALUES(100000)",
+            [],
+        )
+        .unwrap();
+        assert!(
+            db.execute(
+                "INSERT INTO gambling_crash_queue(multiplier) VALUES(100001)",
+                []
+            )
+            .is_err()
+        );
+        assert_eq!(centi(1000.0).unwrap(), 100000);
+        assert!(centi(1000.01).is_err());
+        assert_eq!(
+            db.query_row("SELECT count(*) FROM pragma_foreign_key_check", [], |r| r
+                .get::<_, i64>(
+                0
+            ))
+            .unwrap(),
+            0
+        );
+    }
+
     fn balance(app: &App, actor: i64, amount: i64) {
         let db = app.db.lock().unwrap();
         wallet(&db, actor).unwrap();
@@ -1332,7 +1474,13 @@ mod tests {
         }
     }
 
-    fn hand(db: &Connection, actor: i64, player: &[u8], dealer: &[u8], next: &[u8]) -> String {
+    pub(super) fn hand(
+        db: &Connection,
+        actor: i64,
+        player: &[u8],
+        dealer: &[u8],
+        next: &[u8],
+    ) -> String {
         let id = Uuid::new_v4().to_string();
         db.execute(
             "INSERT INTO gambling_blackjack VALUES(?1,?2,100,?3,0,?4,?5,'playing',0,?6)",
@@ -1380,6 +1528,10 @@ mod tests {
         balance(&app, 1, 1000);
         balance(&app, 2, 1000);
         let paths = [
+            (
+                "/api/v1/gambling/arcade/play",
+                json!({"request_id":"bound-arcade","game":"slots","stake":25}),
+            ),
             (
                 "/api/v1/gambling/crash/bet",
                 json!({"request_id":"bound-bet","round_id":1,"stake":25,"auto_cashout":null}),
@@ -2533,7 +2685,7 @@ mod tests {
         .await;
         assert_eq!(response["queue"].as_array().unwrap().len(), 3);
         assert_eq!(response["planned_crash_multiplier"], 2.0);
-        let excessive = json!({"mode":"controlled","paused":false,"queue":[{"min_multiplier":1.0,"max_multiplier":100.0,"rounds":21}]});
+        let excessive = json!({"mode":"controlled","paused":false,"queue":[{"min_multiplier":1.0,"max_multiplier":1000.0,"rounds":21}]});
         assert_eq!(
             call(
                 app.clone(),
@@ -3218,7 +3370,7 @@ mod tests {
         assert_eq!(credit(&db, 1, 100, 0).unwrap(), 0);
         assert!(centi(f64::NAN).is_err());
         assert!(centi(f64::INFINITY).is_err());
-        assert!(centi(100.01).is_err());
+        assert!(centi(1000.01).is_err());
         assert!(centi(0.99).is_err());
     }
 

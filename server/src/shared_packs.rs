@@ -2,7 +2,7 @@ use super::*;
 
 const REBOUND_PROFILE: &str = "rounds-public-1.1.2";
 
-// Exact reviewed provider releases supplied by the current Rebound payload.
+// Exact reviewed provider releases supplied by the current Bliss payload.
 // Names alone never qualify: a different author or version must be installed.
 fn rebound_dependency(
     details: &Value,
@@ -67,7 +67,7 @@ fn authorize_publish(db: &Connection, manifest: &Value, user: i64) -> ApiResult<
     if requires_rebound(manifest) && !admin_settings::has_rebound(db, user)? {
         return Err(ApiError(
             StatusCode::FORBIDDEN,
-            "Sharing this pack requires Canna Rebound Beta access",
+            "Sharing this pack requires Canna Bliss Beta access",
         ));
     }
     Ok(())

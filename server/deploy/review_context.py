@@ -4,8 +4,18 @@ Comments and literal references are distinguished from API use. Unknown paths
 still require review; non-executable extensions are not a trust boundary.
 """
 import hashlib
+import importlib.util
 import re
 from bisect import bisect_right
+from pathlib import Path
+
+_trace_spec = importlib.util.spec_from_file_location('canna_review_trace', Path(__file__).with_name('review_trace.py'))
+trace = importlib.util.module_from_spec(_trace_spec)
+_trace_spec.loader.exec_module(trace)
+
+
+def trace_operations(text, findings):
+    return trace.annotate(text, findings, source_views, EXECUTABLE)
 
 RULES = [
     ('network', 'Network API use', r'\b(?:HttpClient|WebClient|UnityWebRequest|Socket|TcpClient|UdpClient|URLConnection|HttpURLConnection|XMLHttpRequest|Invoke-WebRequest|Invoke-RestMethod)\b|\brequests\s*\.\s*(?:get|post|put|delete|request)\s*\(|\b(?:fetch|urlopen|curl|wget)\s*(?:\(|\s)|\bApplication\s*\.\s*OpenURL\b|\baxios\s*\.', 'review'),
@@ -287,6 +297,8 @@ def scan_source(text, name, suffix):
     content_lines, code_lines = content.splitlines(), code.splitlines()
     starts = [0] + [m.end() for m in re.finditer('\n', text)]
     matched_lines = {}
+    declarations = [(m.start(), m.end()) for m in trace.METHOD.finditer(code)] if suffix == '.cs' else []
+    network_declarations = list(re.finditer(r'\b(?:HttpClient|WebClient|TcpClient|UdpClient|Socket)\s+(\w+)\s*(?:[;=,)]|$)', code)) if suffix == '.cs' else []
     for begin, end, license_name in prose_regions:
         emit(entry('documentation-reference', 'Recognized canonical license prose', name,
                    bisect_right(starts, begin), license_name + ': exact canonical prose matched after whitespace normalization.', 'info',
@@ -312,9 +324,28 @@ def scan_source(text, name, suffix):
             if len(matched_lines) < 2500:
                 matched_lines[rule, index] = True
             contextual = None
+            if rule == 'network' and any(declaration.start() == match.start() and ';' in declaration[0] for declaration in network_declarations):
+                matched_lines.pop((rule,index),None)
+                emit(entry('declaration-reference', 'Network client declaration, not a request', name, index, evidence, 'info',
+                           'A field or variable type is declared here. Construction and identified request call sites are inspected separately; this declaration alone does not contact a server.'), True)
+                continue
             if rule == 'dynamic':
                 title, contextual = dynamic_description(match[0])
+                if match[0] in {'FromBase64String', 'DownloadString'} and any(begin <= match.start() < end for begin, end in declarations):
+                    matched_lines.pop((rule,index),None)
+                    emit(entry('declaration-reference', 'API-like method declaration, not a call', name, index, evidence, 'info',
+                               'This match names a method declaration. Its body and call sites are scanned separately; the name itself is not decoding or a network request.'), True)
+                    continue
             emit(entry(rule, title, name, index, evidence, severity, contextual))
+    if network_declarations:
+        names = sorted({declaration[1] for declaration in network_declarations})
+        requests = re.compile(r'\b(?:' + '|'.join(map(re.escape, names)) + r')\s*\.\s*(?:Send(?:Async)?|Get(?:Async|StringAsync|ByteArrayAsync|StreamAsync)|PostAsync|PutAsync|DeleteAsync|Download(?:Data|String|File)(?:Async)?)\s*\(')
+        for match in requests.finditer(code):
+            index = bisect_right(starts, match.start())
+            if ('network', index) not in matched_lines:
+                emit(entry('network', 'Request through a declared network client', name, index, original_lines[index-1].strip(), 'review',
+                           'The receiver has a network-client declaration in this source file. Inspect the request destination, returned data and callers; lexical matching does not resolve every alias or shadowed variable.'))
+                matched_lines['network',index] = True
     for index, (visible, executable) in enumerate(zip(content_lines, code_lines), 1):
         evidence = original_lines[index - 1].strip()
         matches = {rule for rule, _, _, _ in active_rules if (rule, index) in matched_lines}
