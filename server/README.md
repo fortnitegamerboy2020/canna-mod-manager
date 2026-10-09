@@ -1,6 +1,6 @@
 # Canna family server
 
-Community 0.3.71 removes the long rules paragraph from the Gambling page. Game rules remain available in Help. Desktop stays at 0.2.47.
+Community 0.3.72 updates Help for the released Canna Anvil 1.0.7 Magnet fix. The fix passed 70 offline native-game checks; full multiplayer testing remains unverified. Desktop stays at 0.2.47. Community 0.3.71 removed the long rules paragraph from Gambling.
 
 Community 0.3.70 additions: Roulette, Dice and Slots; owner controls for game pauses, stake limits, arcade payout factors, crate prices and daily new-game limits; 1,000× Crash; `/tip @username amount` with member autocomplete and retry protection; and live admin wallet values that preserve adjustment drafts. Protected membership checks and atomic wallet accounting remain in place. Released with Desktop 0.2.47 / Community 0.3.70.
 
@@ -10,7 +10,7 @@ Rust/Axum service for invitation-only accounts, reviewed uploads, provider brows
 mod subscriptions, forums and private support. Desktop account pairing and the
 authenticated server catalog are integrated. Production secrets remain outside source.
 
-## Current release: Community 0.3.71
+## Current release: Community 0.3.72
 
 MW2 banner correction cleans the baked screenshot matte in 260 tiny source images, including Stuck on You, with audited alpha masks, transparent-only crops and lossless PNG output. Retained RGB pixels, all 654 cosmetic IDs, crate odds and equipment routes remain unchanged. Fifty-two ambiguous/full-art JPEGs and 86 existing transparent MW2 PNGs are kept intact. MW2 profile and crate previews cap artwork at twice its source width and shrink on small screens. This is a source-matte and excessive-stretch correction, not an HD replacement; isolated one-pixel JPEG fringes may remain. Reloading obtains changed checksum URLs without re-equipping.
 

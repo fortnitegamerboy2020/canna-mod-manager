@@ -1,6 +1,6 @@
 # Canna Mod Manager
 
-Community 0.3.71 removes the long rules paragraph from the Gambling page. Game rules remain available in Help. Desktop stays at 0.2.47.
+Community 0.3.72 updates Help for the released Canna Anvil 1.0.7 Magnet fix. The fix passed 70 offline native-game checks; full multiplayer testing remains unverified. Desktop stays at 0.2.47. Community 0.3.71 removed the long rules paragraph from Gambling.
 
 Community 0.3.70 additions: Roulette, Dice and Slots; owner controls for game pauses, stake limits, arcade payout factors, crate prices and daily new-game limits; 1,000× Crash; `/tip @username amount` with member autocomplete and retry protection; and live admin wallet values that preserve adjustment drafts. Protected membership checks and atomic wallet accounting remain in place. Released with Desktop 0.2.47 / Community 0.3.70.
 
