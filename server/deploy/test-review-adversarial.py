@@ -244,14 +244,15 @@ class ReviewAdversarialTests(unittest.TestCase):
                             reconstructed='public class Fixture {}')
         report = analyze_fixture([('fixture.dll', inert_pe())], tools)
         packing = [f for f in report['findings'] if f['rule'].startswith('pack')]
-        self.assertEqual(len(packing), 3,
+        locations = [site for finding in packing for site in finding.get('locations', [finding])]
+        self.assertEqual(len(locations), 3,
                          'Every ~ packing role must reach the report; compiler/library roles must not')
         self.assertEqual({f['rule'] for f in packing}, {'packing-review'},
                          'Heuristic type markers cannot become specific signatures')
         self.assertTrue(all(f['file'] == 'archive/fixture.dll' for f in packing))
         self.assertTrue(all(not f.get('accepted') for f in packing),
                         'Recognizing a heuristic never grants a review decision')
-        self.assertTrue(any(f['evidence'].startswith('(Heur)Packer: Generic') for f in packing),
+        self.assertTrue(any(f['evidence'].startswith('(Heur)Packer: Generic') for f in locations),
                         'The literal HollowPurple result must stay visible')
         self.assertEqual(report['engines']['detect-it-easy']['scanned'], 1)
 

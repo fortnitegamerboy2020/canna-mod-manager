@@ -110,7 +110,8 @@ function profileCosmeticImage(item){const asset=cosmeticAssetUrl(item.asset,item
 function callingCardDisplayWidth(item){return item.collection==='mw2'&&Number.isInteger(item.width)&&item.width>0&&item.width<=4096?item.width*2:0;}
 function applyUsernameCosmetics(node,cosmetics){
  if(!node)return;delete node.dataset.usernameEffect;node.querySelector('.username-emblem')?.remove();
- const effect=cosmetics?.name_effect;if(effect&&!effect.paused&&['aurora','canna','sunset','royal','ice','rainbow','ember','ocean','nebula','candy','forest','silver','toxic','rose','lava','midnight','prism','bliss'].includes(effect.style)){node.dataset.usernameEffect=effect.style;setupCosmeticMotion();document.documentElement.dataset.cosmeticMotion=cosmeticAnimationsPaused()?'paused':'auto';}
+ let label=node.querySelector(':scope > .username-text');if(!label){label=document.createElement('span');label.className='username-text';label.append(...node.childNodes);node.append(label);}delete label.dataset.usernameEffect;
+ const effect=cosmetics?.name_effect;if(effect&&!effect.paused&&['aurora','canna','sunset','royal','ice','rainbow','ember','ocean','nebula','candy','forest','silver','toxic','rose','lava','midnight','prism','bliss'].includes(effect.style)){label.dataset.usernameEffect=effect.style;setupCosmeticMotion();document.documentElement.dataset.cosmeticMotion=cosmeticAnimationsPaused()?'paused':'auto';}
  const emblem=cosmetics?.emblem;if(emblem&&!emblem.paused){const image=profileCosmeticImage(emblem);if(image){image.className='username-emblem';image.title=emblem.name;image.setAttribute('aria-label',emblem.name+' cosmetic emblem');node.prepend(image);}}
 }
 $('editprofile').addEventListener('submit',event => { event.preventDefault(); action(async () => {

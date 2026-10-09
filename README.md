@@ -1,3 +1,5 @@
+Community 0.3.76 fixes ready-state arcade boards, adds accelerating Plinko path replay and a revised low-risk table, keeps gradient account buttons visible, and repairs cosmetic labels without changing ownership IDs. Static-10 adds bounded loader-root context while retaining unknown paths, executable replacement and security findings for review.
+
 Community 0.3.75 polishes the expanded arcade: Plinko replays its saved path with reduced-motion support, mixed crates are labelled cosmetics, and owner crate controls use readable names. Source publishers batch large trees to avoid failed bulk updates.
 
 # Canna Mod Manager

@@ -386,21 +386,45 @@ function renderCosmeticStyles(cosmetics){
  }
 }
 const arcadeSeen=new Map();
+const PLINKO_TABLES={low:[2,1.5,1.2,1.1,1,1,.8,1,1,1.1,1.2,1.5,2],high:[500,50,10,3,1,.5,.2,.5,1,3,10,50,500]};
+const WHEEL_SEGMENTS=[0,1,0,2,0,1,0,5,0,1,0,2,0,1,0,10,0,1,0,1];
+function plinkoFrames(path){
+ const frames=[{transform:'translate(180px, 5px)',offset:0}],flight=.21,first=.12,last=.25,total=first+11*flight+last;
+ let x=180,y=12.5,elapsed=first;for(let i=1;i<=6;i++){const t=i/6;frames.push({transform:`translate(180px, ${5+7.5*t*t}px)`,offset:first*t/total});}
+ for(let row=0;row<12;row++){
+  const dt=row===11?last:flight,dy=row===11?235-y:17,v=-70,g=2*(dy-v*dt)/(dt*dt),direction=path[row]?1:-1;
+  for(let i=1;i<=10;i++){const t=dt*i/10;frames.push({transform:`translate(${x+direction*12.5*t/dt}px, ${y+v*t+.5*g*t*t}px)`,offset:Math.min(1,(elapsed+t)/total)});}
+  x+=direction*12.5;y+=dy;elapsed+=dt;
+ }
+ frames.at(-1).offset=1;return {frames,duration:total*1000,x,y};
+}
+function prizeWheel(root,result){
+ const stage=gameNode('div',null,'wheel-stage'),pointer=gameNode('span','▼','wheel-pointer'),svg=crashSvg('svg',{viewBox:'0 0 320 320',role:'img','aria-label':result?`Prize wheel: segment ${result.slot+1}, ${result.base_multiplier} times`:'Prize wheel ready: twenty labeled segments',class:'wheel-disc'});
+ for(let i=0;i<20;i++){const a=(i*18-90)*Math.PI/180,b=((i+1)*18-90)*Math.PI/180,m=(a+b)/2;svg.append(crashSvg('path',{d:`M160 160 L${160+145*Math.cos(a)} ${160+145*Math.sin(a)} A145 145 0 0 1 ${160+145*Math.cos(b)} ${160+145*Math.sin(b)} Z`,fill:['#233c34','#415d42','#31554a','#726a35'][i%4],stroke:'#0f2018','stroke-width':2}));const label=crashSvg('text',{x:160+115*Math.cos(m),y:165+115*Math.sin(m),fill:'#e9f3c8','font-size':13,'text-anchor':'middle'});label.textContent=WHEEL_SEGMENTS[i]+'×';svg.append(label);}
+ svg.append(crashSvg('circle',{cx:160,cy:160,r:24,fill:'#d2e599',stroke:'#18271b','stroke-width':4}));stage.append(svg,pointer);root.append(stage,gameNode('strong',result?result.base_multiplier+'× return before payout factor':'Ready to spin'));
+ if(result){const angle=-(result.slot*18+9);svg.style.transform=`rotate(${angle}deg)`;root.append(gameNode('small',`Segment ${result.slot+1} of 20`));if(!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)svg.animate?.([{transform:`rotate(${angle-1080}deg)`},{transform:`rotate(${angle}deg)`}],{duration:1900,easing:'cubic-bezier(.12,.65,.2,1)'});}
+}
 function renderArcadeVisual(game,row){
- const root=$(game+'-visual'),r=row.result;
+ const root=$(game+'-visual'),r=row?.result;
+ const risk=$('plinko-choice')?.value||'low',key=JSON.stringify(row||{idle:true,risk:game==='plinko'?risk:''});if(arcadeSeen.get(game)===key)return;arcadeSeen.set(game,key);root.replaceChildren();
+ if(!r&&!['plinko','wheel'].includes(game)){
+  if(game==='slots')root.textContent=SLOT_SYMBOLS.slice(0,3).join('  ');
+  else if(game==='roulette'){const grid=gameNode('div',null,'roulette-preview');for(let n=0;n<=36;n++)grid.append(gameNode('span',String(n)));root.append(grid,gameNode('small','Choose a bet to spin'));}
+  else if(game==='dice'){const face=gameNode('div','⚄','dice-preview');root.append(face,gameNode('small','Choose your chance to roll'));}
+  else if(game==='keno'){for(let n=0;n<10;n++)root.append(gameNode('span','?','kenoball'));root.append(gameNode('small','Your ten drawn numbers will appear here'));}
+  else if(game==='baccarat'){for(const side of ['Player','Banker']){const hand=gameNode('div',null,'baccarathand');hand.append(gameNode('small',side));for(let n=0;n<2;n++)hand.append(gameNode('span','♠','baccaratcard card-back'));root.append(hand);}root.append(gameNode('small','Choose Player, Banker or Tie to deal'));}
+  return;
+ }
  if(['roulette','dice','slots'].includes(game)){root.textContent=game==='roulette'?String(r.number):game==='dice'?Number(r.roll).toFixed(2):(r.reels||[]).map(i=>SLOT_SYMBOLS[i]).join('  ');return;}
- const key=JSON.stringify(row);if(arcadeSeen.get(game)===key)return;arcadeSeen.set(game,key);root.replaceChildren();
  if(game==='keno'){for(const n of r.draw||[]){const ball=gameNode('span',String(n),'kenoball');ball.dataset.hit=String((r.picks||[]).includes(n));root.append(ball);}root.append(gameNode('strong',`${r.hits} matches`));}
  if(game==='baccarat'){for(const side of ['player','banker']){const hand=gameNode('div',null,'baccarathand');hand.append(gameNode('small',side.toUpperCase()));for(const n of r[side]||[])hand.append(gameNode('span',String(n),'baccaratcard'));hand.append(gameNode('strong','Total '+r[side+'_total']));root.append(hand);}root.append(gameNode('strong',r.push?'Tie · stake returned':r.winner+' wins'));}
- if(game==='wheel'){const ring=gameNode('div',String(r.base_multiplier)+'×','prizewheel');root.append(ring,gameNode('small',`Segment ${r.slot+1} of 20`));if(!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)ring.animate?.([{transform:'rotate(-720deg)'},{transform:'rotate(0deg)'}],{duration:1100,easing:'cubic-bezier(.12,.65,.2,1)'});}
+ if(game==='wheel')prizeWheel(root,r);
  if(game==='plinko'){
-  const svg=crashSvg('svg',{viewBox:'0 0 360 260',role:'img','aria-label':`Plinko ${r.risk} risk, slot ${r.slot+1}, ${r.base_multiplier} times`});
+  const table=r?.multipliers||PLINKO_TABLES[risk],svg=crashSvg('svg',{viewBox:'0 0 360 260',role:'img','aria-label':r?`Plinko ${r.risk} risk, slot ${r.slot+1}, ${r.base_multiplier} times`:`Plinko ${risk} risk, ready to drop`});
   for(let row=0;row<12;row++)for(let col=0;col<=row;col++)svg.append(crashSvg('circle',{cx:180+(col-row/2)*25,cy:20+row*17,r:2.5,fill:'#83baae'}));
-  let x=180;const points=['180,5'];for(let i=0;i<12;i++){x+=(r.path[i]?1:-1)*12.5;points.push(x+','+(30+i*17));}
-  svg.append(crashSvg('polyline',{points:points.join(' '),fill:'none',stroke:'#b5ff89','stroke-width':3}));
-  const ball=crashSvg('circle',{cx:0,cy:0,r:5,fill:'#ecffba',stroke:'#18271b','stroke-width':1.5,transform:'translate('+points.at(-1).replace(',',' ')+')',class:'plinko-ball'});svg.append(ball);
-  if(!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)ball.animate?.(points.map(point=>{const [x,y]=point.split(',');return{transform:`translate(${x}px, ${y}px)`};}),{duration:1400,easing:'linear'});
-  for(let i=0;i<13;i++){const text=crashSvg('text',{x:30+i*25,y:247,'text-anchor':'middle',fill:i===r.slot?'#d5ffa6':'#a5b9b0','font-size':10});text.textContent=r.multipliers[i]+'×';svg.append(text);}root.append(svg,gameNode('strong',r.base_multiplier+'× return before payout factor'));
+  const trajectory=r?plinkoFrames(r.path):null,ball=crashSvg('circle',{cx:0,cy:0,r:5,fill:'#ecffba',stroke:'#18271b','stroke-width':1.5,transform:`translate(${trajectory?.x||180} ${trajectory?.y||5})`,class:'plinko-ball'});svg.append(ball);
+  if(trajectory&&!window.matchMedia?.('(prefers-reduced-motion: reduce)').matches)ball.animate?.(trajectory.frames,{duration:trajectory.duration,easing:'linear'});
+  for(let i=0;i<13;i++){svg.append(crashSvg('rect',{x:18+i*25,y:235,width:24,height:21,rx:3,fill:i===r?.slot?'#527144':table[i]<1?'#453b31':'#263f35'}));const text=crashSvg('text',{x:30+i*25,y:249,'text-anchor':'middle',fill:i===r?.slot?'#e7ffc8':'#d3e0d8','font-size':10});text.textContent=table[i]+'×';svg.append(text);}root.append(svg,gameNode('strong',r?r.base_multiplier+'× return before payout factor':'Choose risk and drop a ball'));
  }
 }
 function setupArcade(){
@@ -416,7 +440,7 @@ function setupArcade(){
    const grid=gameNode('div',null,'kenogrid');grid.id='keno-picks';grid.setAttribute('role','group');grid.setAttribute('aria-label','Choose four Keno numbers');
    for(let n=1;n<=40;n++){const pick=gameButton(String(n),()=>{const selected=grid.querySelectorAll('[aria-pressed=true]');if(pick.getAttribute('aria-pressed')==='true')pick.setAttribute('aria-pressed','false');else if(selected.length<4)pick.setAttribute('aria-pressed','true');renderArcadeRules();});pick.dataset.number=n;pick.setAttribute('aria-pressed',n<=4?'true':'false');grid.append(pick);}form.append(grid);
   }
-  if(game==='plinko'||game==='baccarat'){const label=gameNode('label',game==='plinko'?'Risk':'Your bet'),choice=gameNode('select');choice.id=game+'-choice';for(const value of game==='plinko'?['low','high']:['player','banker','tie'])choice.append(new Option(value[0].toUpperCase()+value.slice(1),value));label.append(choice);form.append(label);choice.addEventListener('change',renderArcadeRules);}
+  if(game==='plinko'||game==='baccarat'){const label=gameNode('label',game==='plinko'?'Risk':'Your bet'),choice=gameNode('select');choice.id=game+'-choice';for(const value of game==='plinko'?['low','high']:['player','banker','tie'])choice.append(new Option(value[0].toUpperCase()+value.slice(1),value));label.append(choice);form.append(label);choice.addEventListener('change',()=>{renderArcadeRules();if(game==='plinko'&&!gamblingData?.recent_games?.some(row=>row.game==='plinko'))renderArcadeVisual('plinko',null);});}
   const rules=gameNode('p');rules.id=game+'-rules';const submit=gameNode('button',game==='roulette'?'Spin wheel':({dice:'Roll dice',slots:'Spin reels',keno:'Draw ten balls',plinko:'Drop ball',wheel:'Spin prize wheel',baccarat:'Deal Baccarat'}[game]||'Play'));submit.type='submit';submit.className='primary';submit.id=game+'-play';form.append(rules,submit);form.addEventListener('submit',event=>{event.preventDefault();action(async()=>{
    const data={game,stake:Number($(game+'-stake').value)};
    if(game==='roulette'){data.choice=$('roulette-choice').value;if(data.choice==='number')data.number=Number($('roulette-number').value);}
@@ -432,7 +456,7 @@ function arcadeResultText(row){const r=row.result||{};const outcome=row.game==='
 function renderArcadeRules(){
  for(const game of INSTANT_GAMES){
   const rule=arcadeRule(game),chance=Number($('dice-under')?.value)||50;
-  const extra={keno:'Pick four numbers; payouts 0 / 0 / 1 / 5 / 50× for 0–4 hits.',plinko:'Low: 10 / 5 / 2 / 1.2 / 1 / 0.8 / 0.5× mirrored. High: 500 / 50 / 10 / 3 / 1 / 0.5 / 0.2× mirrored.',wheel:'Each of the 20 segments has a 5% chance.',baccarat:'Player 2× · Banker 1.95× · Tie 9×; ties push outside bets.'};
+  const extra={keno:'Pick four numbers; payouts 0 / 0 / 1 / 5 / 50× for 0–4 hits.',plinko:'Low: 2 / 1.5 / 1.2 / 1.1 / 1 / 1 / 0.8× mirrored. At factor 100%, only the center slot is below 1× (22.56%); expected return 97.55% before rounding. High: 500 / 50 / 10 / 3 / 1 / 0.5 / 0.2× mirrored. Bounces keep the same binomial odds.',wheel:'Each of the 20 segments has a 5% chance.',baccarat:'Player 2× · Banker 1.95× · Tie 9×; ties push outside bets.'};
   const odds=extra[game]?`${extra[game]} Payout factor ${rule.payout_percent}%.`:game==='dice'?`Win chance ${chance}%. Total return ${(rule.payout_percent/chance).toFixed(2)}× on a win. Expected return ${rule.payout_percent}% before whole-Kash rounding.`:game==='roulette'?`Payout factor ${rule.payout_percent}%. Expected return ${(36/37*rule.payout_percent).toFixed(2)}% before rounding.`:`Payout factor ${rule.payout_percent}%. Expected return ${(203/216*rule.payout_percent).toFixed(2)}% before rounding.`;
   $(game+'-rules').textContent=`${gameIsPaused(game)?'New wagers paused. ':''}Stake ${rule.min_stake.toLocaleString()}–${rule.max_stake.toLocaleString()} Kash. ${odds} Returns include your stake.`;
   $(game+'-stake').min=rule.min_stake;$(game+'-stake').max=rule.max_stake;$(game+'-play').disabled=gamblingBusy||!!gamblingPendingMutation||gameIsPaused(game)||(game==='keno'&&$('keno-picks').querySelectorAll('[aria-pressed=true]').length!==4);
@@ -445,7 +469,7 @@ function renderArcade(data){
  renderArcadeRules();const history=data.recent_games||[];
  $('arcade-history').replaceChildren(...history.map(row=>{const item=gameNode('article',null,'arcaderesult');item.dataset.win=String(row.payout>row.stake);item.append(gameNode('p',arcadeResultText(row)),gameNode('small',new Date(row.created*1000).toLocaleString()));return item;}));
  if(!history.length)$('arcade-history').append(gameNode('p','No arcade games yet.'));
- for(const game of INSTANT_GAMES){const row=history.find(r=>r.game===game);if(!row)continue;$(game+'-result').textContent=arcadeResultText(row);renderArcadeVisual(game,row);$(game+'-visual').dataset.color=row.result.color||'';}
+ for(const game of INSTANT_GAMES){const row=history.find(r=>r.game===game);$(game+'-result').textContent=row?arcadeResultText(row):'';renderArcadeVisual(game,row);$(game+'-visual').dataset.color=row?.result?.color||'';}
 }
 function setupHouseAdmin(root){
  const form=gameNode('form',null,'adminsettingcard');form.id='admin-house-form';form.append(gameNode('h3','Games, limits & payouts'),gameNode('p','Changes apply to new wagers only. Existing Crash cashouts and Blackjack hands can finish. Payout factors for the arcade games are displayed to players.'));

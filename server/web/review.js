@@ -207,6 +207,17 @@ function appendTrace(card, trace) {
 function appendEvidence(card, item) {
  const links = node('div', undefined, 'evidencelinks'); links.append(sourceLink(item)); card.append(links, node('pre', text(item.evidence) || 'Review the analysis coverage and archive.'));
  if (item.context) card.append(node('p', 'Context: ' + contextText(item.context)));
+ if(isRecord(item.path_classification)){
+  const classification=item.path_classification,detail=node('details');detail.append(node('summary','Path context · '+text(classification.access)),node('p',text(classification.note)));
+  for(const destination of records(classification.destinations).slice(0,2)){
+   detail.append(node('pre','Destination: '+text(destination.expression)));
+   const resolved=destination.resolved;
+   if(!isRecord(resolved)){detail.append(node('p','Destination remains unresolved.'));continue;}
+   detail.append(node('p','Candidate loader root: '+text(resolved.root)+(list(resolved.segments).length?' / '+list(resolved.segments).map(text).join(' / '):'')));
+   for(const binding of records(resolved.bindings).slice(0,12)){const row=node('div');row.append(sourceLink(binding),node('pre',text(binding.expression)));detail.append(row);}
+  }
+  card.append(detail);
+ }
  appendTrace(card,item.trace);
  const locations = records(item.locations).filter(location => location.file !== item.file || location.line !== item.line || location.evidence !== item.evidence);
  if (locations.length) { const detail = node('details'); detail.append(node('summary', `${locations.length} related evidence location${locations.length === 1 ? '' : 's'}`)); for (const location of locations) { const row = node('div'); row.append(sourceLink(location)); if (location.evidence) row.append(node('pre', text(location.evidence))); appendTrace(row,location.trace); detail.append(row); } card.append(detail); }

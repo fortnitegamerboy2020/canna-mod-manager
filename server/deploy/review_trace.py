@@ -83,7 +83,8 @@ def annotate(text, findings, source_views, executable):
         if finding['rule'] not in {'filesystem', 'dynamic', 'network', 'commands', 'native', 'diagnostic-output'} or not isinstance(finding.get('line'), int):
             continue
         pos = starts[min(len(starts)-1, finding['line']-1)]
-        operation = next((c for c in calls if c['line'] == finding['line'] and (FILE_API.match(code, c['pos']) or finding['rule'] != 'filesystem')), None)
+        expected = finding.get('operation')
+        operation = next((c for c in calls if c['line'] == finding['line'] and (c['name'].removeprefix('System.IO.') == expected if expected else FILE_API.match(code, c['pos']) or finding['rule'] != 'filesystem')), None)
         method = operation['owner'] if operation else owner(pos)
         trace = {'scope': 'same-source-file', 'method': method['name'] if method else 'unresolved', 'callers': [], 'paths': [], 'limits': 'Lexical hints only; branches and aliases are not resolved. External callers, reflection and callbacks may be missing. No path confinement or safety is established.'}
         if method:

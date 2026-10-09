@@ -3,7 +3,7 @@ use super::*;
 use rand::seq::SliceRandom;
 
 pub(super) const PLINKO_LOW: [i64; 13] = [
-    1000, 500, 200, 120, 100, 80, 50, 80, 100, 120, 200, 500, 1000,
+    200, 150, 120, 110, 100, 100, 80, 100, 100, 110, 120, 150, 200,
 ];
 pub(super) const PLINKO_HIGH: [i64; 13] = [
     50000, 5000, 1000, 300, 100, 50, 20, 50, 100, 300, 1000, 5000, 50000,
@@ -151,6 +151,19 @@ pub(super) fn result(
 mod tests {
     use super::*;
     use rand::{SeedableRng, rngs::StdRng};
+    #[test]
+    fn low_plinko_only_center_loses_at_base_factor_and_expected_return_is_bounded() {
+        let mut losing_paths = 0;
+        let mut returns = 0;
+        for path in 0_u16..4096 {
+            let slot = path.count_ones() as usize;
+            losing_paths += usize::from(PLINKO_LOW[slot] < 100);
+            returns += PLINKO_LOW[slot];
+        }
+        assert_eq!(losing_paths, 924); // 22.5586%, rather than the old 61.23%.
+        assert_eq!(returns, 399560); // 97.5488% before rounding / owner factor.
+        assert_eq!(fractional_return(25, PLINKO_LOW[6], 100), 20);
+    }
     #[test]
     fn banker_third_card_table_and_naturals() {
         for card in 0..10 {

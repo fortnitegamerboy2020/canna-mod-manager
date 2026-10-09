@@ -38,12 +38,28 @@ const pools=ids.map((id,index)=>({id,name:['BO2 calling cards crate','MW2 callin
   },{catalog,pools,ids,costs});
   for(const file of ['profiles.js','gambling.js'])await page.addScriptTag({content:fs.readFileSync('server/web/'+file,'utf8')});
   await page.evaluate(()=>loadGambling());
+  // Ready-state boards must exist before any synthetic wallet mutation.
+  assert.equal(await page.locator('#plinko-visual svg circle').count(),79);
+  assert.equal(await page.locator('#plinko-visual svg text').count(),13);
+  assert.equal(await page.locator('#wheel-visual svg path').count(),20);
+  assert.equal(await page.locator('#baccarat-visual .card-back').count(),4);
+  assert.equal(await page.locator('#roulette-visual .roulette-preview span').count(),37);
+  assert.equal(await page.evaluate(()=>posts.length),0);
+  for(const game of ['plinko','wheel','roulette','dice','keno','baccarat']){await page.evaluate(game=>selectGamblingTab(game),game);await page.locator('#'+game+'-visual').screenshot({path:`target/review-followup/${game}-ready-${width}.png`});}
+  await page.evaluate(()=>selectGamblingTab('plinko'));await page.locator('#plinko-choice').selectOption('high');assert.match(await page.locator('#plinko-visual').textContent(),/500×/);await page.locator('#plinko-choice').selectOption('low');assert.doesNotMatch(await page.locator('#plinko-visual').textContent(),/500×/);assert.match(await page.locator('#plinko-rules').textContent(),/22.56%/);
+  await page.evaluate(()=>{const n=$('welcome');n.textContent=currentUser.username;applyUsernameCosmetics(n,{name_effect:{style:'aurora'}});window.openProfile=id=>window.openedProfile=id;});
+  assert.equal(await page.locator('#welcome').getAttribute('data-username-effect'),null);
+  assert.equal(await page.locator('#welcome .username-text').getAttribute('data-username-effect'),'aurora');
+  assert.equal(await page.locator('#welcome .username-text').evaluate(n=>getComputedStyle(n).backgroundImage.includes('linear-gradient')),true);
+  assert.equal(await page.locator('#welcome').isVisible(),true);await page.locator('#welcome').click();assert.equal(await page.evaluate(()=>openedProfile),1);
+  await page.evaluate(()=>applyUsernameCosmetics($('welcome'),{}));assert.equal(await page.locator('#welcome [data-username-effect]').count(),0);assert.equal(await page.locator('#welcome').textContent(),'Fixture');
   assert.equal(await page.locator('#case-list .casecard').count(),9);assert.match(await page.locator('[data-crate="premium-cosmetics"] p').first().textContent(),/184 cosmetics/);
   for(const [game,label]of [['keno','Draw ten balls'],['plinko','Drop ball'],['wheel','Spin prize wheel'],['baccarat','Deal Baccarat']]){
    await page.evaluate(game=>selectGamblingTab(game),game);if(game==='plinko')await page.locator('#plinko-choice').selectOption('high');if(game==='baccarat')await page.locator('#baccarat-choice').selectOption('banker');await page.getByRole('button',{name:label,exact:true}).click();await page.waitForFunction(()=>!gamblingBusy);assert.match(await page.locator('#'+game+'-result').textContent(),new RegExp(game));if(game==='plinko'){assert.equal(await page.locator('#plinko-visual .plinko-ball').count(),1);assert.equal(await page.locator('#plinko-visual .plinko-ball').evaluate(n=>n.getAnimations().length),1);}await page.locator('#'+game+'-visual').screenshot({path:`target/overnight-expansion/${game}-${width}.png`});
   }
   await page.emulateMedia({reducedMotion:'reduce'});await page.evaluate(()=>{arcadeSeen.delete('plinko');renderArcadeVisual('plinko',state.recent_games.find(r=>r.game==='plinko'));});assert.equal(await page.locator('#plinko-visual .plinko-ball').evaluate(n=>n.getAnimations().length),0);await page.emulateMedia({reducedMotion:'no-preference'});
-  assert.equal(await page.locator('#plinko-visual svg polyline').count(),1);assert.equal(await page.locator('#baccarat-visual .baccaratcard').count(),5);assert.equal(await page.evaluate(()=>posts.find(p=>p.input.game==='keno').input.picks.join(',')),'1,2,3,4');
+  assert.equal(await page.locator('#plinko-visual svg rect').count(),13);assert.equal(await page.locator('#baccarat-visual .baccaratcard').count(),5);assert.equal(await page.evaluate(()=>posts.find(p=>p.input.game==='keno').input.picks.join(',')),'1,2,3,4');
+  const physics=await page.evaluate(()=>{const p=plinkoFrames(Array(12).fill(1));return{duration:p.duration,x:p.x,y:p.y,frames:p.frames.length,initial:p.frames.slice(0,3).map(f=>Number(f.transform.match(/, ([\d.]+)px/)[1])),last:p.frames.at(-1).offset};});assert.equal(physics.x,330);assert.equal(physics.y,235);assert.equal(physics.last,1);assert.ok(physics.frames>100);assert.ok(physics.duration>2500);assert.ok(physics.initial[2]-physics.initial[1]>physics.initial[1]-physics.initial[0]);
   await page.evaluate(()=>selectGamblingTab('collection'));assert.equal(await page.locator('#cosmetic-collection .cosmeticcard').count(),48);await page.getByRole('button',{name:'Next cosmetics',exact:true}).click();assert.match(await page.locator('#cosmetic-paging').textContent(),/Page 2/);
   await page.locator('#cosmetic-kind').selectOption('name_effect');assert.equal(await page.locator('#cosmetic-collection .cosmeticcard').count(),18);await page.locator('#cosmetic-rarity').selectOption('legendary');assert.equal(await page.locator('#cosmetic-collection .cosmeticcard').count(),2);
   await page.locator('#cosmetic-rarity').selectOption('');await page.locator('#cosmetic-kind').selectOption('frame');const card=page.locator('[data-cosmetic-id="frame-mint-halo"]');await card.getByRole('button',{name:'☆ Favorite',exact:true}).click();await page.waitForFunction(()=>!gamblingBusy);await card.getByRole('button',{name:'★ Favorited',exact:true}).waitFor();await page.locator('#cosmetic-favorites-only').check();assert.equal(await page.locator('#cosmetic-collection .cosmeticcard').count(),1);

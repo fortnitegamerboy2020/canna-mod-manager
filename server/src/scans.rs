@@ -360,6 +360,9 @@ fn preserve_decisions(report: &mut Value, previous: &Value, same_hash: bool) {
                         "context",
                         "locations",
                         "trace",
+                        "operation",
+                        "path_classification",
+                        "binary",
                     ]
                     .into_iter()
                     .all(|field| old[field] == finding[field])
@@ -1272,7 +1275,14 @@ mod tests {
         report["findings"][0]["evidence"] = json!("Different detection");
         preserve_decisions(&mut report, &previous, true);
         assert!(report["findings"][0]["accepted"].is_null());
-        for field in ["context", "locations"] {
+        for field in [
+            "context",
+            "locations",
+            "trace",
+            "operation",
+            "path_classification",
+            "binary",
+        ] {
             let mut report = json!({"findings":[finding.clone()]});
             report["findings"][0][field] = json!(["New output path or related operation"]);
             preserve_decisions(&mut report, &previous, true);

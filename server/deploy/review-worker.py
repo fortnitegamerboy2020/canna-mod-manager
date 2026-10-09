@@ -5,7 +5,7 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
-VERSION='canna-static-9'
+VERSION='canna-static-10'
 # Fixed sibling module; no dependency or submitted plugin code is imported.
 _context_spec=importlib.util.spec_from_file_location('canna_review_context',Path(__file__).with_name('review_context.py'))
 context=importlib.util.module_from_spec(_context_spec);_context_spec.loader.exec_module(context)
@@ -561,6 +561,8 @@ def analyze(job):
   raise
  except Exception as error:
   finding('coverage','Archive analysis incomplete',evidence=str(error)[:200],severity='high')
+ context.semantics.classify(report, context)
+ report['findings']=context.semantics.group_capabilities(report['findings'])
  report['findings']=group_coverage_findings(report['findings'])
  report['coverage_complete']=not any(f['rule']=='coverage' for f in report['findings'])
  report['engines']['heuristics']={'status':'complete' if report['coverage_complete'] else 'incomplete','version':VERSION,'scanned_text_bytes':scanned_text}

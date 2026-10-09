@@ -136,6 +136,10 @@ const run = code => vm.runInContext(code, context), check = fn => { fn(); checks
  data = structuredClone(initial); data.findings[0].context = {explanation:'Caller-controlled output directory'}; await run('load()'); run('codeFile("source/Main.cs")');
  check(() => assert(nodes.get('fileevidence').textContent.includes('Context: Caller-controlled output directory')));
  check(() => assert(!nodes.get('fileevidence').textContent.includes('[object Object]')));
+ data.findings[0].path_classification={access:'read',note:'Candidate evidence only',destinations:[{expression:'settings.Managed',resolved:{root:'game-managed',segments:['Assembly-CSharp.dll'],bindings:[{file:'source/Main.cs',line:2,expression:'Fix constructor: Paths.ManagedPath'}]}},{expression:'unknown',resolved:null}]};await run('load()');run('codeFile("source/Main.cs")');
+ check(()=>assert(nodes.get('fileevidence').textContent.includes('Candidate loader root: game-managed / Assembly-CSharp.dll')));
+ check(()=>assert(nodes.get('fileevidence').textContent.includes('Fix constructor: Paths.ManagedPath')));
+ check(()=>assert(nodes.get('fileevidence').textContent.includes('Destination remains unresolved.')));
  data = {status:'complete',sha256:'e'.repeat(64),findings:[null,true,{accepted:true}],files:[null],inventory:[null],observations:[false],review_overview:{files:[null],suggestions:[null],capabilities:[true],dependencies:[null],decompilations:[null]}}; await run('load()');
  check(() => assert(nodes.get('reviewstatus').textContent.includes('Malformed report data')));
  check(() => assert.equal(nodes.get('approve').disabled,true));

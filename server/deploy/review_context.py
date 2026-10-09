@@ -12,6 +12,9 @@ from pathlib import Path
 _trace_spec = importlib.util.spec_from_file_location('canna_review_trace', Path(__file__).with_name('review_trace.py'))
 trace = importlib.util.module_from_spec(_trace_spec)
 _trace_spec.loader.exec_module(trace)
+_semantics_spec = importlib.util.spec_from_file_location('canna_review_semantics', Path(__file__).with_name('review_semantics.py'))
+semantics = importlib.util.module_from_spec(_semantics_spec)
+_semantics_spec.loader.exec_module(semantics)
 
 
 def trace_operations(text, findings):
