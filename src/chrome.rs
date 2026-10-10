@@ -198,6 +198,11 @@ impl Chrome {
         label: &str,
         selected: bool,
     ) -> egui::Response {
+        let selected_amount = ui.ctx().animate_bool_with_time(
+            ui.id().with(("nav-selection", index)),
+            selected,
+            ui.style().animation_time,
+        );
         let tint = if index == 5 {
             Color32::WHITE
         } else if selected {
@@ -219,7 +224,11 @@ impl Chrome {
                         ))
                         .tint(tint),
                 )
-                .selected(selected)
+                .fill(Color32::from(egui::lerp(
+                    egui::Rgba::from(Color32::from_rgb(36, 48, 40))
+                        ..=egui::Rgba::from(Color32::from_rgb(57, 83, 50)),
+                    selected_amount,
+                )))
                 .min_size(if index >= 9 {
                     egui::vec2(32.0, 32.0)
                 } else {

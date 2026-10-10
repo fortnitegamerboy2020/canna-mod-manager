@@ -16,6 +16,19 @@ use std::{
 const REBOUND_PROFILE: &str = "rounds-public-1.1.2";
 const REBOUND_MANIFEST: &str = "DuctTapePlusPlus/compatibility-manifest.json";
 
+pub(crate) fn matching_core(root: &Path, il2cpp: bool) -> bool {
+    let file = |relative: &str| {
+        let p = root.join(relative);
+        p.is_file() && no_links(&p).is_ok()
+    };
+    if il2cpp {
+        file("BepInEx/core/BepInEx.Unity.IL2CPP.dll")
+    } else {
+        file("BepInEx/core/BepInEx.dll")
+            || file("BepInEx/core/BepInEx.Unity.Mono.dll") && file("BepInEx/core/BepInEx.Core.dll")
+    }
+}
+
 pub(crate) fn client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
         .user_agent("Canna-Mod-Manager/0.1")
@@ -193,7 +206,7 @@ fn write_new(root: &Path, entries: &[(PathBuf, Vec<u8>)]) -> Result<()> {
     }
     result
 }
-fn pe_machine(data: &[u8]) -> Result<u16> {
+pub(crate) fn pe_machine(data: &[u8]) -> Result<u16> {
     anyhow::ensure!(data.get(..2) == Some(b"MZ"), "Not a Windows executable");
     let offset =
         u32::from_le_bytes(data.get(0x3c..0x40).context("Truncated PE")?.try_into()?) as usize;
@@ -258,7 +271,14 @@ fn framework_entries(bytes: &[u8], il2cpp: bool, app_id: u32) -> Result<Vec<(Pat
         "BepInEx/core/BepInEx.dll"
     };
     anyhow::ensure!(
-        entries.iter().any(|(p, _)| p == Path::new(core)),
+        entries.iter().any(|(p, _)| p == Path::new(core))
+            || !il2cpp
+                && entries
+                    .iter()
+                    .any(|(p, _)| p == Path::new("BepInEx/core/BepInEx.Unity.Mono.dll"))
+                && entries
+                    .iter()
+                    .any(|(p, _)| p == Path::new("BepInEx/core/BepInEx.Core.dll")),
         "Loader does not match this game's Mono/IL2CPP runtime"
     );
     anyhow::ensure!(
@@ -308,12 +328,7 @@ fn setup_with_framework(
     ensure_closed(game)?;
     crate::unity_restore::resume(game, false)?;
     let il2cpp = game.path.join("GameAssembly.dll").is_file();
-    let core = if il2cpp {
-        "BepInEx/core/BepInEx.Unity.IL2CPP.dll"
-    } else {
-        "BepInEx/core/BepInEx.dll"
-    };
-    if game.path.join(core).is_file()
+    if matching_core(&game.path, il2cpp)
         && game.path.join("doorstop_config.ini").is_file()
         && (game.path.join("winhttp.dll").is_file() || game.path.join("version.dll").is_file())
     {
@@ -562,6 +577,26 @@ pub(crate) fn prepare_install_with_configs(
                 None
             },
             history: vec![],
+            framework: None,
+            game_sha256: None,
+            config_sha256: None,
+            rebound_support_sha256: None,
+            imported_configs: vec![],
+            imported_config_source: None,
+        });
+    }
+    if crate::foreign_loader::kind(game.app_id).is_some() {
+        let (entries, history) = crate::foreign_loader::prepare(game, pack, token, progress)?;
+        return Ok(PreparedInstall {
+            pack: pack.clone(),
+            files: None,
+            source_files: Some(
+                entries
+                    .into_iter()
+                    .map(|(p, b)| (p.to_string_lossy().replace('\\', "/"), b))
+                    .collect(),
+            ),
+            history,
             framework: None,
             game_sha256: None,
             config_sha256: None,
@@ -973,6 +1008,19 @@ fn install_prepared_inner(
             progress,
         );
     }
+    if crate::foreign_loader::kind(game.app_id).is_some() {
+        let entries = prepared
+            .source_files
+            .context("Non-Unity preparation missing")?
+            .into_iter()
+            .map(|(p, b)| (PathBuf::from(p), b))
+            .collect();
+        crate::foreign_loader::install(game, entries)?;
+        for (item, bytes) in prepared.history {
+            crate::website::remember_mod(pack, &item, &bytes, false)?;
+        }
+        return Ok(());
+    }
     pack.validate()?;
     ensure_closed(game)?;
     prepared.verify_inputs(game)?;
@@ -1170,6 +1218,9 @@ pub fn restore_vanilla(game: &InstalledGame) -> Result<String> {
         crate::source_addons::set_mode(game, false)?;
         return Ok("Vanilla files restored: Canna Source addons disabled.".into());
     }
+    if crate::foreign_loader::kind(game.app_id).is_some() {
+        return crate::foreign_loader::restore(game);
+    }
     anyhow::ensure!(
         crate::model::framework(game.app_id) == "bepinex" && game.app_id != u32::MAX,
         "Restore vanilla files is available for supported Unity games"
@@ -1189,6 +1240,24 @@ pub fn launch(game: &InstalledGame, modded: bool) -> Result<crate::owned_game::O
             crate::game_compat::check_current(game)?;
         }
         crate::source_addons::set_mode(game, modded)?;
+    } else if crate::foreign_loader::kind(game.app_id).is_some() {
+        if modded {
+            anyhow::ensure!(
+                crate::foreign_loader::valid_game(game),
+                "Non-Unity game content is missing"
+            );
+            let proxy = if game.app_id == 3146520 {
+                "winmm.dll"
+            } else {
+                "version.dll"
+            };
+            anyhow::ensure!(
+                game.path.join(proxy).is_file(),
+                "Launch a saved pack to prepare this loader first"
+            );
+        } else {
+            crate::foreign_loader::restore(game)?;
+        }
     } else if modded {
         crate::unity_restore::resume(game, true)?;
         crate::game_compat::check_current(game)?;
@@ -1235,7 +1304,7 @@ fn ensure_loader_ready(root: &Path) -> Result<()> {
     });
     no_links(&core)?;
     anyhow::ensure!(
-        core.is_file(),
+        matching_core(root, il2cpp),
         "The loader bootstrap exists but the matching BepInEx core is missing. Open Setup health, then repair the framework with the game closed; manual files are preserved."
     );
     anyhow::ensure!(

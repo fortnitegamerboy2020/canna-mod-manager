@@ -2,6 +2,128 @@
 use super::*;
 
 #[test]
+#[ignore = "Explicit opt-in: installs and starts MoreCompany in a separate owned Lethal Company copy"]
+fn lethal_company_copy_install_launch_restore() {
+    assert_eq!(
+        std::env::var("CANNA_LIVE_GAME_TEST").as_deref(),
+        Ok("lethal-company-copy")
+    );
+    let path = PathBuf::from(std::env::var("CANNA_LIVE_GAME_ROOT").unwrap());
+    let allowed = fs::canonicalize(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("target/overnight-growth/live"),
+    )
+    .unwrap();
+    let resolved = fs::canonicalize(&path).unwrap();
+    assert!(resolved.starts_with(&allowed) && resolved != allowed);
+    no_links(&path).unwrap();
+    let game = InstalledGame {
+        app_id: 1966720,
+        name: "Lethal Company isolated copy".into(),
+        path: path.clone(),
+        loader: String::new(),
+        plugins: 0,
+        icon: None,
+    };
+    let out = PathBuf::from(std::env::var("CANNA_LIVE_GAME_REPORT").unwrap());
+    crate::modpacks::with_test_root(out.join("test-state"), || {
+        let info = crate::model::GameInfo {
+            app_id: 1966720,
+            name: game.name.clone(),
+            folder: "lethal-company".into(),
+            description: String::new(),
+            icon: String::new(),
+            mods: vec![],
+            mod_folder_status: String::new(),
+        };
+        let mod_path = PathBuf::from(std::env::var("CANNA_LIVE_GAME_MOD").unwrap());
+        let pack = Modpack::create(
+            "Isolated startup test".into(),
+            String::new(),
+            &info,
+            crate::cache::Source::from_settings(&Settings::load()),
+            vec![crate::modpacks::add_local(&mod_path).unwrap()],
+        );
+        let framework = fs::read(std::env::var("CANNA_LIVE_GAME_FRAMEWORK").unwrap()).unwrap();
+        ensure_closed(&game).unwrap();
+        assert!(!path.join("winhttp.dll").exists());
+        setup_with_framework(&game, &pack, "", Some(&framework)).unwrap();
+        let prepared =
+            prepare_install(&game, &pack, "", InstallOptions::default(), &|_| {}).unwrap();
+        install_prepared(&game, prepared, "", &|_| {}).unwrap();
+        fs::write(path.join("steam_appid.txt"), b"1966720").unwrap();
+        let start = |modded: bool| {
+            use std::os::windows::process::CommandExt;
+            if modded {
+                ensure_loader_ready(&path).unwrap();
+                set_mode(&path, true).unwrap();
+            } else {
+                restore_vanilla(&game).unwrap();
+            }
+            let before = crate::owned_game::OwnedGame::now();
+            let child = Command::new(path.join("Lethal Company.exe"))
+                .current_dir(&path)
+                .args([
+                    "-screen-fullscreen",
+                    "0",
+                    "-screen-width",
+                    "960",
+                    "-screen-height",
+                    "540",
+                ])
+                .creation_flags(0x08000000)
+                .spawn()
+                .unwrap();
+            let owned = crate::owned_game::OwnedGame::capture(child.id(), &path, before).unwrap();
+            (owned, child)
+        };
+        let (modded, mut modded_child) = start(true);
+        std::thread::sleep(Duration::from_secs(45));
+        let alive = modded.running();
+        let log = fs::read_to_string(path.join("BepInEx/LogOutput.log")).unwrap_or_default();
+        modded.stop().unwrap();
+        modded_child.wait().unwrap();
+        for _ in 0..50 {
+            if !modded.running() {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        restore_vanilla(&game).unwrap();
+        let absent =
+            !path.join("winhttp.dll").exists() && !path.join("BepInEx/plugins/Canna").exists();
+        let (vanilla, mut vanilla_child) = start(false);
+        std::thread::sleep(Duration::from_secs(25));
+        let vanilla_alive = vanilla.running();
+        vanilla.stop().unwrap();
+        vanilla_child.wait().unwrap();
+        let loaded = log.lines().any(|l| l.contains("Loading [MoreCompany"));
+        let errors: Vec<_> = log
+            .lines()
+            .filter(|l| l.contains("[Error") || l.contains("[Fatal"))
+            .collect();
+        let report = serde_json::json!({"game":"Lethal Company","isolated_copy":true,"mod":"MoreCompany 1.14.0","modded_process_45s":alive,"vanilla_process_25s":vanilla_alive,"mod_loaded":loaded,"managed_files_removed":absent,"errors":errors,"scope":"Installation/startup/vanilla restoration only; no mission or multiplayer verification"});
+        fs::create_dir_all(&out).unwrap();
+        fs::write(
+            out.join("lethal-copy-live.json"),
+            serde_json::to_vec_pretty(&report).unwrap(),
+        )
+        .unwrap();
+        assert!(alive && loaded && absent && vanilla_alive);
+    });
+}
+
+#[test]
+fn mono6_requires_both_core_and_mono_adapter() {
+    let temp = std::env::temp_dir().join(format!("canna-mono6-{}", std::process::id()));
+    fs::create_dir_all(temp.join("BepInEx/core")).unwrap();
+    fs::write(temp.join("BepInEx/core/BepInEx.Unity.Mono.dll"), b"inert").unwrap();
+    assert!(!matching_core(&temp, false));
+    fs::write(temp.join("BepInEx/core/BepInEx.Core.dll"), b"inert").unwrap();
+    assert!(matching_core(&temp, false));
+    assert!(!matching_core(&temp, true));
+    fs::remove_dir_all(temp).unwrap();
+}
+#[test]
 fn incomplete_loader_is_rejected_before_switching_it_on() {
     let root = std::env::temp_dir().join(format!("canna-loader-health-{}", std::process::id()));
     fs::create_dir_all(root.join("BepInEx/core")).unwrap();

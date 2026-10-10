@@ -212,8 +212,7 @@ fn safe_dir(s: &str) -> bool {
             .all(|c| matches!(c, Component::Normal(_)))
 }
 fn loader(path: &Path) -> String {
-    let core = path.join("BepInEx/core");
-    let assembly = core.join("BepInEx.dll").is_file() || core.join("BepInEx.Core.dll").is_file();
+    let assembly = crate::runtime::matching_core(path, path.join("GameAssembly.dll").is_file());
     let proxy = path.join("winhttp.dll").is_file() || path.join("version.dll").is_file();
     if assembly && proxy && path.join("doorstop_config.ini").is_file() {
         "BepInEx detected"
@@ -362,6 +361,11 @@ pub fn scan(override_path: &str) -> Scan {
                 }
                 if !crate::model::supported_game(id)
                     || !is_unity_game(&path)
+                        && !crate::foreign_loader::kind(id).is_some_and(|_| {
+                            crate::game_profiles::by_id(id).is_some_and(|p| {
+                                p.executables.iter().any(|e| path.join(e).is_file())
+                            }) && (id != 3146520 || path.join("webfishing.pck").is_file())
+                        })
                         && !crate::model::source_addons(id).is_some_and(|addons| {
                             path.join(addons)
                                 .parent()
@@ -375,12 +379,21 @@ pub fn scan(override_path: &str) -> Scan {
                 Ok(Some(InstalledGame {
                     app_id: id,
                     name: get("name")?.into(),
-                    loader: if crate::model::source_addons(id).is_some() {
+                    loader: if crate::foreign_loader::kind(id).is_some() {
+                        crate::model::framework_label(id).into()
+                    } else if crate::model::source_addons(id).is_some() {
                         "Source VPK addons".into()
                     } else {
                         loader(&path)
                     },
-                    plugins: plugins(&path.join("BepInEx/plugins"), 0),
+                    plugins: plugins(
+                        &path.join(match id {
+                            3146520 => "GDWeave/mods",
+                            1337520 => "ReturnOfModding/plugins",
+                            _ => "BepInEx/plugins",
+                        }),
+                        0,
+                    ),
                     path,
                     icon: icon(&roots, id),
                 }))

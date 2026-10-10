@@ -12,6 +12,8 @@ use std::{
     time::Duration,
 };
 const MANIFEST: &str = "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json";
+#[path = "minecraft_import.rs"]
+mod imports;
 #[path = "minecraft_play.rs"]
 mod play;
 pub use play::{create_play_candidate, play_setup, play_version, restore_play_pack};
@@ -885,6 +887,7 @@ fn launch(i: &Instance, id: &str) -> Result<Child> {
     Ok(cmd.spawn()?)
 }
 enum Outcome {
+    ImportInspected(Result<imports::Plan>),
     PlaySetup(Result<Box<(crate::modpacks::Modpack, crate::model::InstalledGame)>>),
     Status(String),
     SignIn(crate::minecraft_auth::SignInEvent),
@@ -893,6 +896,7 @@ enum Outcome {
     Launched(Result<(String, Child)>),
 }
 pub struct Minecraft {
+    import_plan: Option<imports::Plan>,
     play_lab: crate::play_lab::Lab,
     play_setup: Option<(crate::modpacks::Modpack, crate::model::InstalledGame)>,
     pub open: bool,
@@ -917,6 +921,7 @@ impl Default for Minecraft {
         let preview = std::env::var_os("CANNA_SCREENSHOT").is_some()
             && std::env::args().any(|a| a == "--microsoft-sign-in-preview");
         Self {
+            import_plan: None,
             play_lab: Default::default(),
             play_setup: None,
             open: false,
@@ -973,6 +978,17 @@ impl Minecraft {
         );
         ui.label(&self.status);
         let busy = self.job.is_some();
+        if ui
+            .add_enabled(!busy, egui::Button::new("Import Minecraft pack…"))
+            .clicked()
+            && let Some(path) = rfd::FileDialog::new()
+                .set_title("Import Modrinth or bundled Prism / MultiMC instance")
+                .add_filter("Minecraft manager pack", &["mrpack", "zip"])
+                .pick_file()
+        {
+            self.status = "Inspecting Minecraft pack…".into();
+            self.work(move |_| Outcome::ImportInspected(imports::inspect(&path)));
+        }
         ui.collapsing("Microsoft account", |ui| {
             ui.label(
                 crate::minecraft_auth::account()
@@ -1086,6 +1102,13 @@ impl Minecraft {
             let mut done = false;
             while let Ok(outcome) = rx.try_recv() {
                 match outcome {
+                    Outcome::ImportInspected(result) => {
+                        match result {
+                            Ok(plan) => self.import_plan = Some(plan),
+                            Err(e) => self.status = format!("Could not inspect pack: {e:#}"),
+                        }
+                        done = true;
+                    }
                     Outcome::PlaySetup(result) => {
                         match result {
                             Ok(setup) => self.play_setup = Some(*setup),
@@ -1140,6 +1163,30 @@ impl Minecraft {
                 .show(ctx, |ui| self.library(ui));
         }
         self.open = open;
+        if self.import_plan.is_some() {
+            let mut commit = false;
+            let mut cancel = false;
+            let modal=egui::Modal::new(egui::Id::new("minecraft-import-preview")).show(ctx,|ui| {
+                ui.set_max_width((ctx.content_rect().width()-60.0).clamp(240.0,640.0));
+                egui::ScrollArea::vertical().max_height((ctx.content_rect().height()-80.0).max(120.0)).show(ui,|ui| {
+                    let plan=self.import_plan.as_mut().unwrap();
+                    ui.heading("Import Minecraft pack");ui.strong(&plan.instance.name);
+                    ui.label(format!("{} · Minecraft {} · {} {}",plan.kind,plan.instance.version,plan.instance.loader,plan.instance.loader_version));
+                    let optional=plan.optional_count();
+                    if optional>0 {ui.checkbox(&mut plan.include_optional,format!("Include {optional} optional client files"));}
+                    ui.label(format!("{} content files. This creates a new Canna instance; it does not start Minecraft.",plan.count()));
+                    ui.label("Pack-provided mods are local content. Downloads use the Modrinth CDN and must match both SHA-1 and SHA-512. Install / repair obtains the official runtime separately. Minecraft sign-in and launching remain a preview.");
+                    for note in &plan.notes {ui.label(note);}
+                    commit=ui.add_enabled(self.job.is_none(),egui::Button::new("Import new instance")).clicked();
+                    cancel=ui.button("Cancel").clicked();
+                });
+            });
+            if cancel || modal.should_close() {
+                self.import_plan = None;
+            } else if commit && let Some(plan) = self.import_plan.take() {
+                self.work(move |tx| Outcome::Done(imports::commit(plan, tx)));
+            }
+        }
         if self.creating {
             let busy = self.job.is_some();
             egui::Window::new("Create Minecraft instance").show(ctx, |ui| {

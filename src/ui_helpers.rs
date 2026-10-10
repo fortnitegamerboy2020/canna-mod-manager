@@ -3,6 +3,23 @@ use eframe::egui;
 pub const CONTROL_RADIUS: u8 = 10;
 pub const SURFACE_RADIUS: u8 = 16;
 
+/// Stop remains usable while another game's preparation is running.
+pub fn launch_control(
+    ui: &mut egui::Ui,
+    owned: bool,
+    starting: bool,
+    busy: bool,
+) -> egui::Response {
+    let label = if owned {
+        "Stop instance"
+    } else if starting {
+        "Starting…"
+    } else {
+        "Launch modded"
+    };
+    ui.add_enabled(owned || (!starting && !busy), egui::Button::new(label))
+}
+
 pub fn filter_options<T: Clone + PartialEq>(
     ui: &mut egui::Ui,
     value: &mut T,
@@ -177,6 +194,24 @@ pub fn context_menu(response: &egui::Response, contents: impl FnOnce(&mut egui::
 #[cfg(test)]
 mod page_scroll_tests {
     use super::*;
+    #[test]
+    fn launch_control_is_disabled_while_starting_and_stop_stays_available() {
+        let ctx = egui::Context::default();
+        for (owned, starting, busy, expected) in [
+            (false, true, false, false),
+            (false, false, true, false),
+            (false, false, false, true),
+            (true, false, true, true),
+        ] {
+            let mut enabled = false;
+            let _ = ctx.run(Default::default(), |ctx| {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    enabled = launch_control(ui, owned, starting, busy).enabled();
+                });
+            });
+            assert_eq!(enabled, expected);
+        }
+    }
     #[test]
     fn option_search_sorts_labels_without_changing_selection() {
         let ctx = egui::Context::default();

@@ -104,7 +104,11 @@ fn config_root(game: &InstalledGame) -> PathBuf {
             .join(Path::new(addons).parent().unwrap())
             .join("cfg")
     } else {
-        game.path.join("BepInEx/config")
+        game.path.join(match game.app_id {
+            3146520 => "GDWeave/config",
+            1337520 => "ReturnOfModding/config",
+            _ => "BepInEx/config",
+        })
     }
 }
 fn game_store(policy: &Policy, game: u32) -> PathBuf {

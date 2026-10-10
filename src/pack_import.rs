@@ -45,13 +45,18 @@ enum Detected {
 struct R2Profile {
     profile_name: String,
     mods: Vec<R2Mod>,
+    #[serde(default)]
+    community: Option<String>,
 }
 #[derive(Deserialize)]
 struct R2Mod {
     name: String,
+    #[serde(alias = "versionNumber")]
     version: R2Version,
     #[serde(default = "enabled")]
     enabled: bool,
+    #[serde(default)]
+    source: Option<String>,
 }
 fn enabled() -> bool {
     true
@@ -116,27 +121,231 @@ fn validate(profile: &Profile) -> Result<()> {
     }
     crate::pack_configs::validate(&profile.configs)
 }
-fn detect(path: &Path) -> Result<Detected> {
-    let mut bytes = Vec::new();
-    std::fs::File::open(path)?
-        .take(128 * 1024 * 1024 + 1)
-        .read_to_end(&mut bytes)?;
+
+fn yaml<T: serde::de::DeserializeOwned>(data: &[u8]) -> Result<T> {
     ensure!(
-        bytes.len() <= 128 * 1024 * 1024,
-        "Pack archive exceeds 128 MiB"
+        data.len() <= 2 * 1024 * 1024,
+        "Profile metadata exceeds 2 MiB"
     );
-    if !bytes.starts_with(b"PK") {
+    let options = serde_saphyr::options! { strict_booleans:true, reject_unsupported_tags:true, emit_comments:false, duplicate_keys:serde_saphyr::options::DuplicateKeyPolicy::Error, budget:serde_saphyr::budget! { max_depth:16, max_documents:1, max_events:50000, max_aliases:0, max_anchors:0, max_total_scalar_bytes:2*1024*1024 }, merge_keys:serde_saphyr::options::MergeKeyPolicy::Error };
+    serde_saphyr::from_str_with_options(std::str::from_utf8(data)?, options)
+        .context("Invalid manager profile metadata")
+}
+
+fn r2_profile(parsed: R2Profile) -> Result<Profile> {
+    ensure!(
+        parsed.mods.iter().all(|m| m
+            .source
+            .as_deref()
+            .is_none_or(|s| s.eq_ignore_ascii_case("thunderstore"))),
+        "This profile includes a different package provider; Thunderstore pins cannot resolve those packages"
+    );
+    let mut notes = vec![];
+    if let Some(community) = parsed.community {
+        ensure!(
+            crate::game_profiles::by_community(&community).is_some(),
+            "Unsupported profile game: {community}"
+        );
+        notes.push(format!("Source game: {community}"));
+    }
+    let profile = Profile {
+        name: parsed.profile_name,
+        description: "Imported manager profile".into(),
+        kind: "r2modman / Thunderstore / Gale profile",
+        mods: parsed
+            .mods
+            .into_iter()
+            .map(|m| Pin {
+                name: m.name,
+                version: format!(
+                    "{}.{}.{}",
+                    m.version.major, m.version.minor, m.version.patch
+                ),
+                enabled: m.enabled,
+            })
+            .collect(),
+        configs: vec![],
+        notes,
+        local: None,
+    };
+    validate(&profile)?;
+    Ok(profile)
+}
+
+/// Inspect only selections and bounded settings in a saved manager folder. Installed
+/// binaries are deliberately resolved again through the normal reviewed-download path.
+fn folder_entries(root: &Path) -> Result<Vec<(PathBuf, Vec<u8>)>> {
+    crate::runtime::no_links(root)?;
+    ensure!(root.is_dir(), "Choose a manager profile folder");
+    let manifests = ["export.r2x", "mods.yml", "mods.yaml"];
+    let present = manifests
+        .iter()
+        .filter(|name| root.join(name).is_file())
+        .collect::<Vec<_>>();
+    ensure!(
+        present.len() == 1,
+        "Folder must contain exactly one export.r2x or mods.yml manifest"
+    );
+    let mut entries: Vec<(PathBuf, Vec<u8>)> = vec![];
+    let mut queue = VecDeque::from([root.join(present[0])]);
+    for name in ["BepInEx/config", "config"] {
+        let path = root.join(name);
+        crate::runtime::no_links(&path)?;
+        if path.exists() {
+            ensure!(path.is_dir(), "Config root must be a directory");
+            queue.push_back(path);
+        }
+    }
+    let mut visited = 0;
+    let mut total = 0u64;
+    while let Some(path) = queue.pop_front() {
+        crate::runtime::no_links(&path)?;
+        visited += 1;
+        ensure!(visited <= 2000, "Profile folder exceeds 2000 entries");
+        let metadata = std::fs::metadata(&path)?;
+        if metadata.is_dir() {
+            for entry in std::fs::read_dir(&path)? {
+                queue.push_back(entry?.path());
+            }
+            ensure!(
+                queue.len() + visited <= 2000,
+                "Profile folder exceeds 2000 entries"
+            );
+        } else {
+            ensure!(metadata.is_file(), "Unsupported file in profile folder");
+            let data = read_bounded(&path, 2 * 1024 * 1024)?;
+            total += data.len() as u64;
+            ensure!(
+                total <= 4 * 1024 * 1024,
+                "Profile selections and settings exceed 4 MiB"
+            );
+            entries.push((path.strip_prefix(root)?.into(), data));
+        }
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(entries)
+}
+
+fn read_bounded(path: &Path, limit: u64) -> Result<Vec<u8>> {
+    crate::runtime::no_links(path)?;
+    let mut data = Vec::new();
+    std::fs::File::open(path)?
+        .take(limit + 1)
+        .read_to_end(&mut data)?;
+    ensure!(data.len() as u64 <= limit, "Import file exceeds size limit");
+    Ok(data)
+}
+
+fn detect(path: &Path) -> Result<Detected> {
+    let bytes = if path.is_dir() {
+        vec![]
+    } else {
+        read_bounded(path, 128 * 1024 * 1024)?
+    };
+    let entries = if path.is_dir() {
+        folder_entries(path)?
+    } else if bytes.starts_with(b"PK") {
+        crate::runtime::archive_files(&bytes)?
+    } else {
         ensure!(
             bytes.len() <= 2 * 1024 * 1024,
             "Pack manifest exceeds 2 MiB"
         );
-        let pack: Modpack = serde_json::from_slice(&bytes)
-            .context("Choose a Canna JSON, .r2z profile or Thunderstore ZIP")?;
-        pack.validate()?;
-        return Ok(Detected::Canna(path.into()));
+        if let Ok(value) = serde_json::from_slice::<Value>(&bytes) {
+            if value["format"] == "canna_modpack" {
+                let pack: Modpack = serde_json::from_value(value)?;
+                pack.validate()?;
+                return Ok(Detected::Canna(path.into()));
+            }
+            if value.get("dependencies").is_some() && value.get("version_number").is_some() {
+                vec![(PathBuf::from("manifest.json"), bytes.clone())]
+            } else if value.is_array() {
+                vec![(PathBuf::from("mods.yml"), bytes.clone())]
+            } else {
+                return Ok(Detected::External(r2_profile(yaml(&bytes)?)?));
+            }
+        } else if path
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("txt"))
+        {
+            let text = std::str::from_utf8(&bytes)?;
+            let mods = text
+                .lines()
+                .map(str::trim)
+                .filter(|line| !line.is_empty())
+                .map(dependency)
+                .collect::<Result<Vec<_>>>()?;
+            ensure!(!mods.is_empty(), "Dependency list is empty");
+            let profile = Profile {
+                name: path
+                    .file_stem()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into(),
+                description: "Imported pinned dependency list".into(),
+                kind: "Thunderstore dependency list",
+                mods,
+                configs: vec![],
+                notes: vec!["This file contains selections only; no settings are included.".into()],
+                local: None,
+            };
+            validate(&profile)?;
+            return Ok(Detected::External(profile));
+        } else {
+            // Raw .r2x, YAML or a saved profile's mods.yml.
+            if let Ok(parsed) = yaml::<R2Profile>(&bytes) {
+                return Ok(Detected::External(r2_profile(parsed)?));
+            }
+            vec![(PathBuf::from("mods.yml"), bytes.clone())]
+        }
+    };
+    let mut entries = entries;
+    ensure!(
+        !entries.iter().any(|(p, _)| p
+            .file_name()
+            .is_some_and(|n| n == "modrinth.index.json" || n == "mmc-pack.json")),
+        "Import Minecraft packs from Minecraft library → Import Minecraft pack"
+    );
+    // Some managers wrap an exported profile in one enclosing folder.
+    let manifest_names = ["export.r2x", "manifest.json", "mods.yml", "mods.yaml"];
+    if !entries
+        .iter()
+        .any(|(p, _)| manifest_names.iter().any(|name| p == Path::new(name)))
+    {
+        let prefixes = entries
+            .iter()
+            .filter(|(p, _)| {
+                p.file_name()
+                    .is_some_and(|n| manifest_names.iter().any(|name| n == *name))
+            })
+            .filter_map(|(p, _)| {
+                p.parent()
+                    .filter(|p| !p.as_os_str().is_empty())
+                    .map(Path::to_path_buf)
+            })
+            .collect::<BTreeSet<_>>();
+        ensure!(
+            prefixes.len() == 1,
+            "No single supported manager manifest found"
+        );
+        let prefix = prefixes.first().unwrap();
+        ensure!(
+            entries.iter().all(|(p, _)| p.starts_with(prefix)),
+            "Archive mixes a wrapped profile with other files"
+        );
+        for (p, _) in &mut entries {
+            *p = p.strip_prefix(prefix)?.into();
+        }
     }
-    let entries = crate::runtime::archive_files(&bytes)?;
     let r2 = entries.iter().find(|(p, _)| p == Path::new("export.r2x"));
+    let lists = entries
+        .iter()
+        .filter(|(p, _)| p == Path::new("mods.yml") || p == Path::new("mods.yaml"))
+        .collect::<Vec<_>>();
+    ensure!(
+        lists.len() <= 1,
+        "Conflicting mods.yml / mods.yaml selections"
+    );
     let manifest = entries
         .iter()
         .find(|(p, _)| p == Path::new("manifest.json"));
@@ -160,30 +369,30 @@ fn detect(path: &Path) -> Result<Detected> {
             data.len() <= 2 * 1024 * 1024,
             "r2modman manifest exceeds 2 MiB"
         );
-        let options = serde_saphyr::options! { strict_booleans:true, reject_unsupported_tags:true, emit_comments:false, duplicate_keys:serde_saphyr::options::DuplicateKeyPolicy::Error, budget:serde_saphyr::budget! { max_depth:16, max_documents:1, max_events:50000, max_aliases:0, max_anchors:0, max_total_scalar_bytes:2*1024*1024 }, merge_keys:serde_saphyr::options::MergeKeyPolicy::Error };
-        let parsed: R2Profile =
-            serde_saphyr::from_str_with_options(std::str::from_utf8(data)?, options)
-                .context("Invalid export.r2x")?;
-        Profile {
-            name: parsed.profile_name,
-            description: "Imported r2modman profile".into(),
-            kind: "r2modman / Thunderstore profile",
-            mods: parsed
-                .mods
-                .into_iter()
-                .map(|m| Pin {
-                    name: m.name,
-                    version: format!(
-                        "{}.{}.{}",
-                        m.version.major, m.version.minor, m.version.patch
-                    ),
-                    enabled: m.enabled,
-                })
-                .collect(),
-            configs: vec![],
-            notes: vec![],
-            local: None,
+        let parsed: R2Profile = yaml(data).context("Invalid export.r2x")?;
+        r2_profile(parsed)?
+    } else if let Some((_, data)) = lists.first() {
+        ensure!(
+            manifest.is_none(),
+            "Archive contains conflicting profile manifests"
+        );
+        let mods: Vec<R2Mod> = yaml(data).context("Invalid mods.yml")?;
+        let name = if path.is_dir() {
+            path.file_name()
+        } else {
+            path.file_stem()
         }
+        .unwrap_or_default()
+        .to_string_lossy()
+        .into_owned();
+        let mut profile = r2_profile(R2Profile {
+            profile_name: name,
+            mods,
+            community: None,
+        })?;
+        profile.kind = "r2modman / Thunderstore saved profile";
+        profile.notes.push("Selections are downloaded again through Canna review; installed binaries are not copied.".into());
+        profile
     } else if let Some((_, data)) = manifest {
         #[derive(Deserialize)]
         struct Manifest {
@@ -240,7 +449,7 @@ fn detect(path: &Path) -> Result<Detected> {
         }
     } else {
         bail!(
-            "No export.r2x or manifest.json found. Export the profile from r2modman Settings first."
+            "No supported manifest found. Choose a Canna export, manager profile, manifest.json or pinned dependency list."
         );
     };
     for (path, data) in &entries {
@@ -269,6 +478,7 @@ fn detect(path: &Path) -> Result<Detected> {
             "export.r2x"
                 | "manifest.json"
                 | "mods.yml"
+                | "mods.yaml"
                 | "readme.md"
                 | "icon.png"
                 | "license"
@@ -326,6 +536,15 @@ fn assemble(
     records: &BTreeMap<String, Record>,
 ) -> Result<Modpack> {
     validate(profile)?;
+    for note in &profile.notes {
+        if let Some(community) = note.strip_prefix("Source game: ") {
+            ensure!(
+                crate::game_profiles::by_community(community)
+                    .is_some_and(|source| source.app_id == game.app_id),
+                "Imported profile targets a different game"
+            );
+        }
+    }
     let mut selected = Vec::new();
     let mut projects = BTreeSet::new();
     let mut queue = VecDeque::new();
@@ -464,6 +683,16 @@ fn resolve(
     known_roots: &BTreeMap<String, String>,
     root_ready: &dyn Fn(String, String),
 ) -> Result<Outcome> {
+    validate(profile)?;
+    for note in &profile.notes {
+        if let Some(community) = note.strip_prefix("Source game: ") {
+            ensure!(
+                crate::game_profiles::by_community(community)
+                    .is_some_and(|source| source.app_id == game.app_id),
+                "Imported profile targets a different game"
+            );
+        }
+    }
     ensure!(
         !token.is_empty() || profile.mods.is_empty(),
         "Connect your Canna account in Settings first"
@@ -686,6 +915,12 @@ impl Importer {
                         },
                         Ok(Detected::External(profile)) => {
                             self.status.clear();
+                            if let Some(game) = profile.notes.iter().find_map(|note| {
+                                note.strip_prefix("Source game: ")
+                                    .and_then(crate::game_profiles::by_community)
+                            }) {
+                                self.game = game.app_id;
+                            }
                             self.profile = Some(profile);
                         }
                         Err(e) => self.status = e,
@@ -773,8 +1008,8 @@ impl Importer {
             ui.heading("Import modpack");
             if let Some(profile)=&self.profile {
                 ui.strong(&profile.name); ui.label(format!("{} · {} packages · {} config files",profile.kind,profile.mods.len(),profile.configs.len()));
-                ui.label("Exports do not identify their game. Check the target before importing.");
-                ui.add_enabled_ui(self.rx.is_none() && self.roots.is_empty(),|ui|egui::ComboBox::from_id_salt("import-pack-game").selected_text(catalog.iter().find(|g|g.app_id==self.game).map(|g|g.name.as_str()).unwrap_or("Choose game…")).show_ui(ui,|ui|{
+                ui.label("Check the target game before importing; source game metadata is used when available.");
+                ui.add_enabled_ui(self.rx.is_none() && self.roots.is_empty() && !profile.notes.iter().any(|n| n.starts_with("Source game: ")),|ui|egui::ComboBox::from_id_salt("import-pack-game").selected_text(catalog.iter().find(|g|g.app_id==self.game).map(|g|g.name.as_str()).unwrap_or("Choose game…")).show_ui(ui,|ui|{
                     for game in catalog.iter().filter(|g|crate::game_profiles::by_id(g.app_id).is_some()) {ui.selectable_value(&mut self.game,game.app_id,&game.name);}
                 }));
                 ui.label("Exact mod versions and disabled selections are preserved. Auto updates start off. Canna manages the compatible BepInEx loader separately.");
@@ -838,6 +1073,133 @@ mod tests {
         }
     }
     const R2:&[u8]=b"profileName: 'Family Night'\nmods:\n  - name: BepInEx-BepInExPack\n    version: { major: 5, minor: 4, patch: 2100 }\n    enabled: true\n  - name: Team-Root\n    version:\n      major: 1\n      minor: 2\n      patch: 3\n    enabled: false\n";
+    fn inspect_raw(filename: &str, data: &[u8]) -> Result<Profile> {
+        let root = std::env::temp_dir().join(format!(
+            "canna-raw-import-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&root)?;
+        let path = root.join(filename);
+        std::fs::write(&path, data)?;
+        let result = detect(&path);
+        std::fs::remove_file(&path)?;
+        std::fs::remove_dir(&root)?;
+        match result? {
+            Detected::External(profile) => Ok(profile),
+            _ => bail!("Not an external profile"),
+        }
+    }
+    #[test]
+    fn imports_raw_profiles_saved_lists_manifests_and_pinned_text() {
+        assert_eq!(
+            inspect_raw("export.r2x", R2).unwrap().mods[1].version,
+            "1.2.3"
+        );
+        assert!(!inspect_raw("profile.yaml", R2).unwrap().mods[1].enabled);
+        let list = b"- name: Team-Root\n  versionNumber: { major: 1, minor: 2, patch: 3 }\n  enabled: false\n  authorName: Team\n  icon: C:/ignored/private/path.png\n";
+        assert!(!inspect_raw("mods.yml", list).unwrap().mods[0].enabled);
+        assert_eq!(inspect_raw("mods.json", br#"[{"name":"Team-Root","versionNumber":{"major":1,"minor":2,"patch":3},"enabled":false}]"#).unwrap().mods.len(),1);
+        assert_eq!(
+            inspect_raw(
+                "manifest.json",
+                br#"{"name":"Night","version_number":"1.0.0","dependencies":["Team-Root-1.2.3"]}"#
+            )
+            .unwrap()
+            .mods[0]
+                .name,
+            "Team-Root"
+        );
+        assert_eq!(
+            inspect_raw("friends.txt", b"Team-Root-1.2.3\nOther-Plugin-2.0.0\n")
+                .unwrap()
+                .mods
+                .len(),
+            2
+        );
+        for bad in [
+            b"http://evil/Team-Root-1.2.3".as_slice(),
+            b"Team-Root-latest",
+            b"Team-Root-1.0.0\nTeam-Root-2.0.0",
+        ] {
+            assert!(inspect_raw("bad.txt", bad).is_err());
+        }
+    }
+    #[test]
+    fn gale_export_routes_game_and_refuses_other_provider() {
+        let gale = b"profileName: Gale Night\ncommunity: bopl-battle\nmods: [{name: Team-Root, versionNumber: {major: 1, minor: 0, patch: 0}, enabled: true, source: thunderstore}]";
+        let profile = inspect(&[
+            ("Profile/export.r2x", gale),
+            ("Profile/config/test.cfg", b"Enabled = true"),
+        ])
+        .unwrap();
+        assert!(profile.notes.contains(&"Source game: bopl-battle".into()));
+        assert_eq!(profile.configs[0].path, "test.cfg");
+        assert!(
+            inspect_raw(
+                "export.r2x",
+                &String::from_utf8_lossy(gale)
+                    .replace("thunderstore", "hexium")
+                    .into_bytes()
+            )
+            .is_err()
+        );
+        assert!(
+            inspect_raw(
+                "export.r2x",
+                &String::from_utf8_lossy(gale)
+                    .replace("bopl-battle", "unknown-game")
+                    .into_bytes()
+            )
+            .is_err()
+        );
+        assert!(inspect(&[("A/export.r2x", R2), ("B/export.r2x", R2)]).is_err());
+        assert!(inspect(&[("Profile/export.r2x", R2), ("extra.txt", b"mixed")]).is_err());
+    }
+    #[test]
+    fn saved_profile_folder_reads_configs_but_never_installed_binaries() {
+        let root = std::env::temp_dir().join(format!(
+            "canna-folder-import-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(root.join("BepInEx/config")).unwrap();
+        std::fs::create_dir_all(root.join("BepInEx/plugins")).unwrap();
+        std::fs::write(
+            root.join("mods.yml"),
+            b"- name: Team-Root\n  versionNumber: {major: 1, minor: 0, patch: 0}\n  enabled: false",
+        )
+        .unwrap();
+        std::fs::write(
+            root.join("BepInEx/config/a.cfg"),
+            b"[Game]\nEnabled = false",
+        )
+        .unwrap();
+        std::fs::write(root.join("BepInEx/plugins/old.dll"), b"MZ-not-copied").unwrap();
+        let result = detect(&root).unwrap();
+        match result {
+            Detected::External(profile) => {
+                assert!(!profile.mods[0].enabled);
+                assert_eq!(profile.configs.len(), 1);
+                assert!(profile.local.is_none());
+            }
+            _ => panic!("External profile expected"),
+        }
+        std::fs::write(root.join("config"), b"Not a directory").unwrap();
+        assert!(detect(&root).is_err());
+        std::fs::remove_file(root.join("config")).unwrap();
+        std::fs::write(root.join("mods.yaml"), b"[]").unwrap();
+        assert!(detect(&root).is_err());
+        // This explicitly generated directory is the only cleanup target.
+        assert!(root.starts_with(std::env::temp_dir()));
+        std::fs::remove_dir_all(root).unwrap();
+    }
     #[test]
     fn reads_real_export_schema_pins_disabled_mods_and_configs() {
         let profile = inspect(&[

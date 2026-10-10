@@ -7,6 +7,7 @@ mod credentials;
 mod dependencies;
 mod diagnostics;
 mod ducttape;
+mod foreign_loader;
 mod game_compat;
 #[path = "../server/src/game_profiles.rs"]
 mod game_profiles;
@@ -112,6 +113,7 @@ struct Canna {
     launch_watch: Option<console::LaunchWatch>,
     game_details: bool,
     runtime_busy: bool,
+    active_launch: Option<u32>,
     runtime_enabled: bool,
     runtime_status: String,
     #[cfg(test)]
@@ -259,6 +261,7 @@ impl Canna {
             launch_watch: None,
             game_details: std::env::args().any(|arg| arg == "--game-details"),
             runtime_busy: false,
+            active_launch: None,
             runtime_enabled: start_jobs,
             runtime_status: if cfg!(canna_rebound_local_preview) {
                 "Canna Bliss local preview · enable the ROUNDS preview in Settings".into()
@@ -540,6 +543,7 @@ impl Canna {
                 }
                 Event::Runtime(result) => {
                     self.runtime_busy = false;
+                    self.active_launch = None;
                     if result.is_err() {
                         self.pack_ui.runtime_requests.clear();
                     }
@@ -1020,6 +1024,16 @@ impl Canna {
         }
     }
     fn queue_game_launch(&mut self, game: &InstalledGame, info: &GameInfo, modded: bool) {
+        if self.runtime_busy
+            || self.owned_games.contains_key(&game.app_id)
+            || self
+                .pack_ui
+                .runtime_requests
+                .iter()
+                .any(|r| r.launch_id() == Some(game.app_id))
+        {
+            return;
+        }
         let pack = modpacks::Modpack::create(
             format!("{} current setup", game.name),
             String::new(),
@@ -1052,6 +1066,11 @@ impl Canna {
             pack_ui::RuntimeAction::LaunchCurrent(id)
             | pack_ui::RuntimeAction::RestoreVanilla(id) => *id,
         };
+        if request.launch_id().is_some() && self.owned_games.contains_key(&id) {
+            self.runtime_status = "This instance is already running.".into();
+            self.pack_ui.set_runtime_status(&self.runtime_status);
+            return;
+        }
         let Some(game) = self.games.iter().find(|g| g.app_id == id).cloned() else {
             self.runtime_status = "Install this game through Steam first.".into();
             return;
@@ -1071,6 +1090,7 @@ impl Canna {
             _ => 0,
         };
         self.runtime_busy = true;
+        self.active_launch = request.launch_id();
         self.runtime_status = if matches!(request, pack_ui::RuntimeAction::RestoreVanilla(_)) {
             "Restoring vanilla files…"
         } else {
@@ -1199,6 +1219,10 @@ impl Canna {
         });
     }
     fn render(&mut self, ctx: &egui::Context) {
+        let animation_time = if self.settings.low_end { 0.0 } else { 0.16 };
+        if ctx.style().animation_time != animation_time {
+            ctx.style_mut(|style| style.animation_time = animation_time);
+        }
         for message in std::mem::take(&mut self.pack_ui.runtime_progress) {
             self.console.record(&message, &self.token);
         }
@@ -1226,6 +1250,16 @@ impl Canna {
             self.queue_vanilla_cleanup(id);
         }
         self.pack_ui.owned_games = self.owned_games.keys().copied().collect();
+        self.pack_ui.starting_games = self
+            .active_launch
+            .into_iter()
+            .chain(
+                self.pack_ui
+                    .runtime_requests
+                    .iter()
+                    .filter_map(|r| r.launch_id()),
+            )
+            .collect();
         if !self.owned_games.is_empty() {
             ctx.request_repaint_after(std::time::Duration::from_secs(1));
         }
@@ -1778,10 +1812,13 @@ impl Canna {
                         let info = self.catalog.iter().find(|g| g.app_id == game.app_id).cloned().unwrap_or_else(|| GameInfo { app_id:game.app_id, name:game.name.clone(), folder:format!("steam-{}",game.app_id),description:String::new(),icon:String::new(),mods:vec![],mod_folder_status:String::new() });
                         ui.horizontal_wrapped(|ui| {
                             if ui.button("+ Create modpack").clicked() { self.pack_ui.start_new(&info,self.active_source.as_ref()); self.modpacks_page=true; }
-                            if self.owned_games.contains_key(&game.app_id) && ui.button("Stop instance").clicked() { self.stop_game(game.app_id); }
-                            if ui.button("Launch vanilla").clicked() { self.queue_game_launch(&game, &info, false); }
-                            if ui.button("Launch modded").clicked() { self.queue_game_launch(&game, &info, true); }
-                            if model::source_addons(game.app_id).is_none() && ui.add_enabled(!self.runtime_busy,egui::Button::new("Restore vanilla files")).clicked() {self.queue_vanilla_cleanup(game.app_id);}
+                            let owned = self.owned_games.contains_key(&game.app_id);
+                            let starting = self.pack_ui.starting_games.contains(&game.app_id);
+                            if ui_helpers::launch_control(ui, owned, starting, self.runtime_busy).clicked() {
+                                if owned { self.stop_game(game.app_id); } else { self.queue_game_launch(&game, &info, true); }
+                            }
+                            if ui.add_enabled(!self.runtime_busy && !owned && !starting, egui::Button::new("Launch vanilla")).clicked() { self.queue_game_launch(&game, &info, false); }
+                            if model::source_addons(game.app_id).is_none() && ui.add_enabled(!self.runtime_busy && !owned && !starting,egui::Button::new("Restore vanilla files")).clicked() {self.queue_vanilla_cleanup(game.app_id);}
                         });
                         ui.add_space(16.0); ui.heading("Family mods");
                         if info.mods.is_empty() { ui.label("No mods published for this game yet. You can still create a pack and import local mods."); }
@@ -1929,9 +1966,11 @@ impl Canna {
                             if ui.add_enabled(installed, egui::Button::new("Create modpack")).clicked() {self.selected=id;self.pack_ui.start_new(&pack_game,self.active_source.as_ref());self.modpacks_page=true;ui.close();}
                             if let Some(game)=self.games.iter().find(|g|g.app_id==id).cloned() {
                                 ui.separator();
-                                if ui.add_enabled(!self.runtime_busy,egui::Button::new("Launch vanilla")).clicked() {self.queue_game_launch(&game,&pack_game,false);ui.close();}
-                                if ui.add_enabled(!self.runtime_busy,egui::Button::new("Launch modded")).clicked() {self.queue_game_launch(&game,&pack_game,true);ui.close();}
-                                if model::source_addons(game.app_id).is_none() && ui.add_enabled(!self.runtime_busy,egui::Button::new("Restore vanilla files")).clicked() {self.queue_vanilla_cleanup(game.app_id);ui.close();}
+                                let owned = self.owned_games.contains_key(&game.app_id);
+                                let starting = self.pack_ui.starting_games.contains(&game.app_id);
+                                if ui_helpers::launch_control(ui, owned, starting, self.runtime_busy).clicked() { if owned {self.stop_game(game.app_id);} else {self.queue_game_launch(&game,&pack_game,true);} ui.close(); }
+                                if ui.add_enabled(!self.runtime_busy && !owned && !starting,egui::Button::new("Launch vanilla")).clicked() {self.queue_game_launch(&game,&pack_game,false);ui.close();}
+                                if model::source_addons(game.app_id).is_none() && ui.add_enabled(!self.runtime_busy && !owned && !starting,egui::Button::new("Restore vanilla files")).clicked() {self.queue_vanilla_cleanup(game.app_id);ui.close();}
                                 ui.separator();
                                 if ui.button("Open game folder").clicked() {if let Err(error)=std::process::Command::new("explorer.exe").arg(&game.path).spawn(){self.warnings.push(error.to_string());}ui.close();}
                                 if ui.button("Copy game folder").clicked() {ui.ctx().copy_text(game.path.display().to_string());ui.close();}
@@ -2480,6 +2519,26 @@ mod ui_tests {
                 .unwrap()
                 .2
         );
+    }
+    #[test]
+    fn repeated_launch_clicks_do_not_queue_extra_instances() {
+        let ctx = egui::Context::default();
+        let mut app = Canna::new_with_context(&ctx, false);
+        let game = InstalledGame {
+            app_id: 1686940,
+            name: "Fixture".into(),
+            path: "fixture".into(),
+            loader: "Unity".into(),
+            plugins: 0,
+            icon: None,
+        };
+        app.queue_game_launch(&game, &model::bopl(), true);
+        app.queue_game_launch(&game, &model::bopl(), false);
+        assert_eq!(app.pack_ui.runtime_requests.len(), 1);
+        app.pack_ui.runtime_requests.clear();
+        app.runtime_busy = true;
+        app.queue_game_launch(&game, &model::bopl(), true);
+        assert!(app.pack_ui.runtime_requests.is_empty());
     }
     #[test]
     fn game_card_create_receives_pointer_click_and_opens_editor() {

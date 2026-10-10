@@ -43,6 +43,7 @@ pub struct PackUi {
     pub discover_return: bool,
 
     pub owned_games: BTreeSet<u32>,
+    pub starting_games: BTreeSet<u32>,
 
     #[cfg(test)]
     add_mods_rect: Option<egui::Rect>,
@@ -108,6 +109,16 @@ pub enum RuntimeAction {
     LaunchCurrent(u32),
 }
 
+impl RuntimeAction {
+    pub fn launch_id(&self) -> Option<u32> {
+        match self {
+            Self::Launch(pack, _) => Some(pack.game.app_id),
+            Self::LaunchCurrent(id) => Some(*id),
+            _ => None,
+        }
+    }
+}
+
 enum Action {
     Stop(u32),
 
@@ -130,6 +141,7 @@ enum Action {
     Duplicate(Modpack),
 
     Import,
+    ImportFolder,
 
     Export(Modpack),
 
@@ -772,6 +784,7 @@ impl PackUi {
             discover_return: false,
 
             owned_games: BTreeSet::new(),
+            starting_games: BTreeSet::new(),
 
             #[cfg(test)]
             add_mods_rect: None,
@@ -966,26 +979,24 @@ impl PackUi {
                     action = Some(Action::Duplicate(pack.clone()));
                 }
 
-                if self.owned_games.contains(&pack.game.app_id)
-                    && ui.button("Stop instance").clicked()
-                {
-                    self.runtime_requests
-                        .push_back(RuntimeAction::Stop(pack.game.app_id));
+                let owned = self.owned_games.contains(&pack.game.app_id);
+                let starting = self.starting_games.contains(&pack.game.app_id);
+                if crate::ui_helpers::launch_control(ui, owned, starting, connection_busy).clicked() {
+                    self.runtime_requests.push_back(if owned {
+                        RuntimeAction::Stop(pack.game.app_id)
+                    } else {
+                        RuntimeAction::Launch(pack.clone(), true)
+                    });
                 }
 
-                if ui.button("Launch modded").clicked() {
-                    self.runtime_requests
-                        .push_back(RuntimeAction::Launch(pack.clone(), true));
-                }
-
-                if ui.button("Launch vanilla").clicked() {
+                if ui.add_enabled(!connection_busy && !owned && !starting, egui::Button::new("Launch vanilla")).clicked() {
                     self.runtime_requests
                         .push_back(RuntimeAction::Launch(pack.clone(), false));
                 }
 
                 if pack.game.app_id != u32::MAX
                     && crate::model::source_addons(pack.game.app_id).is_none()
-                    && ui.button("Restore vanilla files").clicked()
+                    && ui.add_enabled(!connection_busy && !owned && !starting, egui::Button::new("Restore vanilla files")).clicked()
                 {
                     self.runtime_requests
                         .push_back(RuntimeAction::RestoreVanilla(pack.game.app_id));
@@ -1305,6 +1316,9 @@ impl PackUi {
                 if ui.button("Import modpack…").clicked() {
                     action = Some(Action::Import);
                 }
+                if ui.button("Import manager folder…").clicked() {
+                    action = Some(Action::ImportFolder);
+                }
             });
 
             ui.add_space(22.0);
@@ -1498,7 +1512,7 @@ impl PackUi {
                     ui,
                     "02",
                     "Import an existing pack",
-                    "Open a Canna pack, r2modman .r2z profile or Thunderstore ZIP.",
+                    "Open Canna, r2modman, Thunderstore or Gale exports, raw profiles, mod lists or dependency lists.",
                 )
                 .clicked()
                 {
@@ -1896,9 +1910,22 @@ impl PackUi {
                 self.chooser = false;
 
                 if let Some(path) = rfd::FileDialog::new()
-                    .set_title("Import Canna, r2modman or Thunderstore pack")
-                    .add_filter("Modpack or profile", &["json", "zip", "r2z"])
+                    .set_title("Import Canna, r2modman, Thunderstore or Gale pack")
+                    .add_filter(
+                        "Modpack, profile or dependency list",
+                        &["json", "zip", "r2z", "r2x", "yml", "yaml", "txt"],
+                    )
                     .pick_file()
+                {
+                    self.importer.start(path, selected_game, ui.ctx());
+                }
+            }
+
+            Some(Action::ImportFolder) => {
+                self.chooser = false;
+                if let Some(path) = rfd::FileDialog::new()
+                    .set_title("Choose a saved r2modman or Thunderstore profile folder")
+                    .pick_folder()
                 {
                     self.importer.start(path, selected_game, ui.ctx());
                 }
@@ -2055,7 +2082,10 @@ fn pack_menu(
         ("Launch modded", Action::Launch(pack.clone(), true)),
         ("Launch vanilla", Action::Launch(pack.clone(), false)),
     ] {
-        if ui.add_enabled(!busy, egui::Button::new(label)).clicked() {
+        if ui
+            .add_enabled(!busy && !owned, egui::Button::new(label))
+            .clicked()
+        {
             *action = Some(next);
 
             ui.close();

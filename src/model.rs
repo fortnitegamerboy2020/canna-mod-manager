@@ -163,6 +163,8 @@ pub fn framework(app_id: u32) -> &'static str {
         "minecraft"
     } else if source_addons(app_id).is_some() {
         "source-vpk"
+    } else if let Some(kind) = crate::foreign_loader::kind(app_id) {
+        kind
     } else {
         "bepinex"
     }
@@ -172,6 +174,10 @@ pub fn framework_label(app_id: u32) -> &'static str {
         "Minecraft instances"
     } else if source_addons(app_id).is_some() {
         "Source / VPK addons"
+    } else if app_id == 3146520 {
+        "GDWeave / Godot"
+    } else if app_id == 1337520 {
+        "ReturnOfModding / GameMaker"
     } else {
         "BepInEx / Unity"
     }
@@ -215,7 +221,7 @@ pub fn supported_catalog() -> Vec<GameInfo> {
         if games.iter().any(|g| g.app_id == profile.app_id) {
             continue;
         }
-        games.push(GameInfo {app_id:profile.app_id,name:profile.name.clone(),folder:profile.folder.clone(),description:"Thunderstore BepInEx profile · preview. Requires a compatible reviewed loader and supported package layout.".into(),icon:String::new(),mods:vec![],mod_folder_status:"Game profile available".into()});
+        games.push(GameInfo {app_id:profile.app_id,name:profile.name.clone(),folder:profile.folder.clone(),description:format!("{} profile · preview. Requires a compatible reviewed loader and supported package layout.",framework_label(profile.app_id)),icon:String::new(),mods:vec![],mod_folder_status:"Game profile available".into()});
     }
     games
 }

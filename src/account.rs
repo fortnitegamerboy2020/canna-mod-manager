@@ -10,6 +10,8 @@ use zeroize::{Zeroize, Zeroizing};
 
 const API: &str = "https://cannamods.vip/api/v1";
 const BINDING: &str = "__Host-canna_login";
+#[path = "social.rs"]
+mod social;
 #[derive(Default, PartialEq)]
 enum Mode {
     #[default]
@@ -37,6 +39,8 @@ pub struct Account {
     profile: Option<Value>,
     profile_session: String,
     status: String,
+    social: social::Social,
+    social_page: bool,
 }
 fn client() -> Result<reqwest::blocking::Client> {
     Ok(reqwest::blocking::Client::builder()
@@ -233,6 +237,8 @@ impl Account {
         false
     }
     pub fn reset(&mut self) {
+        self.social = social::Social::default();
+        self.social_page = false;
         self.pending = None;
         self.profile = None;
         self.profile_session.zeroize();
@@ -250,6 +256,20 @@ impl Account {
         website: &mut crate::website::Website,
     ) -> bool {
         let mut logout = false;
+        if self.social_page && !session.is_empty() {
+            if ui.button("‹ Back to account").clicked() {
+                self.social_page = false;
+            }
+            let member = self
+                .profile
+                .as_ref()
+                .and_then(|p| p["id"].as_i64())
+                .unwrap_or(0);
+            if member > 0 {
+                self.social.show(ui, session, member);
+            }
+            return false;
+        }
         if ui.button("‹ Back").clicked() {
             self.open = false;
             self.password.zeroize();
@@ -298,6 +318,15 @@ impl Account {
                             ui.label(format!("{} Kash", p["kash"].as_i64().unwrap_or(0)));
                         }
                         ui.add_space(12.0);
+                        if ui
+                            .add_enabled(
+                                self.profile.is_some(),
+                                egui::Button::new("Friends & private messages"),
+                            )
+                            .clicked()
+                        {
+                            self.social_page = true;
+                        }
                         if ui
                             .add_enabled(!self.busy(), egui::Button::new("Refresh profile"))
                             .clicked()
