@@ -1783,7 +1783,7 @@ mod tests {
         let catalog: Value =
             serde_json::from_str(include_str!("../web/cosmetics/catalog.json")).unwrap();
         let items = catalog["items"].as_array().unwrap();
-        assert_eq!(items.len(), 1000);
+        assert_eq!(items.len(), 1147);
         for (collection, count) in [
             ("mw2", 398),
             ("bo2", 237),
@@ -1792,6 +1792,7 @@ mod tests {
             ("mw2-emblems", 205),
             ("cod-ranks", 123),
             ("username-effects", 18),
+            ("mw3", 147),
         ] {
             assert_eq!(
                 items
@@ -1823,6 +1824,10 @@ mod tests {
             assert!(!items.iter().any(|candidate| candidate["asset"] == poster));
         }
         let animated = animated[0];
+        let mw3 = items
+            .iter()
+            .find(|item| item["collection"] == "mw3")
+            .unwrap();
         let paths = [
             ("/admin-games.css", "text/css; charset=utf-8", None),
             (
@@ -1839,6 +1844,11 @@ mod tests {
                 animated["poster_asset"].as_str().unwrap(),
                 "image/png",
                 animated["poster_sha256"].as_str(),
+            ),
+            (
+                mw3["asset"].as_str().unwrap(),
+                "image/webp",
+                mw3["sha256"].as_str(),
             ),
         ];
         for (path, mime, expected_hash) in paths {

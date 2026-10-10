@@ -34,6 +34,7 @@ class Paths:
         # shadow System.IO in this source. Loader/type redefinitions do.
         self.disabled = any(re.search(r'\b(?:class|struct|record|interface|enum)\s+(?:Paths|Path|File|Directory|FileStream)\b|\bnamespace\s+(?:BepInEx|System\.IO)\b', code) for _, _, code in self.files)
         self.primary = {}
+        self.type_scopes = {}
         self.generated_records = set()
         for name, content, code in self.files:
             for match in PRIMARY.finditer(code):
@@ -53,11 +54,30 @@ class Paths:
         if source is None:
             return None
         code = source[2]
+        # Class bodies are larger than individual call expressions. Keep the
+        # call parser's 10k bound, but index up to 128k per type once per file.
+        # An omitted/unterminated type cannot explain a field or local binding.
+        if name not in self.type_scopes:
+            declarations = list(re.finditer(r'\b(?:class|struct|record)\s+(\w+)[^;{}]*\{', code))
+            scopes = []
+            if len(declarations) <= 256:
+                for declaration in declarations:
+                    start = declaration.end()-1
+                    depth, end = 0, None
+                    for at in range(start, min(len(code), start+128000)):
+                        if code[at] == '{': depth += 1
+                        elif code[at] == '}':
+                            depth -= 1
+                            if depth == 0:
+                                end = at
+                                break
+                    if end is not None:
+                        scopes.append((declaration.end(), end, declaration.start(), declaration[1]))
+            self.type_scopes[name] = scopes
         candidates = []
-        for declaration in re.finditer(r'\b(?:class|struct|record)\s+(\w+)[^;{}]*\{', code):
-            end = self.trace.closing(code, declaration.end()-1, '{', '}')
-            if end is not None and declaration.end() <= position < end:
-                candidates.append((end-declaration.end(), declaration.start(), declaration[1]))
+        for begin, end, start, symbol in self.type_scopes[name]:
+            if begin <= position < end:
+                candidates.append((end-begin, start, symbol))
         return min(candidates, default=None)
 
     def mode_shadowed(self, name):

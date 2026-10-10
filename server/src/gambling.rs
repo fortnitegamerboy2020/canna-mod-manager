@@ -2003,7 +2003,7 @@ mod tests {
             assert_eq!(response.headers()["x-content-type-options"], "nosniff");
             let result = value(response).await;
             assert_eq!(result["version"], cached_catalog().unwrap().version);
-            assert_eq!(result["catalog"].as_array().unwrap().len(), 1000);
+            assert_eq!(result["catalog"].as_array().unwrap().len(), 1147);
             assert_eq!(result["cases"].as_array().unwrap().len(), CASE_IDS.len());
             assert!(result.get("owned").is_none());
             assert!(result.get("wallet").is_none());
@@ -2057,7 +2057,7 @@ mod tests {
         assert!(full_size > 600_000);
         assert_eq!(
             legacy["cosmetics"]["catalog"].as_array().unwrap().len(),
-            1000
+            1147
         );
         assert!(legacy["cases"].is_array());
         let compact_path = format!("/api/v1/gambling?catalog_version={version}");

@@ -143,6 +143,15 @@ public class Mod {
             self.assertTrue(analyze('using BepInEx; '+consumer+' class Mod { void Run() { '+read+' } }','namespace Evil; enum FileAccess { Read }')['findings'])
         self.assertTrue(analyze('using BepInEx; class Mod : Evil.Base { void Run() { '+read+' } }','namespace Evil; class Base { public Holder FileAccess { get; } }')['findings'])
         self.assertTrue(analyze('using BepInEx; namespace Evil.Nested; class Mod { void Run() { '+read+' } }','namespace Evil { namespace Nested { enum FileAccess { Read } } }')['findings'])
+    def test_large_type_scope_preserves_bound_roots_and_over_limit_fails_closed(self):
+        prefix='using BepInEx; class Mod { private readonly string cache=Paths.CachePath; '
+        suffix='public void Run() { Directory.CreateDirectory(cache); File.WriteAllBytes(Path.Combine(cache,"plugin.dll"),payload); } }'
+        report=analyze(prefix+' '*12000+suffix)
+        self.assertEqual(sum(o['rule']=='filesystem-context' for o in report['observations']),1)
+        self.assertTrue(any(f['rule']=='filesystem' and f['severity']=='high' for f in report['findings']))
+        report=analyze(prefix+' '*128000+suffix)
+        self.assertFalse(any(o['rule']=='filesystem-context' for o in report['observations']))
+        self.assertTrue(any(f['rule']=='filesystem' for f in report['findings']))
     def test_ordinary_info_does_not_remove_process_network_load_findings(self):
         r=analyze('using BepInEx; class Mod { public void Go() { Directory.CreateDirectory(Path.Combine(Paths.CachePath,"repair")); Process.Start(exe); Assembly.Load(payload); new HttpClient(); } }')
         self.assertEqual({f['rule'] for f in r['findings']},{'commands','dynamic','network'})
