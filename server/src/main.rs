@@ -59,6 +59,7 @@ mod scans;
 mod sections;
 mod security;
 mod shared_packs;
+mod social;
 mod source_packages;
 mod subscriptions;
 mod support;
@@ -194,6 +195,7 @@ impl App {
         scans::enforce_manual_uploads(&db)?;
         handoff::initialize(&db)?;
         shared_packs::initialize(&db)?;
+        social::initialize(&db)?;
         db.execute_batch("CREATE TABLE IF NOT EXISTS profiles(user_id INTEGER PRIMARY KEY REFERENCES users(id), status TEXT NOT NULL DEFAULT '', bio TEXT NOT NULL DEFAULT '', avatar TEXT);
             CREATE TABLE IF NOT EXISTS profile_comments(id TEXT PRIMARY KEY,target INTEGER NOT NULL REFERENCES users(id),author INTEGER NOT NULL REFERENCES users(id),body TEXT NOT NULL,created INTEGER NOT NULL);
             CREATE TABLE IF NOT EXISTS ratings(target INTEGER NOT NULL REFERENCES users(id),voter INTEGER NOT NULL REFERENCES users(id),stars INTEGER NOT NULL CHECK(stars BETWEEN 1 AND 5),PRIMARY KEY(target,voter),CHECK(target!=voter));")?;
@@ -994,6 +996,10 @@ async fn community_script(State(app): State<Shared>, headers: HeaderMap) -> ApiR
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/community.js")))
 }
+async fn social_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
+    app.auth(&headers)?;
+    Ok(asset(include_str!("../web/social.js")))
+}
 async fn profiles_script(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<Response> {
     app.auth(&headers)?;
     Ok(asset(include_str!("../web/profiles.js")))
@@ -1120,6 +1126,8 @@ fn router(app: Shared) -> Router {
             }),
         )
         .route("/packs/{id}", get(community_page))
+        .route("/messages", get(community_page))
+        .route("/messages/{id}", get(community_page))
         .route("/connect", get(connect_page))
         .route("/connect.js", get(connect_script))
         .route(
@@ -1188,6 +1196,7 @@ fn router(app: Shared) -> Router {
         )
         .route("/community.js", get(community_script))
         .route("/profiles.js", get(profiles_script))
+        .route("/social.js", get(social_script))
         .route("/sections.js", get(sections_script))
         .route(
             "/health",
@@ -1264,6 +1273,20 @@ fn router(app: Shared) -> Router {
         .route("/api/v1/gambling/cases/open", post(gambling::case_open))
         .route("/api/v1/gambling/cosmetics/equip", post(gambling::equip))
         .route("/api/v1/gambling/cosmetics/manage", post(gambling::manage))
+        .route("/api/v1/gambling/market", get(gambling::market))
+        .route("/api/v1/gambling/market/action", post(gambling::market_action))
+        .route("/api/v1/gambling/contracts", get(gambling::contracts))
+        .route("/api/v1/gambling/contracts/action", post(gambling::contract_action))
+        .route("/api/v1/gambling/rooms", get(gambling::rooms))
+        .route("/api/v1/gambling/rooms/action", post(gambling::room_action))
+        .route("/api/v1/gambling/rooms/{id}", get(gambling::room))
+        .route("/api/v1/gambling/coinflip", post(gambling::solo_coinflip))
+        .route("/api/v1/social", get(social::overview))
+        .route("/api/v1/social/friends", post(social::friend_action))
+        .route("/api/v1/social/relationships/{id}", get(social::relationship))
+        .route("/api/v1/social/messages", post(social::send))
+        .route("/api/v1/social/messages/read", post(social::mark_read))
+        .route("/api/v1/social/messages/{id}", get(social::messages))
         .route("/api/v1/admin/gambling", get(gambling::admin_state).post(gambling::admin_config))
         .route("/api/v1/admin/users/{id}/ban", post(community::ban))
         .route("/api/v1/admin/users/{id}/role", post(community::set_role))
@@ -1461,6 +1484,7 @@ async fn main() -> anyhow::Result<()> {
     let listener = tokio::net::TcpListener::bind(&address).await?;
     println!("Canna server listening on {address}");
     lounge::start_cleanup(app.clone());
+    gambling::start_cleanup(app.clone());
     play::start_cleanup(app.clone());
     rebound_diagnostics::start_cleanup(app.clone());
     launcher_diagnostics::start_cleanup(app.clone());

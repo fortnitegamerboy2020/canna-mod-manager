@@ -17,7 +17,7 @@ function activity(seconds) {
   return new Date(seconds*1000).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'});
 }
 function updateNavigation() {
-  const views = {playnav:'playview',browsenav:'browseview',gamblingnav:'gamblingview',subscriptionsnav:'subscriptionsview',librarynav:'libraryview',forumnav:'forumview',peoplenav:'profilesview',myprofilenav:'profilesview',adminnav:'moderation',submissionsnav:'submissionsview',notificationsnav:'notificationsview'};
+  const views = {playnav:'playview',browsenav:'browseview',gamblingnav:'gamblingview',subscriptionsnav:'subscriptionsview',librarynav:'libraryview',forumnav:'forumview',peoplenav:'profilesview',myprofilenav:'profilesview',adminnav:'moderation',submissionsnav:'submissionsview',notificationsnav:'notificationsview',friendsnav:'friendsview'};
   for (const [nav,view] of Object.entries(views)) {
     const active = !$(view).hidden && (nav !== 'myprofilenav' || profileId === currentUser.id) && (nav !== 'peoplenav' || profileId !== currentUser.id);
     $(nav).classList.toggle('active',active); $(nav).setAttribute('aria-current',active ? 'page' : 'false');
@@ -27,11 +27,12 @@ function button(label, callback, page) {
   const node = document.createElement('button'); node.textContent = label;if(page)node.dataset.page=page;
   node.addEventListener('click', () => action(callback)); return node;
 }
-const viewPaths={playview:'/play',forumview:'/forums',browseview:'/mods',gamblingview:'/gambling',subscriptionsview:'/subscriptions',libraryview:'/library',profilesview:'/members',moderation:'/admin',submissionsview:'/submissions',notificationsview:'/notifications'};
+const viewPaths={playview:'/play',forumview:'/forums',browseview:'/mods',gamblingview:'/gambling',subscriptionsview:'/subscriptions',libraryview:'/library',profilesview:'/members',moderation:'/admin',submissionsview:'/submissions',notificationsview:'/notifications',friendsview:'/messages'};
 function showView(name,stay=false) {
   if(!stay){return navigatePage(viewPaths[name] || '/forums');}
-  for (const id of ['packview','playview','browseview','gamblingview','subscriptionsview','libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
+  for (const id of ['friendsview','packview','playview','browseview','gamblingview','subscriptionsview','libraryview','forumview','moderation','profilesview','submissionsview','notificationsview']) $(id).hidden = id !== name;
   updateNavigation();
+  if(name==='friendsview') return loadSocial();
   if(name==='playview') return loadPlayLab();
   if(name==='forumview') return (async()=>{await loadTopics();})();
   if(name==='browseview') return loadProviderBrowser();
@@ -214,6 +215,7 @@ function viewSource(id) { window.open(`/review/mods/${encodeURIComponent(id)}`,'
 
 async function openCommunityPage() {
   const path=location.pathname;
+  if(path==='/messages'||/^\/messages\/\d+$/.test(path)){await showView('friendsview',true);return;}
   if(path.startsWith('/packs/')){await showView('packview',true);return;}
   $('forumback').hidden=!(path.startsWith('/forums/') && path!=='/forums');
   if(path.startsWith('/forums/sections/')) {

@@ -88,7 +88,10 @@ public class Example {
  public void NeverRun() { System.Diagnostics.Process.Start("fixture-only-never-run"); }
  public void UnknownDirectory(string path) { System.IO.File.WriteAllText(System.IO.Path.Combine(path,"report.txt"),"fixture"); }
 }''', encoding='utf-8')
-        subprocess.run(['dotnet', 'build', str(project), '-c', 'Release', '--nologo', '-v', 'quiet'], check=True, stdout=subprocess.DEVNULL)
+        nuget_config = root / 'NuGet.Config'
+        nuget_config.write_text('<configuration><packageSources><clear /></packageSources></configuration>', encoding='utf-8')
+        subprocess.run(['dotnet', 'restore', str(project), '--configfile', str(nuget_config), '--nologo', '-v', 'quiet'], check=True, timeout=60)
+        subprocess.run(['dotnet', 'build', str(project), '--no-restore', '--disable-build-servers', '-p:UseSharedCompilation=false', '-c', 'Release', '--nologo', '-v', 'quiet'], check=True, timeout=60)
         fixture = root / 'managed-fixture.zip'
         with zipfile.ZipFile(fixture, 'w') as archive:
             archive.write(project / 'bin/Release/net8.0/fixture.dll', 'fixture.dll')
@@ -155,7 +158,7 @@ if args.mixed_fixture:
         nuget_config = root / 'NuGet.Config'
         nuget_config.write_text('<configuration><packageSources><clear /></packageSources></configuration>', encoding='utf-8')
         subprocess.run(['dotnet', 'restore', str(project), '--configfile', str(nuget_config), '--nologo', '-v', 'quiet'], check=True, stdout=subprocess.DEVNULL)
-        subprocess.run(['dotnet', 'build', str(project), '--no-restore', '-c', 'Release', '--nologo', '-v', 'quiet'], check=True, stdout=subprocess.DEVNULL)
+        subprocess.run(['dotnet', 'build', str(project), '--no-restore', '--disable-build-servers', '-p:UseSharedCompilation=false', '-c', 'Release', '--nologo', '-v', 'quiet'], check=True, timeout=60, stdout=subprocess.DEVNULL)
         fixture = root / 'mixed-java-managed-fixture.zip'
         with zipfile.ZipFile(fixture, 'w') as archive:
             archive.writestr('ReviewJavaFixture.class', inert_java_class())

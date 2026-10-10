@@ -107,7 +107,7 @@ pub async fn list(State(app): State<Shared>, headers: HeaderMap) -> ApiResult<ax
         games.insert(id, json!({"app_id":id,"name":name,"folder":folder,"framework":framework,"icon":match id {1686940=>"icon.png",1557740=>"game.jpg",_=>""},"description":if framework=="source-vpk" {"VPK addon packs; modded launches use -insecure practice mode"} else {"Unity modpacks with BepInEx"},"mods":[],"mod_folder_status":"Server library ready"}));
     }
     for profile in game_profiles::games() {
-        games.entry(profile.app_id).or_insert_with(||json!({"app_id":profile.app_id,"name":profile.name,"folder":profile.folder,"framework":"bepinex","icon":"","description":"Thunderstore BepInEx profile - preview; requires a compatible reviewed loader","mods":[],"mod_folder_status":"Game profile available"}));
+        games.entry(profile.app_id).or_insert_with(||json!({"app_id":profile.app_id,"name":profile.name,"folder":profile.folder,"framework":profile.loader,"icon":"","description":format!("Thunderstore {} profile - preview; requires a compatible reviewed loader",profile.loader),"mods":[],"mod_folder_status":"Game profile available"}));
     }
     let mut latest = std::collections::HashSet::new();
     for (id, appid, name, version, description, hash) in rows {
@@ -208,7 +208,17 @@ fn framework_game(path: &str) -> Option<u32> {
         "rounds/Framework/BepInEx.zip" => Some(1557740),
         _ => game_profiles::games()
             .iter()
-            .find(|g| path == format!("{}/Framework/BepInEx.zip", g.folder))
+            .find(|g| {
+                path == format!(
+                    "{}/Framework/{}.zip",
+                    g.folder,
+                    match g.loader.as_str() {
+                        "gdweave" => "GDWeave",
+                        "return-of-modding" => "ReturnOfModding",
+                        _ => "BepInEx",
+                    }
+                )
+            })
             .map(|g| g.app_id),
     }
 }
@@ -224,6 +234,13 @@ fn reviewed_framework(db: &Connection, app_id: u32) -> ApiResult<Option<(String,
         })?
         .collect::<Result<Vec<_>, _>>()?;
     for row in rows {
+        let details = external::details(db, &row.0)?;
+        let kind = game_profiles::by_id(app_id)
+            .map(|p| p.loader.as_str())
+            .unwrap_or("bepinex");
+        if details["framework_kind"].as_str().unwrap_or("bepinex") != kind {
+            continue;
+        }
         match security::approved(db, &row.0) {
             Ok(()) => return Ok(Some(row)),
             Err(error) if error.0.is_server_error() => return Err(error),

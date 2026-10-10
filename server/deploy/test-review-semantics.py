@@ -30,6 +30,55 @@ internal class Fix(Settings settings) {
 }'''
 
 class SemanticsTests(unittest.TestCase):
+    def test_single_assignment_local_and_private_pure_path_helper(self):
+        source = '''using BepInEx; using System.IO;
+public class Mod {
+ private static string CacheRoot() => Path.Combine(Paths.CachePath,"fixture");
+ private static string AssemblyFile() { return Path.Combine(Paths.ManagedPath,"Assembly-CSharp.dll"); }
+ public void Run() {
+  var cache = CacheRoot();
+  Directory.CreateDirectory(cache);
+  string assembly = AssemblyFile();
+  File.ReadAllBytes(assembly);
+ }
+}'''
+        report=analyze(source)
+        self.assertFalse(report['findings'])
+        self.assertEqual(len(report['observations']),2)
+        self.assertTrue(any('returns' in b['expression'] for f in report['observations'] for p in f['path_classification']['destinations'] for b in p['resolved']['bindings']))
+    def test_helpers_and_locals_fail_closed_for_competing_or_external_sources(self):
+        snippets = [
+            'var cache = unknown; Directory.CreateDirectory(cache);',
+            'var cache = Paths.CachePath; cache = unknown; Directory.CreateDirectory(cache);',
+            'Directory.CreateDirectory(cache); var cache = Paths.CachePath;',
+            'var cache = Paths.CachePath; Change(ref cache); Directory.CreateDirectory(cache);',
+            'string cache; if (flag) { cache = Paths.CachePath; } Directory.CreateDirectory(cache);',
+            'var cache = GetPath(); Directory.CreateDirectory(cache);',
+        ]
+        for body in snippets:
+            self.assertTrue(analyze('using BepInEx; public class Mod { public void Run() { '+body+' } }')['findings'],body)
+        for helper in ['public static string Root() => Paths.CachePath;',
+                       'private static string Root(string input) => Paths.CachePath;',
+                       'private static string Root() { SideEffect(); return Paths.CachePath; }',
+                       'private static string Root() => unknown;',
+                       'private static string Root() => Root();',
+                       'private static string Root() => Paths.CachePath; private static string Root(int value) => unknown;']:
+            self.assertTrue(analyze('using BepInEx; public class Mod { '+helper+' public void Run() { Directory.CreateDirectory(Root()); } }')['findings'],helper)
+    def test_resolved_locals_do_not_clear_executable_writes_or_loading(self):
+        report=analyze('''using BepInEx; public class Mod {
+ public void Run() {
+ var path = Path.Combine(Paths.CachePath,"payload.dll");
+ File.WriteAllBytes(path,bytes);
+ Assembly.Load(File.ReadAllBytes(path));
+ }
+}''')
+        self.assertTrue(any(f['rule']=='filesystem' and f['severity']=='high' for f in report['findings']))
+        self.assertTrue(any(f['rule']=='dynamic' for f in report['findings']))
+    def test_unrelated_type_members_cannot_explain_another_types_path(self):
+        for member, call in [('private static string Root() => Paths.CachePath;', 'Root()'),
+                             ('private readonly string cache = Paths.CachePath;', 'cache')]:
+            report=analyze('using BepInEx; class Other { '+member+' } public class Mod { public void Run() { Directory.CreateDirectory('+call+'); } }')
+            self.assertTrue(report['findings'])
     def test_loader_reads_and_cache_constructor_are_observations(self):
         r=analyze(OWNER,FIX)
         self.assertFalse(r['findings'])

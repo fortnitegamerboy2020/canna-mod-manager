@@ -259,7 +259,7 @@ async function drainNavigationRequests(){
  }
 }
 function setupPagePrefetch(){
- const paths={playnav:'/play',forumnav:'/forums',browsenav:'/mods',gamblingnav:'/gambling',subscriptionsnav:'/subscriptions',librarynav:'/library',peoplenav:'/members',adminnav:'/admin',submissionsnav:'/submissions',notificationsnav:'/notifications',myprofilenav:'/members/'+currentUser.id,welcome:'/members/'+currentUser.id,forumback:'/forums',latestdiscussions:'/forums/latest'};
+ const paths={friendsnav:'/messages',playnav:'/play',forumnav:'/forums',browsenav:'/mods',gamblingnav:'/gambling',subscriptionsnav:'/subscriptions',librarynav:'/library',peoplenav:'/members',adminnav:'/admin',submissionsnav:'/submissions',notificationsnav:'/notifications',myprofilenav:'/members/'+currentUser.id,welcome:'/members/'+currentUser.id,forumback:'/forums',latestdiscussions:'/forums/latest'};
  for(const [id,path] of Object.entries(paths))$(id).dataset.page=path;
  if(prefetchReady)return;prefetchReady=true;
  const intent=event=>{

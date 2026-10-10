@@ -1,4 +1,4 @@
-// Generated from the checked cosmetic catalog. IDs never become file paths.
+// Generated checked asset routes; identities never become file paths.
 pub fn find(id: &str) -> Option<(&'static str, &'static [u8])> {
     match id {
         "frame-mint-halo" => Some((
@@ -4218,6 +4218,594 @@ pub fn find(id: &str) -> Option<(&'static str, &'static [u8])> {
         "name-effect-bliss" => Some((
             "image/svg+xml",
             include_bytes!("../web/cosmetics/name-effect-bliss.svg"),
+        )),
+        "mw3-fng-a61c6819" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-fng-a61c6819.webp"),
+        )),
+        "mw3-comm-3e61ecaa" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-comm-3e61ecaa.webp"),
+        )),
+        "mw3-prestige-88c4de2b" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-prestige-88c4de2b.webp"),
+        )),
+        "mw3-ssdd-adf616f2" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-ssdd-adf616f2.webp"),
+        )),
+        "mw3-sarge-a7ce909a" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-sarge-a7ce909a.webp"),
+        )),
+        "mw3-round2-d374acd0" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-round2-d374acd0.webp"),
+        )),
+        "mw3-sgt-3460882f" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-sgt-3460882f.webp"),
+        )),
+        "mw3-30some-41a7a31c" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-30some-41a7a31c.webp"),
+        )),
+        "mw3-thirdtime-73a7e7ae" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-thirdtime-73a7e7ae.webp"),
+        )),
+        "mw3-1stsgt-10713e70" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-1stsgt-10713e70.webp"),
+        )),
+        "mw3-cigarskull-13d5f917" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-cigarskull-13d5f917.webp"),
+        )),
+        "mw3-4therecord-fad74856" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-4therecord-fad74856.webp"),
+        )),
+        "mw3-1stlt-0d6765c4" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-1stlt-0d6765c4.webp"),
+        )),
+        "mw3-majorpain-36d14d67" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-majorpain-36d14d67.webp"),
+        )),
+        "mw3-fistagon-34014757" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-fistagon-34014757.webp"),
+        )),
+        "mw3-maj-e9639088" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-maj-e9639088.webp"),
+        )),
+        "mw3-schooled-29e8f2e6" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-schooled-29e8f2e6.webp"),
+        )),
+        "mw3-6feetunder-692c1189" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-6feetunder-692c1189.webp"),
+        )),
+        "mw3-gen-228ce7fa" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-gen-228ce7fa.webp"),
+        )),
+        "mw3-backagain-a6c519f9" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-backagain-a6c519f9.webp"),
+        )),
+        "mw3-lucky7-cb7b069e" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-lucky7-cb7b069e.webp"),
+        )),
+        "mw3-hardeight-c21b1682" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-hardeight-c21b1682.webp"),
+        )),
+        "mw3-nbk-0ca36d34" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-nbk-0ca36d34.webp"),
+        )),
+        "mw3-sointense-58e1adfd" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-sointense-58e1adfd.webp"),
+        )),
+        "mw3-9lives-9458fd61" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-9lives-9458fd61.webp"),
+        )),
+        "mw3-flyswatter-5263038d" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-flyswatter-5263038d.webp"),
+        )),
+        "mw3-quickdraw-3842c3c5" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-quickdraw-3842c3c5.webp"),
+        )),
+        "mw3-prestige10-c3e1225a" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-prestige10-c3e1225a.webp"),
+        )),
+        "mw3-earlydetection-e59f69d7" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-earlydetection-e59f69d7.webp"),
+        )),
+        "mw3-absentee-58f968ae" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-absentee-58f968ae.webp"),
+        )),
+        "mw3-farsuperior-b28d4395" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-farsuperior-b28d4395.webp"),
+        )),
+        "mw3-clusterbomb-5aa04810" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-clusterbomb-5aa04810.webp"),
+        )),
+        "mw3-supremebeing-c54506e8" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-supremebeing-c54506e8.webp"),
+        )),
+        "mw3-bombsaway-ed2bcdb2" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-bombsaway-ed2bcdb2.webp"),
+        )),
+        "mw3-rival-b59c9369" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-rival-b59c9369.webp"),
+        )),
+        "mw3-puretalent-1a23bccd" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-puretalent-1a23bccd.webp"),
+        )),
+        "mw3-madbomber-bbae39b3" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-madbomber-bbae39b3.webp"),
+        )),
+        "mw3-elitefounder-cfe083f5" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-elitefounder-cfe083f5.webp"),
+        )),
+        "mw3-elite-bc62f9e3" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-elite-bc62f9e3.webp"),
+        )),
+        "mw3-bluebullet-9dfb2619" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-bluebullet-9dfb2619.webp"),
+        )),
+        "mw3-gryphon-e6fa09d6" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-gryphon-e6fa09d6.webp"),
+        )),
+        "mw3-hunter-e26894aa" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-hunter-e26894aa.webp"),
+        )),
+        "mw3-gorilla-b256f72d" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-gorilla-b256f72d.webp"),
+        )),
+        "mw3-horse-5edc567b" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-horse-5edc567b.webp"),
+        )),
+        "mw3-1stunner-852a6749" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-1stunner-852a6749.webp"),
+        )),
+        "mw3-sidekick-3c698609" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-sidekick-3c698609.webp"),
+        )),
+        "mw3-denier-25b49c54" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-denier-25b49c54.webp"),
+        )),
+        "mw3-afterburner-07bbef35" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-afterburner-07bbef35.webp"),
+        )),
+        "mw3-deathfromabove-dd419fe0" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-deathfromabove-dd419fe0.webp"),
+        )),
+        "mw3-tank-953867b7" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-tank-953867b7.webp"),
+        )),
+        "mw3-topgun-429c8cf8" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-topgun-429c8cf8.webp"),
+        )),
+        "mw3-knife-ad4f5b2c" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-knife-ad4f5b2c.webp"),
+        )),
+        "mw3-bloodcells-3cf75137" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-bloodcells-3cf75137.webp"),
+        )),
+        "mw3-mastodon-08c46b5e" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-mastodon-08c46b5e.webp"),
+        )),
+        "mw3-avenger-1424742b" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-avenger-1424742b.webp"),
+        )),
+        "mw3-bullets-002a8c7f" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-bullets-002a8c7f.webp"),
+        )),
+        "mw3-stungun-81484a8d" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-stungun-81484a8d.webp"),
+        )),
+        "mw3-boombox-f13be1a4" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-boombox-f13be1a4.webp"),
+        )),
+        "mw3-smile-be68de77" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-smile-be68de77.webp"),
+        )),
+        "mw3-stuckonyou-307f1b6b" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-stuckonyou-307f1b6b.webp"),
+        )),
+        "mw3-owned-bdd2f22a" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-owned-bdd2f22a.webp"),
+        )),
+        "mw3-cash-bf649110" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-cash-bf649110.webp"),
+        )),
+        "mw3-grenadeburger-755ac65b" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-grenadeburger-755ac65b.webp"),
+        )),
+        "mw3-domino-c11521cc" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-domino-c11521cc.webp"),
+        )),
+        "mw3-bloodmoney-80e15611" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-bloodmoney-80e15611.webp"),
+        )),
+        "mw3-accidentprone-5832d078" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-accidentprone-5832d078.webp"),
+        )),
+        "mw3-backsmasher-f5e2a2e0" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-backsmasher-f5e2a2e0.webp"),
+        )),
+        "mw3-smashhit-12e41242" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-smashhit-12e41242.webp"),
+        )),
+        "mw3-headsup-e2d0551f" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-headsup-e2d0551f.webp"),
+        )),
+        "mw3-babe-d32468c4" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-babe-d32468c4.webp"),
+        )),
+        "mw3-drifter-0cc8d33d" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-drifter-0cc8d33d.webp"),
+        )),
+        "mw3-surgical-125a85d5" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-surgical-125a85d5.webp"),
+        )),
+        "mw3-survivor-4f1b6c3c" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-survivor-4f1b6c3c.webp"),
+        )),
+        "mw3-scorpionbikini-536e7a87" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-scorpionbikini-536e7a87.webp"),
+        )),
+        "mw3-friendswithbenefits-06642ab1" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-friendswithbenefits-06642ab1.webp"),
+        )),
+        "mw3-greenblack-53acd175" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-greenblack-53acd175.webp"),
+        )),
+        "mw3-catmoustache-6c564897" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-catmoustache-6c564897.webp"),
+        )),
+        "mw3-infected-3974c7d5" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-infected-3974c7d5.webp"),
+        )),
+        "mw3-martyr-de8acd27" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-martyr-de8acd27.webp"),
+        )),
+        "mw3-tacdel-e3364cc0" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-tacdel-e3364cc0.webp"),
+        )),
+        "mw3-transfer-21690976" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-transfer-21690976.webp"),
+        )),
+        "mw3-explosion-a710feec" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-explosion-a710feec.webp"),
+        )),
+        "mw3-backstabber-1169d2c7" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-backstabber-1169d2c7.webp"),
+        )),
+        "mw3-firegrad-30b5bb19" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-firegrad-30b5bb19.webp"),
+        )),
+        "mw3-behindenemylines-76723986" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-behindenemylines-76723986.webp"),
+        )),
+        "mw3-specialist-162b1686" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-specialist-162b1686.webp"),
+        )),
+        "mw3-scrambler-57e6c065" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-scrambler-57e6c065.webp"),
+        )),
+        "mw3-crackinskulls-29c80783" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-crackinskulls-29c80783.webp"),
+        )),
+        "mw3-concussion-ddf37d2c" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-concussion-ddf37d2c.webp"),
+        )),
+        "mw3-anarchist-d9421b2b" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-anarchist-d9421b2b.webp"),
+        )),
+        "mw3-highlander-18d6d562" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-highlander-18d6d562.webp"),
+        )),
+        "mw3-wolf-026fe0bd" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-wolf-026fe0bd.webp"),
+        )),
+        "mw3-yellowskulls-ffed30a1" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-yellowskulls-ffed30a1.webp"),
+        )),
+        "mw3-boomheadshot-68b54a1a" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-boomheadshot-68b54a1a.webp"),
+        )),
+        "mw3-tigers-83ba856f" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-tigers-83ba856f.webp"),
+        )),
+        "mw3-c4andafter-3235cf8d" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-c4andafter-3235cf8d.webp"),
+        )),
+        "mw3-darkhelicopter-bae50749" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-darkhelicopter-bae50749.webp"),
+        )),
+        "mw3-unstoppable-d44c7108" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-unstoppable-d44c7108.webp"),
+        )),
+        "mw3-overachiever-09e048d0" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-overachiever-09e048d0.webp"),
+        )),
+        "mw3-sas-8a2c6da0" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-sas-8a2c6da0.webp"),
+        )),
+        "mw3-rifle-e2389e4a" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-rifle-e2389e4a.webp"),
+        )),
+        "mw3-metal-99f18752" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-metal-99f18752.webp"),
+        )),
+        "mw3-specialism-9b1bc3ea" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-specialism-9b1bc3ea.webp"),
+        )),
+        "mw3-silver-5a05dd47" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-silver-5a05dd47.webp"),
+        )),
+        "mw3-2500-150458b5" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-2500-150458b5.webp"),
+        )),
+        "mw3-headshotsilver-1a92ac22" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-headshotsilver-1a92ac22.webp"),
+        )),
+        "mw3-gold-fe7ed6a4" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-gold-fe7ed6a4.webp"),
+        )),
+        "mw3-usa-0556323f" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-usa-0556323f.webp"),
+        )),
+        "mw3-australia-cf022fef" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-australia-cf022fef.webp"),
+        )),
+        "mw3-japan-cd36d97a" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-japan-cd36d97a.webp"),
+        )),
+        "mw3-uk-2e8e84df" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-uk-2e8e84df.webp"),
+        )),
+        "mw3-spain-162eb39c" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-spain-162eb39c.webp"),
+        )),
+        "mw3-brazil-5ac8ce5f" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-brazil-5ac8ce5f.webp"),
+        )),
+        "mw3-canada-6ef10e79" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-canada-6ef10e79.webp"),
+        )),
+        "mw3-austria-cfa1401d" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-austria-cfa1401d.webp"),
+        )),
+        "mw3-switzerland-00fcc95b" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-switzerland-00fcc95b.webp"),
+        )),
+        "mw3-france-de67c4fe" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-france-de67c4fe.webp"),
+        )),
+        "mw3-germany-9bf7b152" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-germany-9bf7b152.webp"),
+        )),
+        "mw3-russia-1f369ea1" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-russia-1f369ea1.webp"),
+        )),
+        "mw3-mexico-3d185cab" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-mexico-3d185cab.webp"),
+        )),
+        "mw3-italy-aa88018f" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-italy-aa88018f.webp"),
+        )),
+        "mw3-norway-8c4d63b9" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-norway-8c4d63b9.webp"),
+        )),
+        "mw3-greece-24910ed3" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-greece-24910ed3.webp"),
+        )),
+        "mw3-sweden-b16d05a9" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-sweden-b16d05a9.webp"),
+        )),
+        "mw3-ireland-4ac279be" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-ireland-4ac279be.webp"),
+        )),
+        "mw3-belgium-5787751d" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-belgium-5787751d.webp"),
+        )),
+        "mw3-finland-b782e376" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-finland-b782e376.webp"),
+        )),
+        "mw3-luxembourg-ff2cb56d" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-luxembourg-ff2cb56d.webp"),
+        )),
+        "mw3-czech-26a03b89" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-czech-26a03b89.webp"),
+        )),
+        "mw3-netherlands-d1f7470d" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-netherlands-d1f7470d.webp"),
+        )),
+        "mw3-newzealand-a845d559" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-newzealand-a845d559.webp"),
+        )),
+        "mw3-philippines-74f628d8" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-philippines-74f628d8.webp"),
+        )),
+        "mw3-poland-b7d2699e" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-poland-b7d2699e.webp"),
+        )),
+        "mw3-portugal-bb904ca2" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-portugal-bb904ca2.webp"),
+        )),
+        "mw3-denmark-fb0ca8ec" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-denmark-fb0ca8ec.webp"),
+        )),
+        "mw3-saudiarabia-6eac9ef3" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-saudiarabia-6eac9ef3.webp"),
+        )),
+        "mw3-singapore-f6d27900" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-singapore-f6d27900.webp"),
+        )),
+        "mw3-southafrica-0a52a434" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-southafrica-0a52a434.webp"),
+        )),
+        "mw3-southkorea-879b27d3" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-southkorea-879b27d3.webp"),
+        )),
+        "mw3-hongkong-5d442010" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-hongkong-5d442010.webp"),
+        )),
+        "mw3-india-bf2f5789" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-india-bf2f5789.webp"),
+        )),
+        "mw3-taiwan-b4985ed1" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-taiwan-b4985ed1.webp"),
+        )),
+        "mw3-uae-dddc96aa" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-uae-dddc96aa.webp"),
+        )),
+        "mw3-elsalvador-f16bb3b3" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-elsalvador-f16bb3b3.webp"),
+        )),
+        "mw3-china-5cfd1059" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-china-5cfd1059.webp"),
+        )),
+        "mw3-iran-9c1812c7" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-iran-9c1812c7.webp"),
+        )),
+        "mw3-turkey-701b9b16" => Some((
+            "image/webp",
+            include_bytes!("../web/cosmetics/mw3-turkey-701b9b16.webp"),
         )),
         _ => None,
     }

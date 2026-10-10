@@ -5,7 +5,7 @@ from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path,PurePosixPath
 ROOT=Path(os.environ.get('CANNA_REVIEW_JOBS','/var/lib/canna-review/jobs'))
-VERSION='canna-static-10'
+VERSION='canna-static-11'
 # Fixed sibling module; no dependency or submitted plugin code is imported.
 _context_spec=importlib.util.spec_from_file_location('canna_review_context',Path(__file__).with_name('review_context.py'))
 context=importlib.util.module_from_spec(_context_spec);_context_spec.loader.exec_module(context)

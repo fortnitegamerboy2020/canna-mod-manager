@@ -42,6 +42,8 @@ async function openProfile(id) {
   $('profilerep').textContent = profile.ratings_count ? `★ ${profile.stars.toFixed(1)} / 5 · ${profile.ratings_count} rating${profile.ratings_count === 1 ? '' : 's'} · ${profile.posts_count} forum posts` : `No ratings yet · ${profile.posts_count} forum posts`;
   const own = id === currentUser.id;
   renderProfileCosmeticActions(own,profile);
+  if(typeof renderFriendActions==='function')await renderFriendActions(id,current);
+  if(!current())return;
   $('editprofile').hidden = $('avatarform').hidden = !own;
   $('loggeddevices').hidden=!own;
   if(own)await loadDevices();

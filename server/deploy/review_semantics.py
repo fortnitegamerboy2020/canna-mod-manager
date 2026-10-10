@@ -46,6 +46,20 @@ class Paths:
     def file(self, name):
         return next((f for f in self.files if f[0] == name), None)
 
+    def type_scope(self, name, position):
+        if position is None:
+            return None
+        source = self.file(name)
+        if source is None:
+            return None
+        code = source[2]
+        candidates = []
+        for declaration in re.finditer(r'\b(?:class|struct|record)\s+(\w+)[^;{}]*\{', code):
+            end = self.trace.closing(code, declaration.end()-1, '{', '}')
+            if end is not None and declaration.end() <= position < end:
+                candidates.append((end-declaration.end(), declaration.start(), declaration[1]))
+        return min(candidates, default=None)
+
     def mode_shadowed(self, name):
         source = self.file(name)
         if source is None:
@@ -67,7 +81,7 @@ class Paths:
                 return True
         return False
 
-    def resolve(self, expression, name, depth=0, seen=()):
+    def resolve(self, expression, name, depth=0, seen=(), position=None):
         expression = expression.strip()
         key = (name, expression)
         if self.disabled or depth >= 8 or key in seen or len(expression) > 600:
@@ -79,6 +93,27 @@ class Paths:
         if SHADOW.search(code):
             return None
         seen = (*seen, key)
+        # Only a private, static, zero-argument string helper with one pure
+        # return expression. No properties, overloads, parameters or arbitrary
+        # method bodies are inferred. The expression must itself resolve.
+        helper = re.fullmatch(r'([A-Za-z_]\w*)\s*\(\s*\)', expression)
+        if helper:
+            symbol = helper[1]
+            definitions = list(re.finditer(r'\b(?:[\w.<>?]+)\s+'+re.escape(symbol)+r'\s*\([^;{}]*\)\s*(?:=>|\{)', code))
+            declarations = list(re.finditer(r'\bprivate\s+static\s+string\s+'+re.escape(symbol)+r'\s*\(\s*\)\s*(?:=>\s*(?P<arrow>[^;{}]+);|\{\s*return\s+(?P<body>[^;{}]+);\s*\})', code))
+            if len(definitions) != 1 or len(declarations) != 1 or re.search(r'\b'+re.escape(symbol)+r'\s*(?:=|;|,)', code):
+                return None
+            declaration = declarations[0]
+            owner = self.type_scope(name, position)
+            if owner is None or owner != self.type_scope(name, declaration.end()):
+                return None
+            group = 'arrow' if declaration.group('arrow') is not None else 'body'
+            begin, end = declaration.span(group)
+            value = content[begin:end].strip()
+            result = self.resolve(value, name, depth+1, seen, begin)
+            if result:
+                result['bindings'].append({'file':name, 'line':code.count('\n',0,declaration.start())+1, 'expression':symbol+'() returns '+value})
+            return result
         root = re.fullmatch(r'(?:(?:global::)?BepInEx\.)?Paths\.(\w+)', expression)
         if root and root[1] in ROOTS and (expression.startswith(('BepInEx.', 'global::BepInEx.')) or re.search(r'\busing\s+BepInEx\s*;', code)):
             return {'root': ROOTS[root[1]], 'segments': [], 'bindings': [{'file': name, 'expression': expression}]}
@@ -87,7 +122,7 @@ class Paths:
             args = split_args(expression, self.views, self.trace)
             if not args or len(args) < 2:
                 return None
-            result = self.resolve(args[0], name, depth+1, seen)
+            result = self.resolve(args[0], name, depth+1, seen, position)
             if result is None:
                 return None
             for arg in args[1:]:
@@ -123,12 +158,33 @@ class Paths:
             if len(assignments) != 1 or member:
                 return None
             assignment = assignments[0]
-            # Only immutable field initializers; locals need scoped control-flow
-            # analysis before they can lower a finding (assignment order matters).
-            if not re.search(r'\b(?:readonly|const)\s+string\s*$', code[max(0,assignment.start()-80):assignment.start()]):
+            owner = self.type_scope(name, position)
+            if owner is None or owner != self.type_scope(name, assignment.start()):
                 return None
+            prefix = code[max(0,assignment.start()-80):assignment.start()]
+            immutable = bool(re.search(r'\b(?:readonly|const)\s+string\s*$', prefix))
+            if not immutable:
+                # Single-assignment local, declared directly in the current
+                # method before use. Conditional/nested/captured/ref paths and
+                # unscoped fields stay unknown. Never choose the last write.
+                if position is None or assignment.start() >= position or not re.search(r'\b(?:string|var)\s*$', prefix):
+                    return None
+                owners = []
+                for signature in self.trace.METHOD.finditer(code):
+                    if re.search(r'\b(?:class|record|struct|interface)\s', signature[0].split('(',1)[0]):
+                        continue
+                    end = self.trace.closing(code, signature.end()-1, '{', '}')
+                    if end is not None and signature.end() <= assignment.start() < position < end:
+                        owners.append((signature.end(), end))
+                if len(owners) != 1:
+                    return None
+                begin, end = owners[0]
+                before = code[begin:assignment.start()]
+                body = code[begin:end]
+                if before.count('{') != before.count('}') or re.search(r'\b(?:unsafe|fixed|delegate|ref|out)\b|=>', body):
+                    return None
             value = content[assignment.start(1):assignment.end(1)].strip()
-            result = self.resolve(value, name, depth+1, seen)
+            result = self.resolve(value, name, depth+1, seen, assignment.start())
             if result:
                 result['bindings'].append({'file': name, 'line': code.count('\n', 0, assignment.start())+1, 'expression': symbol+' = '+value})
             return result
@@ -136,6 +192,9 @@ class Paths:
         if len(candidates) != 1:
             return None
         cls, parameters = candidates[0]
+        owner = self.type_scope(name, position)
+        if owner is None or owner[2] != cls:
+            return None
         if len(self.primary[cls]) != 1:
             return None
         index = next(i for i,p in enumerate(parameters) if p[1] == symbol)
@@ -162,7 +221,7 @@ class Paths:
                     if not values or len(values) <= indices[0]:
                         return None
                     argument = values[indices[0]]
-                resolved = self.resolve(argument, caller, depth+1, seen)
+                resolved = self.resolve(argument, caller, depth+1, seen, match.start())
                 if resolved is None:
                     return None
                 resolved['bindings'].append({'file': caller, 'line': caller_code.count('\n', 0, match.start())+1, 'expression': cls+' constructor: '+argument})
@@ -202,7 +261,7 @@ def classify(report, context):
             if operation in {'FileStream', 'Open'}:
                 readonly = len(args) == 3 and args[1].strip() == 'FileMode.Open' and args[2].strip() == 'FileAccess.Read' and not paths.mode_shadowed(name)
             destinations = args[:2] if operation in {'Copy', 'Move', 'Replace'} else args[:1]
-            resolved = [paths.resolve(arg, name) for arg in destinations]
+            resolved = [paths.resolve(arg, name, position=match.start()) for arg in destinations]
             line = code.count('\n',0,match.start())+1
             evidence = content[match.start():end+1].replace('\n',' ')[:350]
             finding = context.entry('filesystem', 'File operation: destination remains unresolved', name, line, evidence)
@@ -220,7 +279,7 @@ def classify(report, context):
                 finding['title'] = 'File read: unresolved destination or consumer' if readonly else 'Directory creation: unresolved destination' if api == 'Directory.CreateDirectory' else 'File write, replacement or deletion requires review'
                 finding['context'] = 'Unknown paths and destructive operations remain review findings. A cache-like name or non-executable extension is insufficient to clear a write.'
             # Distinct call sites on one line must not inherit one another's decisions.
-            finding['id'] = hashlib.sha256(('filesystem-v10\0'+name+'\0'+str(match.start())+'\0'+evidence+'\0'+finding['rule']).encode()).hexdigest()
+            finding['id'] = hashlib.sha256(('filesystem-v11\0'+name+'\0'+str(match.start())+'\0'+evidence+'\0'+finding['rule']).encode()).hexdigest()
             if not readonly and api != 'Directory.CreateDirectory' and context.EXECUTABLE.search(evidence+' '+json.dumps(resolved)):
                 finding['severity'] = 'high'
                 finding['title'] = 'Executable file write or replacement requires review'

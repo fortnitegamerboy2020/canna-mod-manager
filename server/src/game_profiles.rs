@@ -2,6 +2,9 @@
 #![allow(dead_code)] // The shared schema has different consumers in desktop and server.
 use serde::Deserialize;
 use std::sync::OnceLock;
+fn default_loader() -> String {
+    "bepinex".into()
+}
 #[derive(Deserialize)]
 pub struct GameProfile {
     pub app_id: u32,
@@ -9,12 +12,16 @@ pub struct GameProfile {
     pub community: String,
     pub folder: String,
     pub data_folder: String,
+    #[serde(default = "default_loader")]
+    pub loader: String,
     pub executables: Vec<String>,
 }
 #[derive(Deserialize)]
 pub struct LoaderProfile {
     pub package: String,
     pub root: String,
+    #[serde(default = "default_loader")]
+    pub kind: String,
 }
 #[derive(Deserialize)]
 struct Registry {

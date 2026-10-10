@@ -100,7 +100,7 @@ fn canonical(db: &Connection, input: &Value) -> ApiResult<Value> {
         500 => ("Left 4 Dead", "left-4-dead", "source-vpk"),
         _ => {
             let p = game_profiles::by_id(game).ok_or_else(|| bad("Unsupported game"))?;
-            (p.name.as_str(), p.folder.as_str(), "bepinex")
+            (p.name.as_str(), p.folder.as_str(), p.loader.as_str())
         }
     };
     let mut mods = Vec::new();
@@ -275,6 +275,16 @@ pub fn download_manifest(db: &Connection, id: &str) -> ApiResult<String> {
         ));
     }
     Ok(manifest.to_string())
+}
+// A DM carries only a pack identity. Resolve its current reviewed state for the
+// viewing member; sending a card cannot grant beta access or bypass downloads.
+pub(super) fn message_embed(db: &Connection, id: &str, user: i64) -> ApiResult<Value> {
+    let (_, author, revision, _, manifest) = raw(db, id)?;
+    let beta = requires_rebound(&manifest);
+    let allowed = !beta || admin_settings::has_rebound(db, user)?;
+    Ok(
+        json!({"id":id,"name":manifest["name"],"author":author,"revision":revision,"game":manifest["game"]["name"],"mod_count":manifest["mods"].as_array().unwrap().len(),"ready":available(db,&manifest),"available":allowed&&available(db,&manifest),"requires_beta":beta,"url":format!("/packs/{id}")}),
+    )
 }
 pub async fn publish(
     State(app): State<Shared>,

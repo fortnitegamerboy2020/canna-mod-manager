@@ -11,10 +11,21 @@ pub use arcade::{admin_rules, play};
 #[path = "gambling_collection.rs"]
 mod collection;
 pub use collection::manage;
+#[path = "gambling_market.rs"]
+mod market;
+pub use market::{market, market_action};
+#[path = "gambling_cosmetic_games.rs"]
+mod cosmetic_games;
+pub use cosmetic_games::{contract_action, contracts};
+#[path = "gambling_rooms.rs"]
+mod rooms;
+pub use rooms::start_cleanup;
+pub use rooms::{room, room_action, rooms, solo_coinflip};
 
-const CASE_IDS: [&str; 9] = [
+const CASE_IDS: [&str; 10] = [
     "bo2-calling-cards",
     "mw2-calling-cards",
+    "mw3-calling-cards",
     "avatar-frames",
     "cod-emblems",
     "username-effects",
@@ -82,6 +93,9 @@ pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
     let _ = cached_catalog();
     arcade::initialize(db)?;
     collection::initialize(db)?;
+    market::initialize(db)?;
+    cosmetic_games::initialize(db)?;
+    rooms::initialize(db)?;
     migrate_crash_ceiling(db)?;
     migrate_wager_ceiling(db)?;
     let columns = db
@@ -338,7 +352,7 @@ fn once(
         return Ok(axum::Json(result));
     }
     let count: i64 = tx.query_row(
-        "SELECT count(*) FROM gambling_requests WHERE user_id=?1 AND created>=?2 AND kind IN ('crash_bet','blackjack_deal','cosmetic_case','roulette','dice','slots','keno','plinko','wheel','baccarat')",
+        "SELECT count(*) FROM gambling_requests WHERE user_id=?1 AND created>=?2 AND kind IN ('crash_bet','blackjack_deal','cosmetic_case','roulette','dice','slots','keno','plinko','wheel','baccarat','cosmetic_trade_up','cosmetic_upgrade','cosmetic_duel','coinflip','online_room')",
         params![actor, (now() / 86400) * 86400],
         |r| r.get(0),
     )?;
@@ -355,6 +369,11 @@ fn once(
                 | "plinko"
                 | "wheel"
                 | "baccarat"
+                | "cosmetic_trade_up"
+                | "cosmetic_upgrade"
+                | "cosmetic_duel"
+                | "coinflip"
+                | "online_room"
         )
     {
         return Err(ApiError(
@@ -369,7 +388,11 @@ fn once(
         "INSERT INTO gambling_requests(user_id,request_id,fingerprint,response,created,kind) VALUES(?1,?2,?3,?4,?5,?6)",
         params![actor, request, fingerprint, result.to_string(), now(), kind],
     )?;
-    record(&tx, actor, kind, &result)?;
+    let mut audit_result = result.clone();
+    if let Some(object) = audit_result.as_object_mut() {
+        object.remove("invite");
+    }
+    record(&tx, actor, kind, &audit_result)?;
     tx.commit()?;
     Ok(axum::Json(result))
 }
@@ -1002,7 +1025,7 @@ fn build_catalog(source: &str) -> ApiResult<CosmeticCatalog> {
             || !matches!(
                 (item["kind"].as_str(), item["collection"].as_str()),
                 (Some("frame"), Some("frames"))
-                    | (Some("banner"), Some("bo2" | "mw2" | "canna"))
+                    | (Some("banner"), Some("bo2" | "mw2" | "mw3" | "canna"))
                     | (Some("emblem"), Some("mw2-emblems" | "cod-ranks"))
                     | (Some("name_effect"), Some("username-effects"))
             )
@@ -1102,6 +1125,7 @@ fn case_definition(id: &str) -> ApiResult<(&'static str, Option<&'static str>, &
     match id {
         "bo2-calling-cards" => Ok(("BO2 calling cards crate", Some("bo2"), "banner")),
         "mw2-calling-cards" => Ok(("MW2 calling cards crate", Some("mw2"), "banner")),
+        "mw3-calling-cards" => Ok(("MW3 classic titles crate", Some("mw3"), "banner")),
         "avatar-frames" => Ok(("Avatar frames crate", Some("frames"), "frame")),
         "cod-emblems" => Ok(("Call of Duty emblems crate", None, "emblem")),
         "username-effects" => Ok((
@@ -1128,7 +1152,7 @@ fn case_pool<'a>(catalog: &'a Value, id: &str) -> ApiResult<(Vec<&'a Value>, u64
         .as_array()
         .ok_or_else(|| bad("Cosmetics catalog is unavailable"))?
     {
-        if item["paused"] == true {
+        if item["paused"] == true || item["shop_only"] == true {
             continue;
         }
         // The legacy mixed crate remains compatible with clients that only
@@ -1305,7 +1329,7 @@ pub async fn case_open(
                 .ok_or_else(|| bad("Cosmetic case is unavailable"))?;
             debit(db, actor, cost)?;
             let id = item["id"].as_str().unwrap();
-            db.execute("INSERT INTO gambling_cosmetics VALUES(?1,?2,1) ON CONFLICT(user_id,item_id) DO UPDATE SET count=MIN(1000000,count+1)",params![actor,id])?;
+            market::give(db, actor, id)?;
             let count: i64 = db.query_row(
                 "SELECT count FROM gambling_cosmetics WHERE user_id=?1 AND item_id=?2",
                 params![actor, id],
@@ -1980,7 +2004,7 @@ mod tests {
             let result = value(response).await;
             assert_eq!(result["version"], cached_catalog().unwrap().version);
             assert_eq!(result["catalog"].as_array().unwrap().len(), 1000);
-            assert_eq!(result["cases"].as_array().unwrap().len(), 9);
+            assert_eq!(result["cases"].as_array().unwrap().len(), CASE_IDS.len());
             assert!(result.get("owned").is_none());
             assert!(result.get("wallet").is_none());
             if let Some(previous) = first.as_ref() {
@@ -3573,7 +3597,7 @@ mod tests {
             {"id":"effect-a","collection":"username-effects","kind":"name_effect","weight":1}
         ]});
         let cases = cases_view(&catalog).unwrap();
-        assert_eq!(cases.as_array().unwrap().len(), 9);
+        assert_eq!(cases.as_array().unwrap().len(), CASE_IDS.len());
         for case in cases.as_array().unwrap() {
             let id = case["id"].as_str().unwrap();
             let (pool, sum) = case_pool(&catalog, id).unwrap();

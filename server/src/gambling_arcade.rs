@@ -6,7 +6,7 @@ mod new_games;
 const INSTANT_GAMES: [&str; 7] = [
     "roulette", "dice", "slots", "keno", "plinko", "wheel", "baccarat",
 ];
-const GAMES: [&str; 10] = [
+const GAMES: [&str; 11] = [
     "crash",
     "blackjack",
     "roulette",
@@ -17,6 +17,7 @@ const GAMES: [&str; 10] = [
     "wheel",
     "baccarat",
     "cases",
+    "coinflip",
 ];
 
 pub fn initialize(db: &Connection) -> rusqlite::Result<()> {
@@ -148,6 +149,7 @@ pub(super) fn default_case_cost(id: &str) -> i64 {
         "username-effects" => 75,
         "cod-emblems" => 60,
         "bo2-animated" => 250,
+        "mw3-calling-cards" => 150,
         "mw2-canna" => 175,
         "premium-cosmetics" => 350,
         "rank-emblems" => 90,
@@ -171,7 +173,7 @@ pub fn rules_view(db: &Connection) -> ApiResult<Value> {
 }
 
 pub fn recent(db: &Connection, actor: i64) -> ApiResult<Value> {
-    let results = db.prepare("SELECT response,created FROM gambling_requests WHERE user_id=?1 AND kind IN ('roulette','dice','slots','keno','plinko','wheel','baccarat') ORDER BY created DESC,rowid DESC LIMIT 20")?.query_map([actor], |r| Ok((r.get::<_,String>(0)?, r.get::<_,i64>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
+    let results = db.prepare("SELECT response,created FROM gambling_requests WHERE user_id=?1 AND kind IN ('roulette','dice','slots','keno','plinko','wheel','baccarat','coinflip') ORDER BY created DESC,rowid DESC LIMIT 20")?.query_map([actor], |r| Ok((r.get::<_,String>(0)?, r.get::<_,i64>(1)?)))?.collect::<Result<Vec<_>,_>>()?;
     Ok(json!(
         results
             .into_iter()
@@ -186,7 +188,7 @@ pub fn recent(db: &Connection, actor: i64) -> ApiResult<Value> {
 }
 
 pub fn metrics(db: &Connection) -> ApiResult<Value> {
-    let (games,staked,paid):(i64,i64,i64) = db.query_row("SELECT count(*),CAST(MIN(9007199254740991,COALESCE(total(json_extract(response,'$.stake')),0)) AS INTEGER),CAST(MIN(9007199254740991,COALESCE(total(json_extract(response,'$.payout')),0)) AS INTEGER) FROM gambling_requests WHERE kind IN ('roulette','dice','slots','keno','plinko','wheel','baccarat') AND created>=?1", [now()-86400], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
+    let (games,staked,paid):(i64,i64,i64) = db.query_row("SELECT count(*),CAST(MIN(9007199254740991,COALESCE(total(json_extract(response,'$.stake')),0)) AS INTEGER),CAST(MIN(9007199254740991,COALESCE(total(json_extract(response,'$.payout')),0)) AS INTEGER) FROM gambling_requests WHERE kind IN ('roulette','dice','slots','keno','plinko','wheel','baccarat','coinflip') AND created>=?1", [now()-86400], |r| Ok((r.get(0)?,r.get(1)?,r.get(2)?)))?;
     let hands: i64 = db.query_row(
         "SELECT count(*) FROM gambling_blackjack WHERE status='playing'",
         [],
@@ -329,7 +331,7 @@ pub struct ArcadeInput {
 const RED: [i64; 18] = [
     1, 3, 5, 7, 9, 12, 14, 16, 18, 19, 21, 23, 25, 27, 30, 32, 34, 36,
 ];
-fn roulette_win(number: i64, choice: &str, pick: Option<i64>) -> bool {
+pub(super) fn roulette_win(number: i64, choice: &str, pick: Option<i64>) -> bool {
     match choice {
         "number" => Some(number) == pick,
         "red" => RED.contains(&number),
@@ -584,7 +586,7 @@ mod tests {
             );
         }
         let mut rules = rules_view(&app.db.lock().unwrap()).unwrap();
-        assert_eq!(rules["games"].as_array().unwrap().len(), 10);
+        assert_eq!(rules["games"].as_array().unwrap().len(), GAMES.len());
         let crates = rules["crates"].as_array_mut().unwrap();
         let crate_rule = crates
             .iter_mut()

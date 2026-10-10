@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the installed v8 worker with two disposable production-identity jobs.
+"""Check the installed v11 worker with two disposable production-identity jobs.
 
 Run as an authorized systemd operator after installation. Builds only a trusted
 fixture; never executes the resulting DLL, approves a mod or reanalyzes a live
@@ -8,7 +8,7 @@ mod. The harmless EICAR test string verifies the actual antivirus path.
 import hashlib,json,shutil,subprocess,tempfile,time,uuid,zipfile
 from pathlib import Path
 
-EXPECTED_VERSION='canna-static-8'
+EXPECTED_VERSION='canna-static-11'
 API_UNIT=['systemd-run','--quiet','--wait','--pipe','--collect',
  '-p','User=canna','-p','Group=canna','-p','SupplementaryGroups=canna-review',
  '-p','UMask=0077','-p','RestrictSUIDSGID=true','-p','NoNewPrivileges=true',

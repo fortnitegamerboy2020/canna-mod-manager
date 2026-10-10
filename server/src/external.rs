@@ -367,7 +367,17 @@ async fn resolve_context(raw: &str, dependency: bool) -> ApiResult<Project> {
                 id: version.clone(),
                 name: version.clone(),
                 filename: format!("{}-{}-{version}.zip", parts[3], parts[4]),
-                loaders: vec!["BepInEx".into()],
+                loaders: vec![
+                    game_profiles::by_community(game)
+                        .map(|p| {
+                            if p.loader == "bepinex" {
+                                "BepInEx".into()
+                            } else {
+                                p.loader.clone()
+                            }
+                        })
+                        .unwrap_or_else(|| "BepInEx".into()),
+                ],
                 game_versions: vec!["Check author compatibility notes".into()],
                 dependencies: latest["dependencies"].clone(),
                 download: text(latest, "download_url"),
@@ -805,6 +815,7 @@ async fn import_one(
             && let Some(loader) = game_profiles::loader(&project.id)
         {
             data["framework_root"] = json!(loader.root);
+            data["framework_kind"] = json!(loader.kind);
         }
         db.execute(
             "UPDATE mod_details SET data=?1 WHERE mod_id=?2",
@@ -820,6 +831,7 @@ async fn import_one(
         && let Some(loader) = game_profiles::loader(&project.id)
     {
         details["framework_root"] = json!(loader.root);
+        details["framework_kind"] = json!(loader.kind);
     }
     details["filename"] = json!(safe_filename(&release.filename));
     details["release_id"] = json!(release.id);

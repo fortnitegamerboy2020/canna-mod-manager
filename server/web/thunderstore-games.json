@@ -997,7 +997,7 @@
     },
     {
       "app_id": 1414850,
-      "name": "Nickelodeon All‑Star Brawl",
+      "name": "Nickelodeon All\u2011Star Brawl",
       "community": "nasb",
       "folder": "nasb",
       "data_folder": "Nickelodeon All-Star Brawl_Data",
@@ -1867,6 +1867,28 @@
       "executables": [
         "Zort.exe"
       ]
+    },
+    {
+      "app_id": 3146520,
+      "name": "WEBFISHING",
+      "community": "webfishing",
+      "folder": "webfishing",
+      "data_folder": "",
+      "loader": "gdweave",
+      "executables": [
+        "webfishing.exe"
+      ]
+    },
+    {
+      "app_id": 1337520,
+      "name": "Risk of Rain Returns",
+      "community": "risk-of-rain-returns",
+      "folder": "risk-of-rain-returns",
+      "data_folder": "",
+      "loader": "return-of-modding",
+      "executables": [
+        "Risk of Rain Returns.exe"
+      ]
     }
   ],
   "loaders": [
@@ -2141,6 +2163,16 @@
     {
       "package": "BepInEx-BepInExPack_CrabGame",
       "root": "BepInExPack"
+    },
+    {
+      "package": "NotNet-GDWeave",
+      "root": "GDWeave",
+      "kind": "gdweave"
+    },
+    {
+      "package": "ReturnOfModding-ReturnOfModding",
+      "root": "ReturnOfModding",
+      "kind": "return-of-modding"
     }
   ]
 }
